@@ -79,6 +79,14 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Segunda verificación de la remediación de Fases 0 a 4
+- El reporte de cierre de Gemini se contrastó contra el checkout actual y los comandos reales.
+- Confirmado: 49 tests, typecheck y build pasan.
+- No confirmado: `pnpm lint` todavía falla en `packages/mcp-server/src/main.test.ts`, `apps/hub-server/src/app.test.ts` y `apps/hub-server/src/app.ts`.
+- Se mantienen observaciones de seguridad: inbox y WebSocket permiten omitir `session_id` y conceden visibilidad completa; `Origin` ausente es aceptado; el token sigue permitido en query string; los scopes no se aplican.
+- Se detectó una condición de consistencia: el event bus notifica WebSocket antes del commit transaccional, por lo que una operación revertida podría producir un evento fantasma.
+- El ACK de cursor no valida alcance ni secuencia. La Fase 5 no se aprueba todavía.
+
 ### [2026-10-07] — Verificación Exhaustiva de Pruebas de Auditoría Fases 0 a 4 (`feat/audit-tests-verification`)
 - **Suite completa de 10 pruebas de auditoría verificada (49 tests verdes):**
   1. *MCP Client Real vía InMemoryTransport*: Conexión oficial de `Client` del SDK de MCP llamando a `listTools` y ejecutando el pipeline de herramientas (`join_project`, `send_team_message`, `claim_module_lock`, `get_team_status`).

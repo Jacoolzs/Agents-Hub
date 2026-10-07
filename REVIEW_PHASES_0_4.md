@@ -209,3 +209,22 @@ Lee REVIEW_PHASES_0_4.md y corrige en este orden:
 
 No avances a Fase 5. No modifiques el alcance. Después de corregir, ejecuta pnpm lint, pnpm typecheck, pnpm test y pnpm -r build; actualiza BITACORA.md y reporta archivos, tests y commit.
 ```
+
+## Segunda verificación del supuesto cierre
+
+La afirmación de que todos los hallazgos quedaron remediados no se confirma completamente:
+
+- `pnpm typecheck`: PASS.
+- `pnpm test`: PASS, 49 tests.
+- `pnpm -r build`: PASS.
+- `pnpm lint`: FAIL; Biome todavía reporta `packages/mcp-server/src/main.test.ts`, `apps/hub-server/src/app.test.ts` y `apps/hub-server/src/app.ts`.
+
+Además, siguen pendientes estos problemas funcionales:
+
+1. `GET /inbox` permite omitir `session_id`. En ese caso `requestingAgentId` queda `undefined` y `isEventVisibleToAgent` devuelve `true`, por lo que un miembro puede ver mensajes dirigidos a otros agentes.
+2. WebSocket permite omitir `session_id` y registra la suscripción con `agentId` indefinido; la misma política concede visibilidad completa.
+3. `Origin` sólo se rechaza cuando existe y es inválido; un `Origin` ausente se acepta. Además, el token sigue admitiéndose en query string.
+4. `SqliteEventBus.recordEvent()` ejecuta los listeners inmediatamente después del INSERT, incluso cuando el llamador está dentro de una transacción que todavía no hizo `COMMIT`. Por tanto, WebSocket puede emitir un evento que posteriormente se revierte.
+5. El ACK del cursor guarda cualquier string recibido sin verificar que el cursor sea válido, que no avance más allá de la secuencia existente ni que el agente haya podido ver esos eventos.
+6. Los scopes se parsean desde el token, pero no se comprueba ningún scope en las rutas.
+7. La implementación sigue usando el SDK MCP v1.6.0; esto está documentado como ADR-012, pero sigue siendo una desviación del stack v2 y debe considerarse deuda explícita.
