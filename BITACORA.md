@@ -96,6 +96,13 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - Despliegue inicial: proceso Node único con Caddy/Nginx y volumen persistente; Docker, Redis, Kubernetes y PostgreSQL quedan condicionados a evidencia de escala o necesidad operativa.
 - Se fija como regla mantener un lockfile, dependencias mínimas y actualizaciones verificadas con pruebas.
 
+### [2026-10-07] — Plan de desarrollo ejecutable para Gemini
+- Se crea `DEVELOPMENT_PLAN.md` como manual operativo de implementación.
+- El plan fija el orden obligatorio: bootstrap, contratos, dominio/SQLite, API, servidor MCP, dashboard y seguridad/rendimiento.
+- Cada fase tiene estructura de archivos, comandos, contratos, tests y criterios de aceptación.
+- Gemini debe leer `AGENTS.md`, `BITACORA.md`, `ARCHITECTURE.md` y `DEVELOPMENT_PLAN.md` antes de trabajar, mantener el alcance y actualizar la bitácora en cada fase.
+- El primer entregable de código será Fase 0; no se implementará el dashboard antes de que los contratos, dominio y API tengan pruebas verdes.
+
 ### [2026-10-07] — Regla de contexto obligatorio del repositorio
 - Se establece `AGENTS.md` como la guía operativa del repositorio.
 - Toda persona o agente debe leer completa `BITACORA.md` antes de planear, decidir arquitectura o modificar el proyecto.

@@ -2,6 +2,8 @@
 
 Estado: diseño base del MVP · Fecha: 2026-10-07
 
+La ejecución detallada, paso a paso, está en [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). Ese documento debe seguirse por fases y complementa las decisiones arquitectónicas de este archivo.
+
 ## 1. Propósito
 
 Agents-Hub es una capa de coordinación para equipos humanos que usan agentes de desarrollo distintos. Cada desarrollador conserva su terminal, workspace y agente; Agents-Hub aporta una sala compartida con mensajes, estado estructurado, decisiones, bloqueos temporales y entregas verificables.
