@@ -10,20 +10,19 @@ Cada avance, idea, decisión de diseño, bloqueo y solución debe registrarse aq
 - **Repositorio:** [https://github.com/Jacoolzs/Agents-Hub](https://github.com/Jacoolzs/Agents-Hub)
 - **Creador / Líder:** Jacoolzs (Orlando)
 - **Fecha de inicio:** 2026-10-07
-- **Enfoque:** Plataforma de Orquestación y Colaboración Multi-Agente basada en MCP + Eventos / Docker Sandbox + Dashboard Web en tiempo real.
+- **Enfoque MVP:** Capa de Comunicación Colaborativa + Estado Compartido + Locks de Archivos mediante MCP + WebSockets + Hub Central ligero.
 
 ---
 
 ## 🎯 Visión y Misión del Proyecto
 
 ### La Idea
-`Agents-Hub` no busca ser otro editor de código ni otro modelo de IA. Es una **capa de orquestación y colaboración entre agentes y desarrolladores**.
-Permite que cada desarrollador conserve su propio entorno local, terminal y agente preferido (Claude Code, Antigravity, Cursor, Aider, custom scripts), mientras `Agents-Hub` coordina el trabajo en equipo:
-1. **Orquestación inteligente:** Asignación de tareas, dependencias, entregas y resolución de bloqueos.
-2. **Contexto de trabajo compartido (en lugar de thoughts en crudo):** Transmisión de objetivos, decisiones técnicas, estado de tareas y eventos relevantes de workspace (no dumping de tokens de razonamiento crudo).
-3. **Colaboración como equipo de software real:** Comunicación intencional entre agentes (peticiones de contratos de API, revisiones, handoffs).
-4. **Seguridad y aislamiento con Docker:** Aislamiento de entornos y ejecución de pruebas para validar cambios antes de integraciones.
-5. **Human-in-the-loop:** Supervisión constante a través del Dashboard Web, con control de aprobaciones y visualización en tiempo real.
+`Agents-Hub` es una **capa de colaboración entre agentes de desarrollo y sus desarrolladores**.
+Permite que cada persona mantenga su entorno local, su terminal y su agente preferido (Claude Code, Antigravity, Cursor, Aider, etc.), mientras `Agents-Hub` facilita:
+1. **Comunicación intencional entre agentes:** Diálogo directo (peticiones de contratos, preguntas, handoffs de tareas).
+2. **Contexto de trabajo compartido:** Resúmenes estructurados de objetivos, decisiones técnicas, bloqueos y eventos de archivos modificados (evitando saturación de tokens de razonamiento crudo).
+3. **Locks de archivos/módulos:** Evitar pisarse el código en Git antes de editar.
+4. **Visibilidad humana:** Una interfaz mínima donde los desarrolladores observan la interacción de sus agentes y el estado del proyecto.
 
 ---
 
@@ -31,93 +30,53 @@ Permite que cada desarrollador conserve su propio entorno local, terminal y agen
 
 | ID | Fecha | Decisión | Justificación | Estado |
 |---|---|---|---|---|
-| ADR-001 | 2026-10-07 | Adoptar **MCP (Model Context Protocol)** como interfaz de agente | Estándar abierto de la industria; permite que cualquier agente existente descubra herramientas de colaboración sin wrappers invasivos. | Aceptado |
-| ADR-002 | 2026-10-07 | Rol de la plataforma: **Orquestación + Comunicación** | Un chat pasivo genera ruido. La plataforma debe ser el "Project Manager / Tech Lead" que gestiona tareas, dependencias, locks y handoffs. | Aceptado |
-| ADR-003 | 2026-10-07 | Modelo de **Contexto Compartido Estructurado** (No thoughts crudos) | El dumping de CoT crudo satura tokens y agrega ruido. Se comparten: Objetivos, Decisiones, Contratos, Bloqueos y Eventos de archivos modificados. | Aceptado |
-| ADR-004 | 2026-10-07 | Uso de **Sandboxes / Docker** para entornos de validación y pruebas | Permite validar entregas de agentes, compilar y correr tests de integración de forma segura antes de fusionar código de distintos desarrolladores. | Aceptado |
-| ADR-005 | 2026-10-07 | Modelo híbrido: **Hub Central + Daemon/MCP Local + Dashboard Web** | Desacopla la UI de la ejecución local y centraliza la sincronización de estado de la sala. | Aceptado |
+| ADR-001 | 2026-10-07 | Adoptar **MCP (Model Context Protocol)** como interfaz de agente | Estándar abierto; interoperable con agentes existentes sin alterar su motor interno. | Aceptado |
+| ADR-002 | 2026-10-07 | Alcance del MVP: **Comunicación + Estado Compartido** (Orquestación activa diferida) | Mantener el MVP simple y viable. Demostrar primero que dos agentes pueden hablar y coordinarse. Orquestación compleja (asignación automática, tech lead autónomo) pasa a Fase 2. | Aceptado (Corregido) |
+| ADR-003 | 2026-10-07 | Modelo de **Contexto Compartido Estructurado** (No thoughts crudos) | El dumping de CoT completo satura tokens y genera ruido. Se comparten objetivos, decisiones, contratos y bloqueos. | Aceptado |
+| ADR-004 | 2026-10-07 | Sandbox / Docker **diferido a fase futura** | Evitar scope creep en el MVP. Validar primero la coordinación básica antes de introducir entornos de pruebas aislados. | Aceptado (Diferido) |
+| ADR-005 | 2026-10-07 | Monorepo en TypeScript con arquitectura simple | `@modelcontextprotocol/sdk` maduro en TS; compartir tipos entre `packages/mcp-server`, `packages/hub-server`, `packages/shared` y `packages/web`. Backend mínimo con SQLite + WebSockets. | Aceptado |
+| ADR-006 | 2026-10-07 | Mecanismo de recepción de mensajes en agentes | *En evaluación técnica:* Resolver cómo un agente dormido en terminal recibe o consulta mensajes (ver análisis de alternativas A, B y C). | En discusión |
 
 ---
 
-## 🏗️ Los 4 Componentes Clave de Agents-Hub
+## 🔍 Análisis Técnico Clave: Recepción de Mensajes en Terminal
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      1. Dashboard Web                           │
-│  - Chat grupal y menciones entre humanos/agentes                │
-│  - Tablero de Tareas, Dependencias y Bloqueos (tipo Kanban)    │
-│  - Feed de Decisiones y Eventos de Workspace                    │
-│  - Panel de Aprobaciones Humanas (Human-in-the-Loop)            │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │ WebSockets / SSE / REST
-┌────────────────────────────────▼────────────────────────────────┐
-│                   2. Collaboration Hub Server                   │
-│  - Gestión de Salas (Rooms) y Presencia de Miembros             │
-│  - State Engine: Asignación de Tareas, Locks de Archivos        │
-│  - Event Bus & Router (Eventos de Entrega, Alertas, Handoffs)   │
-│  - Sandbox Runner (Docker) para validación de builds/tests      │
-└──────────────┬──────────────────────────────────┬───────────────┘
-               │                                  │
-    TLS / WSS  │                                  │  TLS / WSS
-               ▼                                  ▼
-┌──────────────────────────────┐  ┌──────────────────────────────┐
-│  3. Capa Local / MCP Server  │  │  3. Capa Local / MCP Server  │
-│  (Máquina Desarrollador A)   │  │  (Máquina Desarrollador B)   │
-└──────────────┬───────────────┘  └──────────────┬───────────────┘
-               │ MCP stdio/HTTP                  │ MCP stdio/HTTP
-┌──────────────▼───────────────┐  ┌──────────────▼───────────────┐
-│     4. Agente de Terminal    │  │     4. Agente de Terminal    │
-│   (Claude Code / Cursor /    │  │   (Claude Code / Cursor /    │
-│       Antigravity / etc.)    │  │       Antigravity / etc.)    │
-└──────────────────────────────┘  └──────────────────────────────┘
-```
+Un agente de terminal funciona por ciclo de petición/respuesta. No escucha sockets pasivamente a menos que se diseñe un mecanismo explícito:
+
+### Alternativas evaluadas:
+1. **Opción A (`check_inbox` + Prompting):** Herramienta MCP donde el agente revisa mensajes entrantes de compañeros al iniciar o finalizar pasos. 
+   - *Pros:* 100% compatible con cualquier cliente MCP sin wrappers.
+   - *Contras:* Si el agente termina su turno y queda inactivo en la terminal, no se despierta hasta que el usuario le da una orden.
+2. **Opción B (Blocking / Long-Polling Tool Call):** Herramienta tipo `wait_for_messages(timeout=30s)` que mantiene el socket abierto mientras espera un mensaje de un compañero.
+   - *Pros:* Estándar MCP, mantiene al agente en escucha activa durante una sesión de trabajo colaborativo.
+   - *Contras:* Mantiene al LLM ocupado mientras dura el polling.
+3. **Opción C (Wrapper / CLI Daemon):** Un script que envuelve el proceso del agente y le inyecta prompts por `stdin` cuando llega un mensaje urgente de la sala.
+   - *Pros:* Despierta al agente de forma reactiva real.
+   - *Contras:* Acoplado al CLI específico de cada agente.
 
 ---
 
-## 🛠️ Especificación de Herramientas MCP (`team-hub-mcp`)
+## 🛠️ Herramientas MCP del MVP Inicial (`team-hub-mcp`)
 
-1. **`report_intent_and_decision`**:
-   - *Inputs:* `objective` (string), `decision` (string), `files_impacted` (array), `needs_from_others` (string).
-   - *Efecto:* Publica la decisión en el Hub y notifica a agentes afectados.
-2. **`claim_module_lock`**:
-   - *Inputs:* `paths` (array de archivos/directorios), `reason` (string).
-   - *Efecto:* Reserva temporalmente un área de trabajo para evitar colisiones.
-3. **`release_module_lock`**:
-   - *Inputs:* `paths` (array).
-   - *Efecto:* Libera el área para otros compañeros.
-4. **`send_targeted_message`**:
-   - *Inputs:* `to_agent` (string), `message` (string), `context` (object opcional).
-   - *Efecto:* Despierta o envía mensaje directo a un compañero específico (ej. pedir contrato de API).
-5. **`submit_task_delivery`**:
-   - *Inputs:* `task_id` (string), `summary_of_changes` (string), `test_results` (string), `branch_name` (string).
-   - *Efecto:* Marca tarea lista para revisión/merge y despierta al agente o humano responsable del siguiente paso.
-6. **`get_project_context`**:
-   - *Inputs:* `filter` (opcional: 'tasks' | 'decisions' | 'locks' | 'recent_activity').
-   - *Efecto:* Retorna el estado sintetizado del proyecto sin saturar tokens.
+1. `send_team_message(channel, message, mentions?)`: Enviar mensaje al chat general o a un agente en específico.
+2. `check_inbox()`: Consultar mensajes pendientes, menciones y novedades del equipo.
+3. `report_status(objective, decision, blocked_by?)`: Publicar en qué se está trabajando y decisiones tomadas.
+4. `claim_module_lock(paths, reason)`: Bloquear temporalmente archivos para evitar conflictos.
+5. `release_module_lock(paths)`: Liberar archivos bloqueados.
+6. `get_team_status()`: Consultar quién está conectado y qué áreas están bloqueadas.
 
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
-### [2026-10-07] — Refinamiento Estratégico y Definición del Core
-#### 💡 Decisiones y Giros Estratégicos
-- **De Chat a Orquestador:** Confirmado que el valor real de `Agents-Hub` es la **orquestación y coordinación activa**, no solo un canal de chat.
-- **Formato del Contexto:** Descartado el streaming en bruto de todos los tokens de pensamiento (`Chain of Thought`). En su lugar, se implementa **Contexto Estructurado Compartido**:
-  - Objetivos activos.
-  - Decisiones tomadas y contratos acordados.
-  - Registro de bloqueos y dependencias.
-  - Eventos clave de actividad y herramientas sobre el workspace.
-- **Aislamiento y Verificación:** Se integra el concepto de **Docker / Sandbox** para probar de forma aislada las entregas antes de fusionar código entre desarrolladores.
-- **Compatibilidad Abierta:** Mantener enfoque en agentes existentes (Claude Code, Cursor, Antigravity, Aider) vía MCP.
+### [2026-10-07] — Corrección de Alcance (MVP Lean) y Reto de Recepción de Mensajes
+#### 💡 Correcciones y foco real
+- **Ajuste de alcance:** Se corrige ADR-002: el MVP se centra estrictamente en **comunicación y coordinación básica**, no en orquestación automática compleja.
+- **Docker diferido:** Se mueve Docker a fase futura para no inflar el alcance (scope creep).
+- **Problema de reactividad de terminal:** Identificado formalmente el reto de cómo un agente dormido recibe mensajes. Abierto el análisis de las opciones A (inbox pulling), B (blocking polling) y C (CLI wrapper).
+- **Estrategia de prueba local:** Probar el MVP primero con **dos terminales propias** en la misma máquina antes de involucrar a terceros.
 
 #### 🚀 Acciones Realizadas
-- Creación de repositorio en GitHub: [Agents-Hub](https://github.com/Jacoolzs/Agents-Hub).
-- Creación y sincronización de `README.md` y `BITACORA.md`.
-- Registro formal de ADR-001 a ADR-005.
-- Definición formal de la arquitectura de 4 capas y el contrato de herramientas MCP iniciales.
-
-#### 🔮 Próximos Pasos (Fase 1 del MVP: Sala Compartida y Coordinación Básica)
-- [ ] Definir el stack tecnológico del **Hub Server** (ej. Node.js/TypeScript con WebSockets o FastAPI).
-- [ ] Definir el stack del **Dashboard Web** (Next.js / Tailwind CSS / Lucide / Socket.io client).
-- [ ] Implementar el paquete del **Servidor MCP** (`team-hub-mcp`) para conectar a clientes locales.
-- [ ] Diseñar el modelo de datos de la Sala: Tareas, Locks, Miembros, Eventos y Decisiones.
+- Corrección de `BITACORA.md` con ADR-001 a ADR-006.
+- Definición lean del stack (TypeScript monorepo, SQLite + WebSockets).
+- Plan de testeo inicial local.
