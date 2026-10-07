@@ -36,7 +36,7 @@ export class AppError extends Error {
     requestId: string = crypto.randomUUID(),
     details?: Record<string, unknown> | undefined,
   ) {
-    super(message);
+    super(`[${code}] ${message}`);
     this.name = "AppError";
     this.code = code;
     this.requestId = requestId;

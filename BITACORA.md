@@ -77,6 +77,24 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Fase 2 Completada: Base de Datos y Dominio del Hub (`apps/hub-server`)
+- **Implementación de persistencia y dominio (en rama `feat/phase-2-hub-domain`):**
+  - `infrastructure/db/migrations.ts`: Esquemas SQL relacionales para `users`, `projects`, `memberships`, `agent_sessions`, `messages`, `status_reports`, `workspace_locks`, `events`, `audit_entries` y `auth_tokens`.
+  - `infrastructure/db/database.ts`: Motor SQLite con `node:sqlite` (`DatabaseSync`), soporte WAL, transacciones seguras y claves foráneas activadas.
+  - `infrastructure/event-bus/event-bus.ts`: Event store inmutable con secuencias monotónicas autoincrementales por proyecto y consulta por cursores/offset.
+  - `application/services/project-service.ts`: Creación de proyectos, asignación de rol `owner` y control de membresías.
+  - `application/services/session-service.ts`: Manejo del ciclo de vida de sesiones de agentes (`join`, `heartbeat`, `updateCursor`, `disconnect`).
+  - `application/services/message-service.ts`: Envío transaccional de mensajes (con emisión simultánea de evento en `events`) y filtrado selectivo de mensajes dirigidos vs. generales.
+  - `application/services/status-service.ts`: Publicación de reportes de estado y consulta agrupada del estado más reciente por agente.
+  - `application/services/lock-service.ts`: Semántica de locks para workspaces: detección de colisiones exactas y por prefijo/subdirectorio (`src/api` bloquea `src/api/users.ts`), TTL configurable, transacciones y control estricto de propiedad.
+  - `application/services/audit-service.ts`: Trazabilidad y registro de acciones sensibles sin almacenar datos privados ni secretos.
+- **Validación y calidad:**
+  - Suite de 10 tests unitarios/integración en `apps/hub-server/src/application/services/domain-services.test.ts` verificando concurrencia de locks, aislamiento total entre proyectos distintos y transacciones evento+entidad.
+  - Total de tests en el monorepo: 29 tests verdes.
+  - `pnpm lint`, `pnpm typecheck`, `pnpm test` y `pnpm -r build` pasando al 100%.
+- **Siguiente paso:** Fusionar `feat/phase-2-hub-domain` a `main` y arrancar **Fase 3 — WebSockets y Red del Hub**.
+
+
 ### [2026-10-07] — Fase 1 Completada: Contratos Compartidos (`packages/shared`)
 - **Implementación de contratos centrales:**
   - `ids.ts`: Esquema estricto de UUIDv4 con `crypto.randomUUID()`.
