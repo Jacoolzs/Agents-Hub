@@ -35,7 +35,10 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-003 | 2026-10-07 | Modelo de **Contexto Compartido Estructurado** (No thoughts crudos) | El dumping de CoT completo satura tokens y genera ruido. Se comparten objetivos, decisiones, contratos y bloqueos. | Aceptado |
 | ADR-004 | 2026-10-07 | Sandbox / Docker **diferido a fase futura** | Evitar scope creep en el MVP. Validar primero la coordinación básica antes de introducir entornos de pruebas aislados. | Aceptado (Diferido) |
 | ADR-005 | 2026-10-07 | Monorepo en TypeScript con arquitectura simple | `@modelcontextprotocol/sdk` maduro en TS; compartir tipos entre `packages/mcp-server`, `packages/hub-server`, `packages/shared` y `packages/web`. Backend mínimo con SQLite + WebSockets. | Aceptado |
-| ADR-006 | 2026-10-07 | Mecanismo de recepción de mensajes en agentes | *En evaluación técnica:* Resolver cómo un agente dormido en terminal recibe o consulta mensajes (ver análisis de alternativas A, B y C). | En discusión |
+| ADR-006 | 2026-10-07 | Recepción de mensajes mediante estrategia híbrida | `check_inbox(cursor)` es el mecanismo compatible y fiable; `wait_for_messages(timeout)` es opcional durante una sesión activa. El daemon que inyecta prompts queda diferido por acoplamiento y riesgo. | Aceptado |
+| ADR-007 | 2026-10-07 | Hub central como autoridad; MCP como adaptador local | El servidor MCP local usa `stdio` con el agente y el Hub usa HTTPS/WebSocket; identidad, permisos, persistencia, cursores y locks viven en el Hub. | Aceptado |
+| ADR-008 | 2026-10-07 | MVP monolítico modular con SQLite/WAL | Reduce complejidad operacional y permite validar el producto antes de separar servicios o añadir Redis/PostgreSQL. | Aceptado |
+| ADR-009 | 2026-10-07 | Seguridad por proyecto, mínimo privilegio y contexto estructurado | Aislar proyectos, validar entradas, limitar capacidades, auditar acciones y evitar exposición de razonamiento privado o secretos. | Aceptado |
 
 ---
 
@@ -65,9 +68,22 @@ Un agente de terminal funciona por ciclo de petición/respuesta. No escucha sock
 5. `release_module_lock(paths)`: Liberar archivos bloqueados.
 6. `get_team_status()`: Consultar quién está conectado y qué áreas están bloqueadas.
 
+## 🧱 Diseño base y plan
+
+La especificación completa de propósito, arquitectura lógica, contrato de eventos, seguridad, rendimiento, estructura del monorepo, fases y criterios de terminado está en [ARCHITECTURE.md](ARCHITECTURE.md). Ese documento es el diseño base vigente; las futuras desviaciones deben registrarse como una nueva decisión.
+
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-07] — Diseño base de propósito, arquitectura, seguridad y plan
+- Se establece `ARCHITECTURE.md` como diseño base del proyecto.
+- Propósito: coordinar agentes existentes mediante contexto estructurado, mensajes, estado y locks; no construir otro modelo ni exponer Chain of Thought privado.
+- Arquitectura: `team-hub-mcp` local por `stdio`, Hub central como autoridad por HTTPS/WebSocket, dashboard humano y persistencia detrás de repositorios.
+- Recepción: se acepta la estrategia híbrida `check_inbox(cursor)` + `wait_for_messages(timeout)` opcional; el daemon de inyección queda diferido.
+- MVP: monolito modular TypeScript con SQLite/WAL, contratos versionados y cursor de eventos; PostgreSQL, Redis, Docker, P2P e integración Git quedan para fases posteriores.
+- Seguridad: aislamiento por proyecto, mínimo privilegio, tokens revocables y con audiencia, TLS/WSS, validación de `Origin`, límites, auditoría y prohibición de registrar secretos o razonamiento privado.
+- Plan: contratos/seguridad, Hub, MCP local, dashboard, validación y luego capacidades avanzadas sólo con evidencia.
 
 ### [2026-10-07] — Regla de contexto obligatorio del repositorio
 - Se establece `AGENTS.md` como la guía operativa del repositorio.

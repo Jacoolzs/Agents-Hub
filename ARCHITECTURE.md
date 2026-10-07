@@ -1,0 +1,197 @@
+# Agents-Hub — propósito, arquitectura y plan
+
+Estado: diseño base del MVP · Fecha: 2026-10-07
+
+## 1. Propósito
+
+Agents-Hub es una capa de coordinación para equipos humanos que usan agentes de desarrollo distintos. Cada desarrollador conserva su terminal, workspace y agente; Agents-Hub aporta una sala compartida con mensajes, estado estructurado, decisiones, bloqueos temporales y entregas verificables.
+
+El producto no crea un modelo de IA propio ni sustituye al agente de programación. Su valor es convertir la colaboración entre agentes en eventos estructurados, trazables y seguros.
+
+### Resultado que debe demostrar el MVP
+
+Dos agentes independientes, ejecutándose en dos terminales locales, pueden:
+
+1. conectarse al mismo proyecto;
+2. publicar y leer mensajes dirigidos;
+3. informar objetivo, estado, decisión y bloqueo;
+4. reclamar y liberar archivos o módulos con expiración;
+5. recuperar mensajes perdidos mediante un cursor;
+6. colaborar sin compartir razonamiento interno crudo ni pisarse intencionalmente.
+
+Fuera del MVP quedan la asignación autónoma de tareas, sincronización de archivos, merge automático, ejecución Docker, P2P, marketplace y soporte profundo específico de cada CLI.
+
+## 2. Principios no negociables
+
+- **Humano en control:** el agente no ejecuta acciones destructivas, publica secretos ni integra código por sí solo.
+- **Comunicación estructurada:** se comparten resúmenes, decisiones, contratos, bloqueos y resultados; no se exige ni se almacena Chain of Thought privado.
+- **MCP como adaptador, no como backend:** MCP expone capacidades al agente; el Hub mantiene identidad, estado, autorización y eventos.
+- **Entrega fiable antes que tiempo real:** cada evento tiene ID, secuencia y cursor; WebSocket acelera la visualización, pero el inbox es la fuente de recuperación.
+- **Aislamiento por proyecto:** ningún usuario, agente, mensaje, lock o evento puede cruzar proyectos sin autorización explícita.
+- **Seguridad por defecto:** mínimo privilegio, credenciales revocables, validación de entrada, límites de tamaño y auditoría de acciones sensibles.
+- **Evolución incremental:** un proceso y una base de datos en el MVP; separar servicios sólo cuando exista una presión medible.
+- **Evidencia sobre entusiasmo:** una decisión se acepta con una razón y un criterio de validación; las hipótesis permanecen marcadas como tales.
+
+## 3. Arquitectura lógica
+
+```text
+┌───────────────────────────────┐
+│ Agente: Claude/Cursor/Aider   │
+└───────────────┬───────────────┘
+                │ MCP stdio (local)
+┌───────────────▼───────────────┐
+│ team-hub-mcp local            │  identidad local, validación, retry
+└───────────────┬───────────────┘
+                │ HTTPS API + WebSocket de eventos
+┌───────────────▼───────────────┐
+│ Hub Server                    │  auth, rooms, comandos, locks, inbox
+│  ├─ API / MCP gateway         │
+│  ├─ Event service              │
+│  ├─ Policy + audit             │
+│  └─ Persistence                │
+└───────────────┬───────────────┘
+                │
+┌───────────────▼───────────────┐
+│ Dashboard web                 │  humanos: chat, estado, locks, auditoría
+└───────────────────────────────┘
+```
+
+### Componentes
+
+**`team-hub-mcp` local.** Se ejecuta como servidor MCP iniciado por el cliente mediante `stdio`. No expone un puerto público ni recibe conexiones entrantes. Traduce las llamadas de herramientas a solicitudes autenticadas al Hub, aplica timeouts y no imprime logs en `stdout`.
+
+**Hub Server.** Es la única autoridad para proyectos, miembros, agentes, mensajes, presencia, locks y secuencias de eventos. El MVP puede ejecutarse como un proceso Node.js/TypeScript con módulos internos separados.
+
+**Persistencia.** SQLite con WAL para desarrollo y primera instalación de un solo nodo. El código debe ocultar el acceso detrás de repositorios/interfaces para migrar a PostgreSQL sin rehacer el dominio. Redis no es requisito del MVP.
+
+**Dashboard.** Cliente web que consume una API autenticada y un canal WebSocket sólo para eventos de presentación. Nunca es la autoridad de permisos ni de locks.
+
+## 4. Flujo de comunicación y recepción
+
+La solución inicial para el problema de agentes inactivos es híbrida:
+
+- `check_inbox(cursor?)` es obligatorio al conectar, antes de iniciar trabajo y después de completar un paso relevante.
+- `wait_for_messages(timeout)` es opcional durante una sesión activa cuando el agente está esperando coordinación.
+- Un daemon que inyecte prompts en el CLI queda fuera del MVP por su acoplamiento y riesgos operativos.
+
+El servidor guarda los eventos aunque ningún agente esté conectado. El cliente local mantiene el último cursor confirmado. Al reconectar solicita los eventos posteriores; las respuestas repetidas deben ser inocuas mediante `event_id` e idempotencia.
+
+## 5. Contrato de dominio inicial
+
+Entidades: `User`, `Project`, `Membership`, `AgentSession`, `Message`, `StatusReport`, `WorkspaceLock`, `Event`, `AuditEntry`.
+
+Tipos de evento mínimos:
+
+- `agent.connected` / `agent.disconnected`
+- `message.created`
+- `status.updated`
+- `lock.claimed` / `lock.released` / `lock.expired`
+- `delivery.reported`
+
+Cada evento incluye `event_id`, `project_id`, `type`, `actor_id`, `occurred_at`, `sequence`, `payload_version` y un payload validado por esquema. Los mensajes deben admitir destinatario, canal, prioridad, correlación y expiración opcional.
+
+Herramientas MCP del MVP:
+
+1. `join_project` — registrar la sesión del agente en un proyecto autorizado.
+2. `check_inbox` — obtener eventos/mensajes desde un cursor.
+3. `send_team_message` — enviar mensaje al canal o agentes mencionados.
+4. `report_status` — publicar objetivo, avance, decisión y bloqueo.
+5. `claim_module_lock` — reclamar rutas normalizadas con TTL.
+6. `release_module_lock` — liberar sólo locks propios o autorizados.
+7. `get_team_status` — consultar presencia, estados y locks visibles.
+
+Todos los inputs y outputs se validan con JSON Schema. El servidor no confía en nombres enviados por el cliente para autorizar: usa IDs y pertenencia verificada.
+
+## 6. Seguridad
+
+### Identidad y autorización
+
+- Cada solicitud se asocia a un usuario, proyecto y sesión de agente.
+- El MVP puede usar invitaciones de un solo uso y tokens de corta duración; se almacenan hashes, nunca tokens en claro.
+- Las acciones se autorizan por proyecto y rol (`owner`, `member`, `agent`, `observer`).
+- Los tokens deben ser revocables, tener audiencia explícita para Agents-Hub y nunca reenviarse a servicios externos.
+- La futura autenticación web puede usar OAuth/OIDC; no se inventa un protocolo de autenticación propio.
+
+### Transporte y datos
+
+- Producción sólo por HTTPS/WSS; HSTS y cookies `Secure`, `HttpOnly`, `SameSite` para la web.
+- Validar `Origin` en conexiones HTTP/WebSocket y rechazar orígenes no permitidos.
+- El servidor local se limita a `127.0.0.1` cuando exponga HTTP local.
+- Cifrar secretos en reposo cuando se añadan credenciales persistentes; nunca registrar tokens, prompts privados ni variables de entorno.
+- Retención configurable: mensajes/eventos limitados por proyecto; el usuario puede eliminar o exportar datos propios cuando corresponda.
+
+### Defensa operacional
+
+- Validación estricta de esquemas, límites de payload, rate limits por usuario/agente/IP y límites de conexiones.
+- Normalizar rutas de locks y rechazar traversal, rutas absolutas ambiguas y comodines no soportados.
+- Locks con propietario, TTL, renovación explícita y limpieza por heartbeat; nunca son una garantía de integridad de Git.
+- Confirmación humana para acciones futuras como push, merge, comandos destructivos o ejecución de herramientas.
+- Auditoría de login, invitaciones, cambios de membresía, locks, mensajes borrados y acciones sensibles.
+- Pruebas de autorización negativas: un agente de proyecto A no puede leer ni escribir datos del proyecto B.
+
+## 7. Rendimiento y resiliencia
+
+- Operaciones normales O(1) o indexadas por `project_id`, `sequence`, destinatario y expiración.
+- La consulta de inbox usa paginación/cursor, no carga todo el historial.
+- WebSocket sólo distribuye eventos compactos; el cliente pide detalle bajo demanda.
+- Backpressure: límites por conexión, cola máxima y desconexión controlada de consumidores lentos.
+- Reintentos con backoff y jitter sólo para operaciones idempotentes.
+- Health/readiness checks, métricas de latencia, tasa de errores, conexiones activas, tamaño de inbox y locks expirados.
+- Objetivo inicial, a validar: 100 agentes conectados y 20 eventos/segundo en una instancia local sin degradación visible. No es un SLA de producción.
+
+## 8. Estructura propuesta del monorepo
+
+```text
+apps/
+  hub-server/       # API, WebSocket, dominio y persistencia
+  web/              # dashboard humano
+packages/
+  mcp-server/       # servidor MCP local por stdio
+  shared/           # esquemas, tipos, errores y eventos versionados
+  config/           # configuración común y validación de entorno
+  testkit/          # fixtures y harness de dos agentes
+infra/
+  migrations/       # migraciones SQLite/PostgreSQL
+docs/
+  ARCHITECTURE.md
+  adr/
+BITACORA.md
+AGENTS.md
+```
+
+Stack base: TypeScript estricto, pnpm workspaces, Node.js LTS, Fastify para HTTP, `ws` o equivalente para WebSocket, SDK oficial de MCP, SQLite/WAL, Vitest y Playwright. Las versiones concretas se fijan al iniciar código y se actualizan con pruebas, no por copiar versiones de una conversación.
+
+## 9. Plan de ejecución
+
+### Fase 0 — Contratos y seguridad mínima
+
+Definir esquemas de eventos, errores, identidad local, roles, cursor e idempotencia. Añadir lint, format, tests, validación de configuración y documentación de amenazas.
+
+### Fase 1 — Hub mínimo
+
+Implementar proyecto/membresía, mensajes persistentes, inbox por cursor, estado de agente y locks TTL. Probar API con dos clientes simulados.
+
+### Fase 2 — MCP local
+
+Implementar las siete herramientas, conexión `stdio`, retries, reconexión y recuperación desde cursor. Probar con dos procesos MCP locales y un Hub local.
+
+### Fase 3 — Dashboard mínimo
+
+Mostrar mensajes, presencia, estados, locks y errores de conexión. La UI no añade permisos propios ni lógica duplicada del dominio.
+
+### Fase 4 — Seguridad y validación de uso
+
+Invitaciones revocables, TLS de despliegue, rate limiting, auditoría, pruebas de aislamiento y una sesión real con dos agentes distintos. Medir rendimiento antes de optimizar.
+
+### Fase 5 — Después del MVP
+
+Evaluar tareas/dependencias, integración Git, sandbox Docker, notificaciones activas y adaptadores específicos de CLI sólo si la evidencia del MVP lo justifica.
+
+## 10. Criterios de terminado del MVP
+
+- Dos agentes completan una colaboración reproducible sin intervención del dashboard.
+- Un agente desconectado recupera mensajes al reconectar sin duplicados funcionales.
+- Un lock expirado se libera automáticamente y un lock ajeno no puede liberarse.
+- Las pruebas demuestran aislamiento entre proyectos y rechazo de inputs inválidos.
+- No se almacenan pensamientos privados crudos ni secretos en logs.
+- La bitácora documenta resultados, límites y decisiones pendientes.
