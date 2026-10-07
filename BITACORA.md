@@ -39,7 +39,7 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-007 | 2026-10-07 | Hub central como autoridad; MCP como adaptador local | El servidor MCP local usa `stdio` con el agente y el Hub usa HTTPS/WebSocket; identidad, permisos, persistencia, cursores y locks viven en el Hub. | Aceptado |
 | ADR-008 | 2026-10-07 | MVP monolítico modular con SQLite/WAL | Reduce complejidad operacional y permite validar el producto antes de separar servicios o añadir Redis/PostgreSQL. | Aceptado |
 | ADR-009 | 2026-10-07 | Seguridad por proyecto, mínimo privilegio y contexto estructurado | Aislar proyectos, validar entradas, limitar capacidades, auditar acciones y evitar exposición de razonamiento privado o secretos. | Aceptado |
-| ADR-010 | 2026-10-07 | Stack tecnológico del MVP | TypeScript 6 + Node 24 LTS, pnpm, Fastify, WebSocket, MCP SDK v2, Zod, SQLite/WAL con better-sqlite3/Drizzle, React/Vite/Tailwind, Vitest, Playwright, Pino y GitHub Actions. | Aceptado |
+| ADR-010 | 2026-10-07 | Stack tecnológico del MVP | TypeScript + Node 24 LTS, pnpm, Fastify, WebSocket, MCP SDK, Zod, SQLite/WAL con `node:sqlite` nativo (evita dependencias C++/node-gyp en Windows), React/Vite/Tailwind, Vitest, Playwright, Biome y Pino. | Aceptado (Ajustado) |
 
 ---
 
@@ -76,6 +76,22 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-07] — Fase 0 Completada: Bootstrap del Monorepo y Calidad
+- **Herramientas base:** Node `v24.12.0` verificado; `pnpm` `v12.10.1` instalado y configurado con workspace (`apps/*`, `packages/*`).
+- **Bloqueo técnico superado:** `better-sqlite3` falló en compilación nativa en Windows por falta de binarios para Node 24 y ausencia de Visual Studio C++ toolset. Se reemplazó por `node:sqlite` (`DatabaseSync`), integrado nativamente en Node 24 sin dependencias de compilación externa.
+- **Estructura creada:**
+  - `packages/config`: Validación de entorno con Zod y tests unitarios.
+  - `packages/shared`: Módulo compartido inicial con tests.
+  - `packages/testkit`: Utilidades de testeo iniciales.
+  - `packages/mcp-server`: Módulo base del servidor MCP con `@modelcontextprotocol/sdk`.
+  - `apps/hub-server`: Aplicación Fastify con endpoint `/health` y tests de integración.
+- **Calidad y tooling:**
+  - Biome configurado para linting y formateo estricto.
+  - TypeScript configurado con project references (`tsconfig.json` raíz y por paquete) con comprobaciones estrictas (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, etc.).
+  - Vitest configurado en workspace; suite de tests pasando (7 tests verdes).
+  - Comandos `pnpm check` (lint + typecheck + test) y `pnpm -r build` verificados y verdes.
+- **Siguiente paso:** Proceder con la **Fase 1 — Contratos Compartidos** (`packages/shared`).
 
 ### [2026-10-07] — Diseño base de propósito, arquitectura, seguridad y plan
 - Se establece `ARCHITECTURE.md` como diseño base del proyecto.

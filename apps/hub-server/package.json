@@ -1,0 +1,25 @@
+{
+  "name": "@agents-hub/hub-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agents-hub/config": "workspace:*",
+    "@agents-hub/shared": "workspace:*",
+    "@fastify/cors": "^10.0.2",
+    "@fastify/websocket": "^11.0.2",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}

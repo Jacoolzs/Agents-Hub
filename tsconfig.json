@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "files": [],
+  "references": [
+    { "path": "./packages/config" },
+    { "path": "./packages/shared" },
+    { "path": "./packages/testkit" },
+    { "path": "./packages/mcp-server" },
+    { "path": "./apps/hub-server" }
+  ]
+}

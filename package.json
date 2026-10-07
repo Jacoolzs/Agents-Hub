@@ -1,0 +1,24 @@
+{
+  "name": "agents-hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --parallel --filter @agents-hub/hub-server --filter @agents-hub/web dev",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^26.6.4",
+    "playwright": "^1.50.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}
