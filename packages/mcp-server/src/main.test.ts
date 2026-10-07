@@ -97,15 +97,57 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
   });
 
   it("claims workspace locks and sends team messages", async () => {
-    const lockRes = await client.claimLock("proj-1", "agent-alice", {
+    const lockRes = await client.claimLock("proj-1", "sess-123", {
       paths: ["src/index.ts"],
       reason: "Refactor",
     });
     expect(lockRes.lock_id).toBe("lock-1");
 
-    const msgRes = await client.sendMessage("proj-1", "agent-alice", {
+    const msgRes = await client.sendMessage("proj-1", "sess-123", {
       body: "Hello team",
     });
     expect(msgRes.message_id).toBe("msg-1");
+  });
+
+  it("validates MCP tool inputs using Zod schemas and returns isError on invalid input", async () => {
+    const server = createMcpServer({ hubClient: client, defaultProjectId: "proj-1" });
+
+    // Calling send_team_message before joining project
+    // @ts-expect-error test direct handler invocation
+    const handler = server._requestHandlers.get("tools/call");
+    expect(handler).toBeDefined();
+
+    if (handler) {
+      // 1. Without session -> error
+      const noSessionRes = await handler({
+        method: "tools/call",
+        params: {
+          name: "send_team_message",
+          arguments: { body: "test" },
+        },
+      });
+      expect(noSessionRes.isError).toBe(true);
+      expect(noSessionRes.content[0].text).toContain("Must join_project before sending messages");
+
+      // 2. Join project
+      await handler({
+        method: "tools/call",
+        params: {
+          name: "join_project",
+          arguments: { project_id: "proj-1", agent_name: "agent-alice" },
+        },
+      });
+
+      // 3. Invalid tool arguments (empty paths array in claim_module_lock)
+      const invalidClaimRes = await handler({
+        method: "tools/call",
+        params: {
+          name: "claim_module_lock",
+          arguments: { paths: [], reason: "empty" },
+        },
+      });
+      expect(invalidClaimRes.isError).toBe(true);
+      expect(invalidClaimRes.content[0].text).toContain("Invalid arguments for claim_module_lock");
+    }
   });
 });

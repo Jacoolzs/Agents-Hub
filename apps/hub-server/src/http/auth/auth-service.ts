@@ -6,6 +6,7 @@ export interface AuthContext {
   userId: string;
   projectId?: string;
   role?: MembershipRole;
+  scopes?: string[];
 }
 
 export class AuthService {
@@ -66,15 +67,18 @@ export class AuthService {
       throw new AppError("UNAUTHENTICATED", "Invalid, expired, or revoked authentication token");
     }
 
-    if (row.audience !== expectedAudience && row.audience !== "*") {
+    if (row.audience !== expectedAudience) {
       throw new AppError(
         "FORBIDDEN",
         `Token audience '${row.audience}' does not match '${expectedAudience}'`,
       );
     }
 
+    const scopes = JSON.parse(row.scopes) as string[];
+
     return {
       userId: row.subject,
+      scopes,
     };
   }
 

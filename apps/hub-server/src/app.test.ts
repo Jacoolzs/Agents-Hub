@@ -77,13 +77,20 @@ describe("Hub Server Network & API (Phase 3)", () => {
     it("sends message and retrieves it via /inbox with cursor", async () => {
       const proj = app.ctx.projectService.createProject("Chat Project", testUserId).project;
 
+      // Join session for Alice
+      const aliceSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-alice",
+        testUserId,
+      );
+
       // Alice sends message
       const sendRes = await app.inject({
         method: "POST",
         url: `/v1/projects/${proj.project_id}/messages`,
         headers: { authorization: `Bearer ${authToken}` },
         payload: {
-          sender_id: "agent-alice",
+          session_id: aliceSession.session_id,
           body: "Hello from terminal A",
           channel: "general",
         },
@@ -93,7 +100,7 @@ describe("Hub Server Network & API (Phase 3)", () => {
       // Check inbox
       const inboxRes = await app.inject({
         method: "GET",
-        url: `/v1/projects/${proj.project_id}/inbox`,
+        url: `/v1/projects/${proj.project_id}/inbox?session_id=${aliceSession.session_id}`,
         headers: { authorization: `Bearer ${authToken}` },
       });
 
@@ -105,7 +112,7 @@ describe("Hub Server Network & API (Phase 3)", () => {
       // Query again with after cursor
       const emptyInboxRes = await app.inject({
         method: "GET",
-        url: `/v1/projects/${proj.project_id}/inbox?after=${inbox.next_cursor}`,
+        url: `/v1/projects/${proj.project_id}/inbox?session_id=${aliceSession.session_id}&after=${inbox.next_cursor}`,
         headers: { authorization: `Bearer ${authToken}` },
       });
       expect(emptyInboxRes.json().data.events.length).toBe(0);
@@ -115,13 +122,23 @@ describe("Hub Server Network & API (Phase 3)", () => {
   describe("Workspace Locks (API)", () => {
     it("claims lock and rejects conflict with 409", async () => {
       const proj = app.ctx.projectService.createProject("Lock Project", testUserId).project;
+      const aliceSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-alice",
+        testUserId,
+      );
+      const bobSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-bob",
+        testUserId,
+      );
 
       const claimRes = await app.inject({
         method: "POST",
         url: `/v1/projects/${proj.project_id}/locks/claim`,
         headers: { authorization: `Bearer ${authToken}` },
         payload: {
-          agent_id: "agent-alice",
+          session_id: aliceSession.session_id,
           paths: ["src/index.ts"],
           reason: "Updating entrypoint",
         },
@@ -134,7 +151,7 @@ describe("Hub Server Network & API (Phase 3)", () => {
         url: `/v1/projects/${proj.project_id}/locks/claim`,
         headers: { authorization: `Bearer ${authToken}` },
         payload: {
-          agent_id: "agent-bob",
+          session_id: bobSession.session_id,
           paths: ["src/index.ts"],
           reason: "Trying to edit",
         },
@@ -162,6 +179,151 @@ describe("Hub Server Network & API (Phase 3)", () => {
       const data = res.json().data;
       expect(data.active_agents.length).toBe(1);
       expect(data.statuses.length).toBe(1);
+    });
+  });
+
+  describe("Security Boundaries & Targeted Visibility (Audit P0 Fixes)", () => {
+    it("prevents impersonation: rejects message when session_id belongs to another user", async () => {
+      const proj = app.ctx.projectService.createProject("Sec Room", testUserId).project;
+      const otherUserId = "user-bob";
+      app.ctx.db
+        .prepare("INSERT INTO users (user_id, username, created_at) VALUES (?, ?, ?)")
+        .run(otherUserId, "bob", new Date().toISOString());
+      app.ctx.projectService.checkMembership = () => ({
+        membership_id: "m-1",
+        project_id: proj.project_id,
+        user_id: otherUserId,
+        role: "collaborator",
+        created_at: "",
+      });
+      const bobSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-bob",
+        otherUserId,
+      );
+
+      // Alice tries to send message claiming bob's session
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/messages`,
+        headers: { authorization: `Bearer ${authToken}` }, // Alice's token
+        payload: {
+          session_id: bobSession.session_id, // Bob's session
+          body: "Forged message",
+        },
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe("FORBIDDEN");
+    });
+
+    it("isolates targeted messages: Charlie cannot see message from Alice to Bob in inbox", async () => {
+      const proj = app.ctx.projectService.createProject("Private Chat", testUserId).project;
+      const aliceSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-alice",
+        testUserId,
+      );
+      const bobSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-bob",
+        testUserId,
+      );
+      const charlieSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-charlie",
+        testUserId,
+      );
+
+      // Alice sends targeted message to Bob
+      await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/messages`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: aliceSession.session_id,
+          body: "Secret contract for Bob only",
+          recipient_agent_ids: ["agent-bob"],
+        },
+      });
+
+      // Bob's inbox: MUST see the message
+      const bobInboxRes = await app.inject({
+        method: "GET",
+        url: `/v1/projects/${proj.project_id}/inbox?session_id=${bobSession.session_id}`,
+        headers: { authorization: `Bearer ${authToken}` },
+      });
+      const bobEvents = bobInboxRes.json().data.events;
+      expect(
+        bobEvents.some(
+          (e: { payload: { body?: string } }) => e.payload.body === "Secret contract for Bob only",
+        ),
+      ).toBe(true);
+
+      // Charlie's inbox: MUST NOT see the message
+      const charlieInboxRes = await app.inject({
+        method: "GET",
+        url: `/v1/projects/${proj.project_id}/inbox?session_id=${charlieSession.session_id}`,
+        headers: { authorization: `Bearer ${authToken}` },
+      });
+      const charlieEvents = charlieInboxRes.json().data.events;
+      expect(
+        charlieEvents.some(
+          (e: { payload: { body?: string } }) => e.payload.body === "Secret contract for Bob only",
+        ),
+      ).toBe(false);
+    });
+
+    it("supports lock renewal and release by lockId", async () => {
+      const proj = app.ctx.projectService.createProject("Lock Renew Room", testUserId).project;
+      const aliceSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-alice",
+        testUserId,
+      );
+
+      // Claim lock
+      const claimRes = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/locks/claim`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: aliceSession.session_id,
+          paths: ["src/critical.ts"],
+          reason: "Working on critical bug",
+          ttl_seconds: 60,
+        },
+      });
+      expect(claimRes.statusCode).toBe(201);
+      const lockId = claimRes.json().data.lock_id;
+
+      // Renew lock
+      const renewRes = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/locks/${lockId}/renew`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: aliceSession.session_id,
+          ttl_seconds: 300,
+        },
+      });
+      expect(renewRes.statusCode).toBe(200);
+      expect(renewRes.json().data.ttl_seconds).toBe(300);
+
+      // Release lock by ID
+      const releaseRes = await app.inject({
+        method: "DELETE",
+        url: `/v1/projects/${proj.project_id}/locks/${lockId}`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: aliceSession.session_id,
+        },
+      });
+      expect(releaseRes.statusCode).toBe(200);
+
+      // Confirm lock is gone
+      const activeLocks = app.ctx.lockService.getActiveLocks(proj.project_id);
+      expect(activeLocks.length).toBe(0);
     });
   });
 });

@@ -1,8 +1,19 @@
 import type { DatabaseSync } from "node:sqlite";
 import { type EventEnvelope, type EventType, generateId, nowUtc } from "@agents-hub/shared";
 
+export type EventListener = (event: EventEnvelope) => void;
+
 export class SqliteEventBus {
+  private listeners: Set<EventListener> = new Set();
+
   constructor(private readonly db: DatabaseSync) {}
+
+  public subscribe(listener: EventListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
 
   public recordEvent(
     projectId: string,
@@ -35,7 +46,7 @@ export class SqliteEventBus {
       JSON.stringify(payload),
     );
 
-    return {
+    const envelope: EventEnvelope = {
       event_id: eventId,
       project_id: projectId,
       sequence,
@@ -45,6 +56,16 @@ export class SqliteEventBus {
       payload_version: 1,
       payload,
     };
+
+    for (const listener of this.listeners) {
+      try {
+        listener(envelope);
+      } catch {
+        // Safe: non-blocking listener failure
+      }
+    }
+
+    return envelope;
   }
 
   public getEventsAfter(projectId: string, afterSequence = 0, limit = 50): EventEnvelope[] {

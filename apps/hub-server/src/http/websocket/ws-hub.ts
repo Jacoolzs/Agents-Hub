@@ -1,10 +1,11 @@
 import type { EventEnvelope } from "@agents-hub/shared";
 import type { WebSocket } from "ws";
+import { isEventVisibleToAgent } from "../../application/policies/event-visibility.js";
 
 interface ClientSubscription {
   socket: WebSocket;
   projectId: string;
-  agentId?: string;
+  agentId?: string | undefined;
   userId: string;
 }
 
@@ -28,6 +29,10 @@ export class WebSocketHub {
 
     for (const sub of this.subscriptions) {
       if (sub.projectId === event.project_id && sub.socket.readyState === 1) {
+        if (!isEventVisibleToAgent(event, sub.agentId)) {
+          continue;
+        }
+
         try {
           sub.socket.send(payloadStr);
         } catch {

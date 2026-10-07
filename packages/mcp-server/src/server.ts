@@ -1,3 +1,8 @@
+import {
+  ClaimLockInputSchema,
+  ReportStatusInputSchema,
+  SendMessageInputSchema,
+} from "@agents-hub/shared";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -161,6 +166,9 @@ export function createMcpServer(ctx: McpServerContext): Server {
       switch (name) {
         case "join_project": {
           const { project_id, agent_name } = args as { project_id: string; agent_name: string };
+          if (!project_id || !agent_name) {
+            throw new Error("project_id and agent_name are required");
+          }
           currentProjectId = project_id;
           currentAgentId = agent_name;
           const session = await ctx.hubClient.createSession(project_id, agent_name);
@@ -187,9 +195,15 @@ export function createMcpServer(ctx: McpServerContext): Server {
         }
 
         case "check_inbox": {
-          if (!currentProjectId) throw new Error("Must join_project before check_inbox");
+          if (!currentProjectId || !currentSessionId)
+            throw new Error("Must join_project before check_inbox");
           const { cursor, limit = 50 } = args as { cursor?: string; limit?: number };
-          const inbox = await ctx.hubClient.getInbox(currentProjectId, cursor, limit);
+          const inbox = await ctx.hubClient.getInbox(
+            currentProjectId,
+            currentSessionId,
+            cursor,
+            limit,
+          );
 
           return {
             content: [
@@ -202,7 +216,8 @@ export function createMcpServer(ctx: McpServerContext): Server {
         }
 
         case "wait_for_messages": {
-          if (!currentProjectId) throw new Error("Must join_project before wait_for_messages");
+          if (!currentProjectId || !currentSessionId)
+            throw new Error("Must join_project before wait_for_messages");
           const { cursor, timeout_seconds = 10 } = args as {
             cursor?: string;
             timeout_seconds?: number;
@@ -214,7 +229,12 @@ export function createMcpServer(ctx: McpServerContext): Server {
           let eventsFound: unknown[] = [];
 
           while (Date.now() - start < maxWaitMs) {
-            const inbox = await ctx.hubClient.getInbox(currentProjectId, latestCursor, 10);
+            const inbox = await ctx.hubClient.getInbox(
+              currentProjectId,
+              currentSessionId,
+              latestCursor,
+              10,
+            );
             if (inbox.events.length > 0) {
               eventsFound = inbox.events;
               latestCursor = inbox.next_cursor;
@@ -242,24 +262,22 @@ export function createMcpServer(ctx: McpServerContext): Server {
         }
 
         case "send_team_message": {
-          if (!currentProjectId || !currentAgentId) {
+          if (!currentProjectId || !currentSessionId) {
             throw new Error("Must join_project before sending messages");
           }
-          const { body, channel, recipient_agent_ids, priority, correlation_id } = args as {
-            body: string;
-            channel?: string;
-            recipient_agent_ids?: string[];
-            priority?: string;
-            correlation_id?: string;
-          };
 
-          const result = await ctx.hubClient.sendMessage(currentProjectId, currentAgentId, {
-            body,
-            channel,
-            recipient_agent_ids,
-            priority,
-            correlation_id,
-          });
+          const parsed = SendMessageInputSchema.safeParse(args);
+          if (!parsed.success) {
+            throw new Error(
+              `Invalid arguments for send_team_message: ${parsed.error.errors[0]?.message}`,
+            );
+          }
+
+          const result = await ctx.hubClient.sendMessage(
+            currentProjectId,
+            currentSessionId,
+            parsed.data,
+          );
 
           return {
             content: [
@@ -272,21 +290,21 @@ export function createMcpServer(ctx: McpServerContext): Server {
         }
 
         case "report_status": {
-          if (!currentProjectId || !currentAgentId) {
+          if (!currentProjectId || !currentSessionId) {
             throw new Error("Must join_project before reporting status");
           }
-          const statusArgs = args as {
-            objective: string;
-            progress?: string;
-            decision?: string;
-            blocked_by?: string;
-            next_step?: string;
-          };
+
+          const parsed = ReportStatusInputSchema.safeParse(args);
+          if (!parsed.success) {
+            throw new Error(
+              `Invalid arguments for report_status: ${parsed.error.errors[0]?.message}`,
+            );
+          }
 
           const result = await ctx.hubClient.reportStatus(
             currentProjectId,
-            currentAgentId,
-            statusArgs,
+            currentSessionId,
+            parsed.data,
           );
 
           return {
@@ -300,20 +318,22 @@ export function createMcpServer(ctx: McpServerContext): Server {
         }
 
         case "claim_module_lock": {
-          if (!currentProjectId || !currentAgentId) {
+          if (!currentProjectId || !currentSessionId) {
             throw new Error("Must join_project before claiming locks");
           }
-          const { paths, reason, ttl_seconds } = args as {
-            paths: string[];
-            reason: string;
-            ttl_seconds?: number;
-          };
 
-          const result = await ctx.hubClient.claimLock(currentProjectId, currentAgentId, {
-            paths,
-            reason,
-            ttl_seconds,
-          });
+          const parsed = ClaimLockInputSchema.safeParse(args);
+          if (!parsed.success) {
+            throw new Error(
+              `Invalid arguments for claim_module_lock: ${parsed.error.errors[0]?.message}`,
+            );
+          }
+
+          const result = await ctx.hubClient.claimLock(
+            currentProjectId,
+            currentSessionId,
+            parsed.data,
+          );
 
           return {
             content: [
@@ -326,11 +346,16 @@ export function createMcpServer(ctx: McpServerContext): Server {
         }
 
         case "release_module_lock": {
-          if (!currentProjectId || !currentAgentId) {
+          if (!currentProjectId || !currentSessionId) {
             throw new Error("Must join_project before releasing locks");
           }
-          const { paths } = args as { paths: string[] };
-          const result = await ctx.hubClient.releaseLock(currentProjectId, currentAgentId, paths);
+
+          const { paths } = args as { paths?: string[] };
+          if (!Array.isArray(paths) || paths.length === 0) {
+            throw new Error("paths must be a non-empty array of strings");
+          }
+
+          const result = await ctx.hubClient.releaseLock(currentProjectId, currentSessionId, paths);
 
           return {
             content: [

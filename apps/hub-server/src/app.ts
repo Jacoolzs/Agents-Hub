@@ -11,6 +11,7 @@ import {
 import fastifyCors from "@fastify/cors";
 import fastifyWebsocket from "@fastify/websocket";
 import fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import { isEventVisibleToAgent } from "./application/policies/event-visibility.js";
 import { AuditService } from "./application/services/audit-service.js";
 import { LockService } from "./application/services/lock-service.js";
 import { MessageService } from "./application/services/message-service.js";
@@ -42,6 +43,8 @@ export function buildApp(
   const db = customDb ?? createDatabase(config?.DATABASE_URL ?? ":memory:");
   const eventBus = new SqliteEventBus(db);
   const wsHub = new WebSocketHub();
+  eventBus.subscribe((event) => wsHub.broadcast(event));
+
   const authService = new AuthService(db);
   const projectService = new ProjectService(db, eventBus);
   const sessionService = new SessionService(db, eventBus);
@@ -196,13 +199,19 @@ export function buildApp(
     return { data: { status: "disconnected" }, request_id: reply.getHeader("x-request-id") };
   });
 
-  // Inbox & Events
+  // Inbox & Events (filtered by requesting session / agent)
   app.get("/v1/projects/:projectId/inbox", async (req, reply) => {
     const userId = getAuthenticatedUserId(req);
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
-    const query = req.query as { after?: string; limit?: string; agent_id?: string };
+    const query = req.query as { after?: string; limit?: string; session_id?: string };
+    let requestingAgentId: string | undefined;
+    if (query.session_id) {
+      const session = sessionService.validateSessionForUser(query.session_id, userId, projectId);
+      requestingAgentId = session.agent_id;
+    }
+
     let afterSequence = 0;
     if (query.after) {
       const decoded = decodeCursor(query.after);
@@ -213,9 +222,12 @@ export function buildApp(
     }
 
     const limit = Math.min(Math.max(Number.parseInt(query.limit ?? "50", 10), 1), 100);
-    const events = eventBus.getEventsAfter(projectId, afterSequence, limit + 1);
-    const hasMore = events.length > limit;
-    const resultEvents = hasMore ? events.slice(0, limit) : events;
+    // Fetch events and filter by agent visibility
+    const rawEvents = eventBus.getEventsAfter(projectId, afterSequence, limit * 2);
+    const visibleEvents = rawEvents.filter((ev) => isEventVisibleToAgent(ev, requestingAgentId));
+
+    const hasMore = visibleEvents.length > limit;
+    const resultEvents = hasMore ? visibleEvents.slice(0, limit) : visibleEvents;
 
     const lastEvent = resultEvents[resultEvents.length - 1];
     const nextCursor = lastEvent
@@ -232,38 +244,58 @@ export function buildApp(
     };
   });
 
-  // Messages
+  // Acknowledge inbox cursor for session
+  app.post("/v1/projects/:projectId/inbox/ack", async (req, reply) => {
+    const userId = getAuthenticatedUserId(req);
+    const { projectId } = req.params as { projectId: string };
+    const body = req.body as { session_id?: string; cursor?: string };
+    if (!body?.session_id || !body?.cursor) {
+      throw new AppError("INVALID_INPUT", "session_id and cursor are required");
+    }
+    const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
+    sessionService.updateCursor(projectId, session.agent_id, body.cursor);
+    return {
+      data: { status: "ok", cursor: body.cursor },
+      request_id: reply.getHeader("x-request-id"),
+    };
+  });
+
+  // Messages (Identity strictly derived from validated session_id)
   app.post("/v1/projects/:projectId/messages", async (req, reply) => {
     const userId = getAuthenticatedUserId(req);
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
-    const { sender_id, ...messagePayload } =
-      (req.body as { sender_id?: string } & Record<string, unknown>) ?? {};
-    if (!sender_id) {
-      throw new AppError("INVALID_INPUT", "sender_id is required");
+    const { session_id, ...messagePayload } =
+      (req.body as { session_id?: string } & Record<string, unknown>) ?? {};
+    if (!session_id) {
+      throw new AppError("INVALID_INPUT", "session_id is required to authenticate agent identity");
     }
+
+    const session = sessionService.validateSessionForUser(session_id, userId, projectId);
 
     const parsed = SendMessageInputSchema.safeParse(messagePayload);
     if (!parsed.success) {
       throw new AppError("INVALID_INPUT", parsed.error.errors[0]?.message ?? "Invalid message");
     }
 
-    const message = messageService.sendMessage(projectId, sender_id, parsed.data);
+    const message = messageService.sendMessage(projectId, session.agent_id, parsed.data);
     return reply.status(201).send({ data: message, request_id: reply.getHeader("x-request-id") });
   });
 
-  // Status Reports
+  // Status Reports (Identity strictly derived from validated session_id)
   app.post("/v1/projects/:projectId/status", async (req, reply) => {
     const userId = getAuthenticatedUserId(req);
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
-    const { agent_id, ...statusPayload } =
-      (req.body as { agent_id?: string } & Record<string, unknown>) ?? {};
-    if (!agent_id) {
-      throw new AppError("INVALID_INPUT", "agent_id is required");
+    const { session_id, ...statusPayload } =
+      (req.body as { session_id?: string } & Record<string, unknown>) ?? {};
+    if (!session_id) {
+      throw new AppError("INVALID_INPUT", "session_id is required to authenticate agent identity");
     }
+
+    const session = sessionService.validateSessionForUser(session_id, userId, projectId);
 
     const parsed = ReportStatusInputSchema.safeParse(statusPayload);
     if (!parsed.success) {
@@ -273,7 +305,7 @@ export function buildApp(
       );
     }
 
-    const report = statusService.reportStatus(projectId, agent_id, parsed.data);
+    const report = statusService.reportStatus(projectId, session.agent_id, parsed.data);
     return reply.status(201).send({ data: report, request_id: reply.getHeader("x-request-id") });
   });
 
@@ -286,25 +318,59 @@ export function buildApp(
     return { data: statuses, request_id: reply.getHeader("x-request-id") };
   });
 
-  // Locks
+  // Locks (Identity strictly derived from validated session_id)
   app.post("/v1/projects/:projectId/locks/claim", async (req, reply) => {
     const userId = getAuthenticatedUserId(req);
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
-    const { agent_id, ...lockPayload } =
-      (req.body as { agent_id?: string } & Record<string, unknown>) ?? {};
-    if (!agent_id) {
-      throw new AppError("INVALID_INPUT", "agent_id is required");
+    const { session_id, ...lockPayload } =
+      (req.body as { session_id?: string } & Record<string, unknown>) ?? {};
+    if (!session_id) {
+      throw new AppError("INVALID_INPUT", "session_id is required to authenticate agent identity");
     }
+
+    const session = sessionService.validateSessionForUser(session_id, userId, projectId);
 
     const parsed = ClaimLockInputSchema.safeParse(lockPayload);
     if (!parsed.success) {
       throw new AppError("INVALID_INPUT", parsed.error.errors[0]?.message ?? "Invalid lock claim");
     }
 
-    const lock = lockService.claimLock(projectId, agent_id, parsed.data);
+    const lock = lockService.claimLock(projectId, session.agent_id, parsed.data);
     return reply.status(201).send({ data: lock, request_id: reply.getHeader("x-request-id") });
+  });
+
+  // Renew lock by lockId
+  app.post("/v1/projects/:projectId/locks/:lockId/renew", async (req, reply) => {
+    const userId = getAuthenticatedUserId(req);
+    const { projectId, lockId } = req.params as { projectId: string; lockId: string };
+    authService.checkProjectPermission(userId, projectId);
+
+    const body = req.body as { session_id?: string; ttl_seconds?: number };
+    if (!body?.session_id) {
+      throw new AppError("INVALID_INPUT", "session_id is required");
+    }
+
+    const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
+    const renewed = lockService.renewLock(projectId, session.agent_id, lockId, body.ttl_seconds);
+    return { data: renewed, request_id: reply.getHeader("x-request-id") };
+  });
+
+  // Release lock by lockId
+  app.delete("/v1/projects/:projectId/locks/:lockId", async (req, reply) => {
+    const userId = getAuthenticatedUserId(req);
+    const { projectId, lockId } = req.params as { projectId: string; lockId: string };
+    authService.checkProjectPermission(userId, projectId);
+
+    const body = req.body as { session_id?: string };
+    if (!body?.session_id) {
+      throw new AppError("INVALID_INPUT", "session_id is required");
+    }
+
+    const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
+    lockService.releaseLockById(projectId, session.agent_id, lockId);
+    return { data: { released: [lockId] }, request_id: reply.getHeader("x-request-id") };
   });
 
   app.delete("/v1/projects/:projectId/locks", async (req, reply) => {
@@ -312,12 +378,13 @@ export function buildApp(
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
-    const body = req.body as { agent_id?: string; paths?: string[] };
-    if (!body?.agent_id || !Array.isArray(body?.paths)) {
-      throw new AppError("INVALID_INPUT", "agent_id and paths array are required");
+    const body = req.body as { session_id?: string; paths?: string[] };
+    if (!body?.session_id || !Array.isArray(body?.paths)) {
+      throw new AppError("INVALID_INPUT", "session_id and paths array are required");
     }
 
-    const released = lockService.releaseLock(projectId, body.agent_id, body.paths);
+    const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
+    const released = lockService.releaseLock(projectId, session.agent_id, body.paths);
     return { data: { released }, request_id: reply.getHeader("x-request-id") };
   });
 
@@ -353,6 +420,14 @@ export function buildApp(
   // WebSocket endpoint for real-time events
   app.get("/v1/projects/:projectId/events", { websocket: true }, (socket, req) => {
     const { projectId } = req.params as { projectId: string };
+    const origin = req.headers.origin;
+
+    // Validate Origin if present
+    if (origin && !corsOrigins.includes(origin) && !corsOrigins.includes("*")) {
+      socket.close(1008, "Invalid Origin");
+      return;
+    }
+
     const authHeader = req.headers.authorization;
     const token =
       req.query && typeof req.query === "object" && "token" in req.query
@@ -360,6 +435,11 @@ export function buildApp(
         : authHeader?.startsWith("Bearer ")
           ? authHeader.substring(7)
           : "";
+
+    const sessionId =
+      req.query && typeof req.query === "object" && "session_id" in req.query
+        ? String(req.query.session_id)
+        : undefined;
 
     try {
       if (!token) {
@@ -369,13 +449,24 @@ export function buildApp(
       const verified = authService.verifyToken(token);
       authService.checkProjectPermission(verified.userId, projectId);
 
+      let agentId: string | undefined;
+      if (sessionId) {
+        const session = sessionService.validateSessionForUser(
+          sessionId,
+          verified.userId,
+          projectId,
+        );
+        agentId = session.agent_id;
+      }
+
       wsHub.register({
         socket,
         projectId,
         userId: verified.userId,
+        agentId,
       });
 
-      socket.send(JSON.stringify({ type: "connected", projectId }));
+      socket.send(JSON.stringify({ type: "connected", projectId, agentId }));
     } catch {
       socket.close(1008, "Unauthorized");
     }

@@ -82,9 +82,10 @@ export class HubClient {
     });
   }
 
-  public async getInbox(projectId: string, cursor?: string, limit = 50) {
+  public async getInbox(projectId: string, sessionId?: string, cursor?: string, limit = 50) {
     let qs = `?limit=${limit}`;
     if (cursor) qs += `&after=${encodeURIComponent(cursor)}`;
+    if (sessionId) qs += `&session_id=${encodeURIComponent(sessionId)}`;
     return this.request<{
       events: Array<{ sequence: number; type: string; payload: unknown }>;
       next_cursor: string;
@@ -92,9 +93,16 @@ export class HubClient {
     }>(`/v1/projects/${projectId}/inbox${qs}`);
   }
 
+  public async ackInbox(projectId: string, sessionId: string, cursor: string) {
+    return this.request<{ status: string; cursor: string }>(`/v1/projects/${projectId}/inbox/ack`, {
+      method: "POST",
+      body: { session_id: sessionId, cursor },
+    });
+  }
+
   public async sendMessage(
     projectId: string,
-    senderId: string,
+    sessionId: string,
     body: {
       body: string;
       channel?: string | undefined;
@@ -106,7 +114,7 @@ export class HubClient {
     return this.request(`/v1/projects/${projectId}/messages`, {
       method: "POST",
       body: {
-        sender_id: senderId,
+        session_id: sessionId,
         ...body,
       },
     });
@@ -114,7 +122,7 @@ export class HubClient {
 
   public async reportStatus(
     projectId: string,
-    agentId: string,
+    sessionId: string,
     body: {
       objective: string;
       progress?: string | undefined;
@@ -126,7 +134,7 @@ export class HubClient {
     return this.request(`/v1/projects/${projectId}/status`, {
       method: "POST",
       body: {
-        agent_id: agentId,
+        session_id: sessionId,
         ...body,
       },
     });
@@ -134,7 +142,7 @@ export class HubClient {
 
   public async claimLock(
     projectId: string,
-    agentId: string,
+    sessionId: string,
     body: {
       paths: string[];
       reason: string;
@@ -144,17 +152,41 @@ export class HubClient {
     return this.request(`/v1/projects/${projectId}/locks/claim`, {
       method: "POST",
       body: {
-        agent_id: agentId,
+        session_id: sessionId,
         ...body,
       },
     });
   }
 
-  public async releaseLock(projectId: string, agentId: string, paths: string[]) {
+  public async renewLock(
+    projectId: string,
+    sessionId: string,
+    lockId: string,
+    ttlSeconds?: number,
+  ) {
+    return this.request(`/v1/projects/${projectId}/locks/${lockId}/renew`, {
+      method: "POST",
+      body: {
+        session_id: sessionId,
+        ttl_seconds: ttlSeconds,
+      },
+    });
+  }
+
+  public async releaseLockById(projectId: string, sessionId: string, lockId: string) {
+    return this.request(`/v1/projects/${projectId}/locks/${lockId}`, {
+      method: "DELETE",
+      body: {
+        session_id: sessionId,
+      },
+    });
+  }
+
+  public async releaseLock(projectId: string, sessionId: string, paths: string[]) {
     return this.request(`/v1/projects/${projectId}/locks`, {
       method: "DELETE",
       body: {
-        agent_id: agentId,
+        session_id: sessionId,
         paths,
       },
     });

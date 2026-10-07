@@ -60,11 +60,11 @@ Fuera del MVP quedan la asignación autónoma de tareas, sincronización de arch
 
 ### Componentes
 
-**`team-hub-mcp` local.** Se ejecuta como servidor MCP iniciado por el cliente mediante `stdio`. No expone un puerto público ni recibe conexiones entrantes. Traduce las llamadas de herramientas a solicitudes autenticadas al Hub, aplica timeouts y no imprime logs en `stdout`.
+**`team-hub-mcp` local.** Se ejecuta como servidor MCP iniciado por el cliente mediante `stdio` utilizando `@modelcontextprotocol/sdk` v1.6.0. No expone un puerto público ni recibe conexiones entrantes. Traduce las llamadas de herramientas a solicitudes autenticadas al Hub, aplica timeouts y no imprime logs en `stdout`.
 
 **Hub Server.** Es la única autoridad para proyectos, miembros, agentes, mensajes, presencia, locks y secuencias de eventos. El MVP puede ejecutarse como un proceso Node.js/TypeScript con módulos internos separados.
 
-**Persistencia.** SQLite con WAL para desarrollo y primera instalación de un solo nodo. El código debe ocultar el acceso detrás de repositorios/interfaces para migrar a PostgreSQL sin rehacer el dominio. Redis no es requisito del MVP.
+**Persistencia.** SQLite con WAL mediante `node:sqlite` nativo de Node 24 (`DatabaseSync`) para desarrollo y primera instalación de un solo nodo (evitando toolchains nativos C++ en Windows). El código oculta el acceso detrás de repositorios/interfaces para migrar a PostgreSQL o añadir Drizzle sin rehacer el dominio. Redis no es requisito del MVP.
 
 **Dashboard.** Cliente web que consume una API autenticada y un canal WebSocket sólo para eventos de presentación. Nunca es la autoridad de permisos ni de locks.
 

@@ -178,6 +178,95 @@ export class LockService {
     return released;
   }
 
+  public renewLock(
+    projectId: string,
+    agentId: string,
+    lockId: string,
+    ttlSeconds = 300,
+  ): WorkspaceLock {
+    const now = nowUtc();
+    const stmt = this.db.prepare(
+      "SELECT * FROM workspace_locks WHERE lock_id = ? AND project_id = ?",
+    );
+    const lock = stmt.get(lockId, projectId) as
+      | {
+          lock_id: string;
+          project_id: string;
+          owner_agent_id: string;
+          paths: string;
+          reason: string;
+          ttl_seconds: number;
+          expires_at: string;
+          created_at: string;
+        }
+      | undefined;
+
+    if (!lock) {
+      throw new AppError("PROJECT_NOT_FOUND", `Lock ${lockId} not found in project ${projectId}`);
+    }
+
+    if (lock.owner_agent_id !== agentId) {
+      throw new AppError("LOCK_NOT_OWNER", `Cannot renew lock owned by '${lock.owner_agent_id}'`);
+    }
+
+    if (lock.expires_at <= now) {
+      throw new AppError("LOCK_CONFLICT", `Lock ${lockId} has already expired`);
+    }
+
+    const newExpiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+    this.db
+      .prepare("UPDATE workspace_locks SET expires_at = ?, ttl_seconds = ? WHERE lock_id = ?")
+      .run(newExpiresAt, ttlSeconds, lockId);
+
+    const paths = JSON.parse(lock.paths) as string[];
+    this.eventBus.recordEvent(projectId, agentId, "lock.acquired", {
+      lock_id: lockId,
+      paths,
+      reason: "renewed",
+      expires_at: newExpiresAt,
+    });
+
+    return {
+      lock_id: lock.lock_id,
+      project_id: lock.project_id,
+      owner_agent_id: lock.owner_agent_id,
+      paths,
+      reason: lock.reason,
+      ttl_seconds: ttlSeconds,
+      expires_at: newExpiresAt,
+      created_at: lock.created_at,
+    };
+  }
+
+  public releaseLockById(projectId: string, agentId: string, lockId: string): void {
+    const stmt = this.db.prepare(
+      "SELECT * FROM workspace_locks WHERE lock_id = ? AND project_id = ?",
+    );
+    const lock = stmt.get(lockId, projectId) as
+      | {
+          lock_id: string;
+          owner_agent_id: string;
+          paths: string;
+        }
+      | undefined;
+
+    if (!lock) {
+      throw new AppError("PROJECT_NOT_FOUND", `Lock ${lockId} not found`);
+    }
+
+    if (lock.owner_agent_id !== agentId) {
+      throw new AppError("LOCK_NOT_OWNER", `Cannot release lock owned by '${lock.owner_agent_id}'`);
+    }
+
+    this.db.prepare("DELETE FROM workspace_locks WHERE lock_id = ?").run(lockId);
+
+    const paths = JSON.parse(lock.paths) as string[];
+    this.eventBus.recordEvent(projectId, agentId, "lock.released", {
+      lock_id: lockId,
+      paths,
+    });
+  }
+
   public getActiveLocks(projectId: string): WorkspaceLock[] {
     const now = nowUtc();
     const stmt = this.db.prepare(`

@@ -108,6 +108,36 @@ export class SessionService {
     this.eventBus.recordEvent(projectId, agentId, "agent.left", { agent_id: agentId });
   }
 
+  public getSessionById(sessionId: string): AgentSession {
+    const stmt = this.db.prepare("SELECT * FROM agent_sessions WHERE session_id = ?");
+    const row = stmt.get(sessionId) as AgentSession | undefined;
+    if (!row) {
+      throw new AppError("SESSION_EXPIRED", `Session ${sessionId} not found`);
+    }
+    return row;
+  }
+
+  public validateSessionForUser(
+    sessionId: string,
+    userId: string,
+    projectId: string,
+  ): AgentSession {
+    const session = this.getSessionById(sessionId);
+    if (session.user_id !== userId) {
+      throw new AppError("FORBIDDEN", `Session ${sessionId} does not belong to user ${userId}`);
+    }
+    if (session.project_id !== projectId) {
+      throw new AppError(
+        "FORBIDDEN",
+        `Session ${sessionId} does not belong to project ${projectId}`,
+      );
+    }
+    if (session.status === "disconnected") {
+      throw new AppError("SESSION_EXPIRED", `Session ${sessionId} is disconnected`);
+    }
+    return session;
+  }
+
   public getActiveSessions(projectId: string): AgentSession[] {
     const stmt = this.db.prepare(
       "SELECT * FROM agent_sessions WHERE project_id = ? AND status = 'active'",

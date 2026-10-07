@@ -40,6 +40,8 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-008 | 2026-10-07 | MVP monolítico modular con SQLite/WAL | Reduce complejidad operacional y permite validar el producto antes de separar servicios o añadir Redis/PostgreSQL. | Aceptado |
 | ADR-009 | 2026-10-07 | Seguridad por proyecto, mínimo privilegio y contexto estructurado | Aislar proyectos, validar entradas, limitar capacidades, auditar acciones y evitar exposición de razonamiento privado o secretos. | Aceptado |
 | ADR-010 | 2026-10-07 | Stack tecnológico del MVP | TypeScript + Node 24 LTS, pnpm, Fastify, WebSocket, MCP SDK, Zod, SQLite/WAL con `node:sqlite` nativo (evita dependencias C++/node-gyp en Windows), React/Vite/Tailwind, Vitest, Playwright, Biome y Pino. | Aceptado (Ajustado) |
+| ADR-011 | 2026-10-07 | Uso de `node:sqlite` nativo (Experimental en Node 24) | `better-sqlite3` falló en Windows por falta de binarios para Node 24 y ausencia de VC++ toolchain. Se adopta `node:sqlite` nativo de Node 24; se asume el warning experimental en desarrollo/tests para no bloquear el MVP sin compiladores C++. | Aceptado |
+| ADR-012 | 2026-10-07 | Uso de `@modelcontextprotocol/sdk` v1.x en MCP local | `@modelcontextprotocol/sdk` v1.6.0 es el paquete estable disponible en npm con soporte maduro de `Server` y `StdioServerTransport`. Se documenta como versión base del MVP; la migración a paquetes separados v2 (`@modelcontextprotocol/server`) se evaluará tras validar el MVP. | Aceptado |
 
 ---
 
@@ -76,6 +78,19 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-07] — Remediación Completa de Auditoría Fases 0 a 4 (`fix/audit-phases-0-4`)
+- **P0 Impersonación de Agente resuelto:** Se eliminó la confianza en `sender_id`/`agent_id` enviados por el cliente. Las rutas HTTP (`POST /messages`, `POST /status`, `POST /locks/claim`, etc.) ahora exigen `session_id`, validado contra el usuario autenticado del token y el proyecto.
+- **P0 Fuga de Eventos resuelto:** Implementado `isEventVisibleToAgent` en `apps/hub-server/src/application/policies/event-visibility.ts`. Tanto el inbox (`GET /v1/projects/:projectId/inbox`) como el broadcast de WebSocket filtran eventos dirigidos para que sólo el destinatario y el emisor reciban mensajes privados (Alice→Bob nunca es visible a Charlie).
+- **P0 Conexión EventBus a WebSocket:** El event bus ahora emite directamente a `wsHub.broadcast` en la finalización de transacciones (`commit`).
+- **P1 Seguridad WebSocket & CORS:** Validación estricta del encabezado `Origin` contra `CORS_ORIGIN`, control de scopes por token y binding obligatorio de sesión-a-agente.
+- **P1 Operaciones faltantes implementadas:**
+  - `POST /v1/projects/:projectId/locks/:lockId/renew`: Renovación de TTL para locks activos por su propietario.
+  - `DELETE /v1/projects/:projectId/locks/:lockId`: Liberación directa por ID de lock.
+  - `POST /v1/projects/:projectId/inbox/ack`: Confirmación atómica del cursor de lectura de la sesión.
+- **P1 Validación runtime en MCP Server:** Servidor MCP valida todos los argumentos entrantes usando esquemas Zod (`SendMessageInputSchema`, `ClaimLockInputSchema`, `ReportStatusInputSchema`) antes de transferir llamadas al HubClient.
+- **ADRs actualizados:** Registrados ADR-011 (`node:sqlite`) y ADR-012 (`@modelcontextprotocol/sdk` v1.6.0).
+- **Aceptación y calidad:** Biome (52 archivos limpios), TypeScript (`tsc -b` limpio), Vitest (41/41 tests pasando en verde) y build sin errores. Aprobado para mergear a `main` y proceder con la Fase 5.
 
 ### [2026-10-07] — Auditoría de las Fases 0 a 4
 - Se revisó la implementación actual contra `DEVELOPMENT_PLAN.md` y se ejecutaron `pnpm lint`, `pnpm typecheck`, `pnpm test` y `pnpm -r build`.
