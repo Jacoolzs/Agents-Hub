@@ -30,8 +30,7 @@ export class StatusService {
     const statusId = generateId();
     const now = nowUtc();
 
-    this.db.exec("BEGIN TRANSACTION;");
-    try {
+    return this.eventBus.transaction(() => {
       this.db
         .prepare(`
         INSERT INTO status_reports (status_id, project_id, agent_id, objective, progress, decision, blocked_by, next_step, reported_at)
@@ -59,23 +58,18 @@ export class StatusService {
         next_step: input.next_step ?? null,
       });
 
-      this.db.exec("COMMIT;");
-    } catch (err) {
-      this.db.exec("ROLLBACK;");
-      throw err;
-    }
-
-    return {
-      status_id: statusId,
-      project_id: projectId,
-      agent_id: agentId,
-      objective: input.objective,
-      progress: input.progress,
-      ...(input.decision ? { decision: input.decision } : {}),
-      ...(input.blocked_by ? { blocked_by: input.blocked_by } : {}),
-      ...(input.next_step ? { next_step: input.next_step } : {}),
-      reported_at: now,
-    };
+      return {
+        status_id: statusId,
+        project_id: projectId,
+        agent_id: agentId,
+        objective: input.objective,
+        progress: input.progress,
+        ...(input.decision ? { decision: input.decision } : {}),
+        ...(input.blocked_by ? { blocked_by: input.blocked_by } : {}),
+        ...(input.next_step ? { next_step: input.next_step } : {}),
+        reported_at: now,
+      };
+    });
   }
 
   public getLatestStatuses(projectId: string): StatusReport[] {

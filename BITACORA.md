@@ -42,6 +42,8 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-010 | 2026-10-07 | Stack tecnológico del MVP | TypeScript + Node 24 LTS, pnpm, Fastify, WebSocket, MCP SDK, Zod, SQLite/WAL con `node:sqlite` nativo (evita dependencias C++/node-gyp en Windows), React/Vite/Tailwind, Vitest, Playwright, Biome y Pino. | Aceptado (Ajustado) |
 | ADR-011 | 2026-10-07 | Uso de `node:sqlite` nativo (Experimental en Node 24) | `better-sqlite3` falló en Windows por falta de binarios para Node 24 y ausencia de VC++ toolchain. Se adopta `node:sqlite` nativo de Node 24; se asume el warning experimental en desarrollo/tests para no bloquear el MVP sin compiladores C++. | Aceptado |
 | ADR-012 | 2026-10-07 | Uso de `@modelcontextprotocol/sdk` v1.x en MCP local | `@modelcontextprotocol/sdk` v1.6.0 es el paquete estable disponible en npm con soporte maduro de `Server` y `StdioServerTransport`. Se documenta como versión base del MVP; la migración a paquetes separados v2 (`@modelcontextprotocol/server`) se evaluará tras validar el MVP. | Aceptado |
+| ADR-013 | 2026-10-07 | Política de Origin estricta y tokens sólo por Header en producción | WebSocket rechaza orígenes no autorizados o ausentes cuando no es wildcard y prohíbe tokens en query string en entornos productivos. | Aceptado |
+| ADR-014 | 2026-10-07 | Notificación transaccional post-commit en EventBus y autorización por Scopes | SqliteEventBus despacha a listeners únicamente tras COMMIT; para evitar eventos fantasma en rollbacks. Todas las rutas aplican autorización granular por scopes. | Aceptado |
 
 ---
 
@@ -78,6 +80,27 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-07] — Remediación Integral de Seguridad y Consistencia Fases 0 a 4 (`fix/security-audit-remediation`)
+- **1. GET /inbox sesión obligatoria:** Se eliminó la omisión de `session_id`. Se exige parámetro `session_id` validado contra el usuario y proyecto; responde 422 `INVALID_INPUT` si falta, impidiendo que mensajes dirigidos se filtren sin identidad explícita.
+- **2. WebSocket sesión obligatoria:** La conexión WebSocket exige `session_id` obligatorio. Si falta, el socket se cierra inmediatamente con código `1008 ("session_id is required")`.
+- **3. Política estricta de Origin:** `Origin` ausente o fuera de lista permitida es rechazado con código 1008 cuando CORS no es wildcard o el entorno es de producción.
+- **4. Token en query string prohibido en producción:** Si `NODE_ENV === "production"`, el token por query string es rechazado (sólo encabezado `Authorization: Bearer` permitido). En desarrollo local se tolera para simplificar pruebas.
+- **5. EventBus con notificación post-commit:** `SqliteEventBus` bufferiza eventos durante transacciones. Las notificaciones a suscriptores (`wsHub.broadcast`) se emiten **exclusivamente después** del `COMMIT;` de base de datos. En caso de `ROLLBACK;`, los eventos pendientes se descartan, eliminando eventos fantasma en WebSockets.
+- **6. Validación exhaustiva de ACK de cursor:** `POST /inbox/ack` valida el formato con `decodeCursor` (debe ser base64url entero no negativo), comprueba que `sequence <= maxSeq` del proyecto y verifica que el evento confirmado sea visible para el agente de la sesión.
+- **7. Autorización efectiva por scopes:** Se implementó verificación granular de scopes (`messages:read`, `messages:write`, `locks:read`, `locks:write`, `projects:read`, `projects:write`, `sessions:write`) o comodín `*`. Tokens con scopes insuficientes son rechazados con 403 `FORBIDDEN`.
+- **8. Calidad, tests y Biome 100% limpios:**
+  - Creado `.gitattributes` para forzar `eol=lf` y resolver fallos de Biome por saltos de línea Windows CRLF.
+  - Corregidos todos los tests de Biome en `apps/hub-server` y `packages/mcp-server`.
+  - Añadidos tests específicos para: inbox sin session_id, WebSocket sin session_id, Origin ausente/inválido, tokens en query string en producción, scopes insuficientes, y aislamiento transaccional del event bus ante rollbacks.
+  - Resultados verificados:
+    - `pnpm format`: Limpio.
+    - `pnpm lint`: 52 archivos sin errores ni advertencias.
+    - `pnpm typecheck`: Limpio.
+    - `pnpm test`: 56 tests pasando en verde (6 suites).
+    - `pnpm -r build`: Compilación limpia.
+- **Estado:** 8 puntos de auditoría totalmente corregidos y verificados. Repositorio listo para avanzar a la **Fase 5**.
+
 
 ### [2026-10-07] — Segunda verificación de la remediación de Fases 0 a 4
 - El reporte de cierre de Gemini se contrastó contra el checkout actual y los comandos reales.

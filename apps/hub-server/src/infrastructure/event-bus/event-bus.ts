@@ -5,6 +5,8 @@ export type EventListener = (event: EventEnvelope) => void;
 
 export class SqliteEventBus {
   private listeners: Set<EventListener> = new Set();
+  private inTransaction = false;
+  private pendingEvents: EventEnvelope[] = [];
 
   constructor(private readonly db: DatabaseSync) {}
 
@@ -13,6 +15,50 @@ export class SqliteEventBus {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  public beginTransaction(): void {
+    this.inTransaction = true;
+    this.pendingEvents = [];
+  }
+
+  public commitTransaction(): void {
+    this.inTransaction = false;
+    const toDispatch = [...this.pendingEvents];
+    this.pendingEvents = [];
+    for (const envelope of toDispatch) {
+      this.dispatch(envelope);
+    }
+  }
+
+  public rollbackTransaction(): void {
+    this.inTransaction = false;
+    this.pendingEvents = [];
+  }
+
+  public transaction<T>(fn: () => T): T {
+    this.db.exec("BEGIN TRANSACTION;");
+    this.beginTransaction();
+    try {
+      const result = fn();
+      this.db.exec("COMMIT;");
+      this.commitTransaction();
+      return result;
+    } catch (err) {
+      this.db.exec("ROLLBACK;");
+      this.rollbackTransaction();
+      throw err;
+    }
+  }
+
+  private dispatch(envelope: EventEnvelope): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(envelope);
+      } catch {
+        // Safe: non-blocking listener failure
+      }
+    }
   }
 
   public recordEvent(
@@ -57,15 +103,55 @@ export class SqliteEventBus {
       payload,
     };
 
-    for (const listener of this.listeners) {
-      try {
-        listener(envelope);
-      } catch {
-        // Safe: non-blocking listener failure
-      }
+    if (this.inTransaction) {
+      this.pendingEvents.push(envelope);
+    } else {
+      this.dispatch(envelope);
     }
 
     return envelope;
+  }
+
+  public getMaxSequence(projectId: string): number {
+    const stmt = this.db.prepare(`
+      SELECT COALESCE(MAX(sequence), 0) AS max_seq
+      FROM events
+      WHERE project_id = ?
+    `);
+    const row = stmt.get(projectId) as { max_seq: number } | undefined;
+    return row?.max_seq ?? 0;
+  }
+
+  public getEventBySequence(projectId: string, sequence: number): EventEnvelope | undefined {
+    const stmt = this.db.prepare(`
+      SELECT event_id, project_id, sequence, type, actor_id, occurred_at, payload_version, payload
+      FROM events
+      WHERE project_id = ? AND sequence = ?
+    `);
+    const row = stmt.get(projectId, sequence) as
+      | {
+          event_id: string;
+          project_id: string;
+          sequence: number;
+          type: EventType;
+          actor_id: string;
+          occurred_at: string;
+          payload_version: number;
+          payload: string;
+        }
+      | undefined;
+
+    if (!row) return undefined;
+    return {
+      event_id: row.event_id,
+      project_id: row.project_id,
+      sequence: row.sequence,
+      type: row.type,
+      actor_id: row.actor_id,
+      occurred_at: row.occurred_at,
+      payload_version: 1,
+      payload: JSON.parse(row.payload) as Record<string, unknown>,
+    };
   }
 
   public getEventsAfter(projectId: string, afterSequence = 0, limit = 50): EventEnvelope[] {

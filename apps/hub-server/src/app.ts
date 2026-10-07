@@ -18,7 +18,7 @@ import { MessageService } from "./application/services/message-service.js";
 import { ProjectService } from "./application/services/project-service.js";
 import { SessionService } from "./application/services/session-service.js";
 import { StatusService } from "./application/services/status-service.js";
-import { AuthService } from "./http/auth/auth-service.js";
+import { type AuthContext, AuthService } from "./http/auth/auth-service.js";
 import { WebSocketHub } from "./http/websocket/ws-hub.js";
 import { createDatabase } from "./infrastructure/db/database.js";
 import { SqliteEventBus } from "./infrastructure/event-bus/event-bus.js";
@@ -99,7 +99,7 @@ export function buildApp(
         PROJECT_NOT_FOUND: 404,
         INVALID_INPUT: 422,
         MESSAGE_TOO_LARGE: 413,
-        CURSOR_INVALID: 422,
+        CURSOR_INVALID: 400,
         LOCK_CONFLICT: 409,
         LOCK_NOT_OWNER: 403,
         SESSION_EXPIRED: 401,
@@ -129,14 +129,32 @@ export function buildApp(
     });
   });
 
-  function getAuthenticatedUserId(req: FastifyRequest): string {
+  function getAuth(req: FastifyRequest): AuthContext {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       throw new AppError("UNAUTHENTICATED", "Missing or malformed Authorization header");
     }
     const token = authHeader.substring(7).trim();
-    const verified = authService.verifyToken(token);
-    return verified.userId;
+    return authService.verifyToken(token);
+  }
+
+  function requireScope(auth: AuthContext, requiredScope: string): void {
+    const scopes = auth.scopes ?? [];
+    if (scopes.includes("*") || scopes.includes(requiredScope)) {
+      return;
+    }
+    throw new AppError(
+      "FORBIDDEN",
+      `Insufficient token scope: requires '${requiredScope}', found [${scopes.join(", ")}]`,
+    );
+  }
+
+  function getAuthenticatedUserId(req: FastifyRequest, requiredScope?: string): string {
+    const auth = getAuth(req);
+    if (requiredScope) {
+      requireScope(auth, requiredScope);
+    }
+    return auth.userId;
   }
 
   // --- HEALTH ENDPOINTS ---
@@ -147,7 +165,7 @@ export function buildApp(
 
   // Projects
   app.post("/v1/projects", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "projects:write");
     const body = req.body as { name?: string; username?: string };
     if (!body?.name) {
       throw new AppError("INVALID_INPUT", "Project name is required");
@@ -157,7 +175,7 @@ export function buildApp(
   });
 
   app.get("/v1/projects/:projectId", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "projects:read");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
     const project = projectService.getProject(projectId);
@@ -166,7 +184,7 @@ export function buildApp(
 
   // Sessions
   app.post("/v1/projects/:projectId/sessions", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "sessions:write");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
     const body = req.body as { agent_id?: string };
@@ -178,7 +196,7 @@ export function buildApp(
   });
 
   app.post("/v1/sessions/:sessionId/heartbeat", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "sessions:write");
     const body = req.body as { project_id?: string; agent_id?: string };
     if (!body?.project_id || !body?.agent_id) {
       throw new AppError("INVALID_INPUT", "project_id and agent_id are required");
@@ -189,7 +207,7 @@ export function buildApp(
   });
 
   app.delete("/v1/sessions/:sessionId", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "sessions:write");
     const body = req.body as { project_id?: string; agent_id?: string };
     if (!body?.project_id || !body?.agent_id) {
       throw new AppError("INVALID_INPUT", "project_id and agent_id are required");
@@ -201,16 +219,17 @@ export function buildApp(
 
   // Inbox & Events (filtered by requesting session / agent)
   app.get("/v1/projects/:projectId/inbox", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "messages:read");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
     const query = req.query as { after?: string; limit?: string; session_id?: string };
-    let requestingAgentId: string | undefined;
-    if (query.session_id) {
-      const session = sessionService.validateSessionForUser(query.session_id, userId, projectId);
-      requestingAgentId = session.agent_id;
+    if (!query.session_id) {
+      throw new AppError("INVALID_INPUT", "session_id is required to fetch inbox events");
     }
+
+    const session = sessionService.validateSessionForUser(query.session_id, userId, projectId);
+    const requestingAgentId = session.agent_id;
 
     let afterSequence = 0;
     if (query.after) {
@@ -246,13 +265,42 @@ export function buildApp(
 
   // Acknowledge inbox cursor for session
   app.post("/v1/projects/:projectId/inbox/ack", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "messages:read");
     const { projectId } = req.params as { projectId: string };
+    authService.checkProjectPermission(userId, projectId);
+
     const body = req.body as { session_id?: string; cursor?: string };
     if (!body?.session_id || !body?.cursor) {
       throw new AppError("INVALID_INPUT", "session_id and cursor are required");
     }
     const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
+
+    // Validate cursor format
+    const sequence = decodeCursor(body.cursor);
+    if (sequence === null || sequence < 0) {
+      throw new AppError("CURSOR_INVALID", "Provided cursor is invalid or malformed");
+    }
+
+    // Validate cursor does not exceed highest project sequence
+    const maxSeq = eventBus.getMaxSequence(projectId);
+    if (sequence > maxSeq) {
+      throw new AppError(
+        "CURSOR_INVALID",
+        `Cursor sequence ${sequence} exceeds highest project event sequence ${maxSeq}`,
+      );
+    }
+
+    // Validate that the acknowledged event is visible to this agent
+    if (sequence > 0) {
+      const ev = eventBus.getEventBySequence(projectId, sequence);
+      if (ev && !isEventVisibleToAgent(ev, session.agent_id)) {
+        throw new AppError(
+          "CURSOR_INVALID",
+          `Cursor sequence ${sequence} points to an event not visible to agent '${session.agent_id}'`,
+        );
+      }
+    }
+
     sessionService.updateCursor(projectId, session.agent_id, body.cursor);
     return {
       data: { status: "ok", cursor: body.cursor },
@@ -262,7 +310,7 @@ export function buildApp(
 
   // Messages (Identity strictly derived from validated session_id)
   app.post("/v1/projects/:projectId/messages", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "messages:write");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
@@ -285,7 +333,7 @@ export function buildApp(
 
   // Status Reports (Identity strictly derived from validated session_id)
   app.post("/v1/projects/:projectId/status", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "messages:write");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
@@ -310,7 +358,7 @@ export function buildApp(
   });
 
   app.get("/v1/projects/:projectId/status", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "messages:read");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
@@ -320,7 +368,7 @@ export function buildApp(
 
   // Locks (Identity strictly derived from validated session_id)
   app.post("/v1/projects/:projectId/locks/claim", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "locks:write");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
@@ -343,7 +391,7 @@ export function buildApp(
 
   // Renew lock by lockId
   app.post("/v1/projects/:projectId/locks/:lockId/renew", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "locks:write");
     const { projectId, lockId } = req.params as { projectId: string; lockId: string };
     authService.checkProjectPermission(userId, projectId);
 
@@ -359,7 +407,7 @@ export function buildApp(
 
   // Release lock by lockId
   app.delete("/v1/projects/:projectId/locks/:lockId", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "locks:write");
     const { projectId, lockId } = req.params as { projectId: string; lockId: string };
     authService.checkProjectPermission(userId, projectId);
 
@@ -374,7 +422,7 @@ export function buildApp(
   });
 
   app.delete("/v1/projects/:projectId/locks", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "locks:write");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
@@ -389,7 +437,7 @@ export function buildApp(
   });
 
   app.get("/v1/projects/:projectId/locks", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "locks:read");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
@@ -399,7 +447,7 @@ export function buildApp(
 
   // Team status summary
   app.get("/v1/projects/:projectId/team-status", async (req, reply) => {
-    const userId = getAuthenticatedUserId(req);
+    const userId = getAuthenticatedUserId(req, "projects:read");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
@@ -434,28 +482,50 @@ export function buildApp(
         return;
       }
 
+      const isProduction =
+        process.env.NODE_ENV === "production" || config?.NODE_ENV === "production";
       const origin = req?.headers?.origin;
 
-      // Validate Origin if present
-      if (origin && !corsOrigins.includes(origin) && !corsOrigins.includes("*")) {
+      // Origin policy: in production or strict CORS, Origin header is mandatory
+      if (!origin) {
+        if (isProduction || !corsOrigins.includes("*")) {
+          socket.close(1008, "Origin header is required");
+          return;
+        }
+      } else if (!corsOrigins.includes(origin) && !corsOrigins.includes("*")) {
         socket.close(1008, "Invalid Origin");
         return;
       }
 
       const authHeader = req?.headers?.authorization;
       let token = "";
-      let sessionId: string | undefined;
-
-      if (req?.query && typeof req.query === "object") {
-        if ("token" in req.query) token = String(req.query.token);
-        if ("session_id" in req.query) sessionId = String(req.query.session_id);
+      if (authHeader?.startsWith("Bearer ")) {
+        token = authHeader.substring(7).trim();
       }
 
-      if (!token && req?.url) {
+      // Query string token is prohibited in production
+      if (!token && !isProduction) {
+        if (req?.query && typeof req.query === "object" && "token" in req.query) {
+          token = String(req.query.token);
+        } else if (req?.url) {
+          try {
+            const u = new URL(req.url, "http://localhost");
+            if (u.searchParams.has("token")) {
+              token = u.searchParams.get("token") ?? "";
+            }
+          } catch {
+            // ignore URL parse error
+          }
+        }
+      }
+
+      let sessionId: string | undefined;
+      if (req?.query && typeof req.query === "object" && "session_id" in req.query) {
+        sessionId = String(req.query.session_id);
+      } else if (req?.url) {
         try {
           const u = new URL(req.url, "http://localhost");
-          if (u.searchParams.has("token")) token = u.searchParams.get("token") ?? "";
-          if (!sessionId && u.searchParams.has("session_id")) {
+          if (u.searchParams.has("session_id")) {
             sessionId = u.searchParams.get("session_id") ?? undefined;
           }
         } catch {
@@ -463,36 +533,34 @@ export function buildApp(
         }
       }
 
-      if (!token && authHeader?.startsWith("Bearer ")) {
-        token = authHeader.substring(7);
-      }
-
       try {
         if (!token) {
           socket.close(1008, "Token missing");
           return;
         }
+        if (!sessionId) {
+          socket.close(1008, "session_id is required");
+          return;
+        }
+
         const verified = authService.verifyToken(token);
+        requireScope(verified, "messages:read");
         authService.checkProjectPermission(verified.userId, projectId);
 
-        let agentId: string | undefined;
-        if (sessionId) {
-          const session = sessionService.validateSessionForUser(
-            sessionId,
-            verified.userId,
-            projectId,
-          );
-          agentId = session.agent_id;
-        }
+        const session = sessionService.validateSessionForUser(
+          sessionId,
+          verified.userId,
+          projectId,
+        );
 
         wsHub.register({
           socket,
           projectId,
           userId: verified.userId,
-          agentId,
+          agentId: session.agent_id,
         });
 
-        socket.send(JSON.stringify({ type: "connected", projectId, agentId }));
+        socket.send(JSON.stringify({ type: "connected", projectId, agentId: session.agent_id }));
       } catch {
         socket.close(1008, "Unauthorized");
       }

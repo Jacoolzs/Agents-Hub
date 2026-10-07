@@ -31,8 +31,7 @@ export class ProjectService {
     const membershipId = generateId();
     const now = nowUtc();
 
-    this.db.exec("BEGIN TRANSACTION;");
-    try {
+    this.eventBus.transaction(() => {
       this.db
         .prepare(`
         INSERT INTO projects (project_id, name, created_by_user_id, created_at, updated_at)
@@ -51,12 +50,7 @@ export class ProjectService {
         name: trimmedName,
         created_by_user_id: userId,
       });
-
-      this.db.exec("COMMIT;");
-    } catch (err) {
-      this.db.exec("ROLLBACK;");
-      throw err;
-    }
+    });
 
     return {
       project: {

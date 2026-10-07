@@ -28,8 +28,7 @@ export class MessageService {
     const recipientIds = input.recipient_agent_ids ?? [];
     const priority = input.priority ?? "normal";
 
-    this.db.exec("BEGIN TRANSACTION;");
-    try {
+    return this.eventBus.transaction(() => {
       this.db
         .prepare(`
         INSERT INTO messages (message_id, project_id, sender_id, recipient_agent_ids, channel, body, priority, correlation_id, created_at)
@@ -57,23 +56,18 @@ export class MessageService {
         correlation_id: input.correlation_id ?? null,
       });
 
-      this.db.exec("COMMIT;");
-    } catch (err) {
-      this.db.exec("ROLLBACK;");
-      throw err;
-    }
-
-    return {
-      message_id: messageId,
-      project_id: projectId,
-      sender_id: senderId,
-      recipient_agent_ids: recipientIds,
-      channel: input.channel,
-      body: input.body,
-      priority,
-      ...(input.correlation_id ? { correlation_id: input.correlation_id } : {}),
-      created_at: now,
-    };
+      return {
+        message_id: messageId,
+        project_id: projectId,
+        sender_id: senderId,
+        recipient_agent_ids: recipientIds,
+        channel: input.channel,
+        body: input.body,
+        priority,
+        ...(input.correlation_id ? { correlation_id: input.correlation_id } : {}),
+        created_at: now,
+      };
+    });
   }
 
   public getMessages(projectId: string, agentId?: string, channel?: string, limit = 50): Message[] {

@@ -1,4 +1,5 @@
 import type { AddressInfo } from "node:net";
+import { encodeCursor } from "@agents-hub/shared";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type AppContext, buildApp } from "./app.js";
@@ -8,8 +9,10 @@ describe("Hub Server Network & API (Phase 3)", () => {
   let app: FastifyInstance & { ctx: AppContext };
   let authToken: string;
   let testUserId: string;
+  let openSockets: globalThis.WebSocket[];
 
   beforeEach(() => {
+    openSockets = [];
     const db = createDatabase(":memory:");
     app = buildApp({}, db);
     testUserId = "user-alice";
@@ -17,6 +20,16 @@ describe("Hub Server Network & API (Phase 3)", () => {
   });
 
   afterEach(async () => {
+    for (const ws of openSockets) {
+      try {
+        if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+          ws.close();
+        }
+      } catch {
+        // ignore socket close errors
+      }
+    }
+    openSockets = [];
     await app.close();
   });
 
@@ -331,13 +344,58 @@ describe("Hub Server Network & API (Phase 3)", () => {
       expect(activeLocks.length).toBe(0);
     });
 
-    it("acknowledges cursor using POST /inbox/ack", async () => {
+    it("rejects GET /inbox without session_id with 422 INVALID_INPUT", async () => {
+      const proj = app.ctx.projectService.createProject("No Sess Room", testUserId).project;
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/projects/${proj.project_id}/inbox`,
+        headers: { authorization: `Bearer ${authToken}` },
+      });
+      expect(res.statusCode).toBe(422);
+      expect(res.json().error.code).toBe("INVALID_INPUT");
+    });
+
+    it("rejects ACK with malformed cursor or sequence exceeding existing project events", async () => {
+      const proj = app.ctx.projectService.createProject("Ack Fail Room", testUserId).project;
+      const session = app.ctx.sessionService.joinProject(proj.project_id, "ag-ack", testUserId);
+
+      // 1. Malformed cursor string
+      const badCursorRes = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/inbox/ack`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: session.session_id,
+          cursor: "not-a-valid-base64url-cursor!@#$",
+        },
+      });
+      expect(badCursorRes.statusCode).toBe(400);
+      expect(badCursorRes.json().error.code).toBe("CURSOR_INVALID");
+
+      // 2. Future cursor exceeding existing sequence
+      const futureCursor = encodeCursor(9999);
+      const futureRes = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/inbox/ack`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: session.session_id,
+          cursor: futureCursor,
+        },
+      });
+      expect(futureRes.statusCode).toBe(400);
+      expect(futureRes.json().error.code).toBe("CURSOR_INVALID");
+    });
+
+    it("acknowledges valid cursor using POST /inbox/ack", async () => {
       const proj = app.ctx.projectService.createProject("Ack Room", testUserId).project;
       const aliceSession = app.ctx.sessionService.joinProject(
         proj.project_id,
         "agent-alice",
         testUserId,
       );
+      // Project creation + session join created events with sequences 1 and 2
+      const validCursor = encodeCursor(1);
 
       const ackRes = await app.inject({
         method: "POST",
@@ -345,15 +403,15 @@ describe("Hub Server Network & API (Phase 3)", () => {
         headers: { authorization: `Bearer ${authToken}` },
         payload: {
           session_id: aliceSession.session_id,
-          cursor: "cursor-100",
+          cursor: validCursor,
         },
       });
 
       expect(ackRes.statusCode).toBe(200);
-      expect(ackRes.json().data.cursor).toBe("cursor-100");
+      expect(ackRes.json().data.cursor).toBe(validCursor);
 
       const session = app.ctx.sessionService.getSessionById(aliceSession.session_id);
-      expect(session?.last_cursor).toBe("cursor-100");
+      expect(session?.last_cursor).toBe(validCursor);
     });
 
     it("expires locks after TTL allowing another agent to claim the path", async () => {
@@ -416,20 +474,26 @@ describe("Hub Server Network & API (Phase 3)", () => {
       );
 
       const wsUrl = `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}&session_id=${aliceSession.session_id}`;
-      const ws = new globalThis.WebSocket(wsUrl);
+      const ws = new globalThis.WebSocket(wsUrl, { headers: { Origin: "http://localhost:5173" } });
+      openSockets.push(ws);
 
       const received = await new Promise<{ type: string; projectId: string; agentId: string }>(
         (resolve, reject) => {
-          ws.onmessage = (e) => resolve(JSON.parse(String(e.data)));
-          ws.onerror = (e) => reject(e);
+          const timeout = setTimeout(() => reject(new Error("WS message timeout")), 3000);
+          ws.onmessage = (e) => {
+            clearTimeout(timeout);
+            resolve(JSON.parse(String(e.data)));
+          };
+          ws.onerror = (e) => {
+            clearTimeout(timeout);
+            reject(e);
+          };
         },
       );
 
       expect(received.type).toBe("connected");
       expect(received.projectId).toBe(proj.project_id);
       expect(received.agentId).toBe("agent-alice");
-
-      ws.close();
     });
 
     it("closes with code 1008 if token is missing or invalid", async () => {
@@ -438,10 +502,15 @@ describe("Hub Server Network & API (Phase 3)", () => {
 
       const proj = app.ctx.projectService.createProject("WS Reject Room", testUserId).project;
       const wsUrl = `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=invalid_token`;
-      const ws = new globalThis.WebSocket(wsUrl);
+      const ws = new globalThis.WebSocket(wsUrl, { headers: { Origin: "http://localhost:5173" } });
+      openSockets.push(ws);
 
-      const code = await new Promise<number>((resolve) => {
-        ws.onclose = (e) => resolve(e.code);
+      const code = await new Promise<number>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("WS close timeout")), 3000);
+        ws.onclose = (e) => {
+          clearTimeout(timeout);
+          resolve(e.code);
+        };
       });
 
       expect(code).toBe(1008);
@@ -471,18 +540,31 @@ describe("Hub Server Network & API (Phase 3)", () => {
       // Connect Bob and Charlie
       const bobWs = new globalThis.WebSocket(
         `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}&session_id=${bobSession.session_id}`,
+        { headers: { Origin: "http://localhost:5173" } },
       );
+      openSockets.push(bobWs);
+
       const charlieWs = new globalThis.WebSocket(
         `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}&session_id=${charlieSession.session_id}`,
+        { headers: { Origin: "http://localhost:5173" } },
       );
+      openSockets.push(charlieWs);
 
       // Wait for both to be connected
       await Promise.all([
-        new Promise((resolve) => {
-          bobWs.onmessage = resolve;
+        new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("Bob WS connect timeout")), 3000);
+          bobWs.onmessage = () => {
+            clearTimeout(timeout);
+            resolve(true);
+          };
         }),
-        new Promise((resolve) => {
-          charlieWs.onmessage = resolve;
+        new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("Charlie WS connect timeout")), 3000);
+          charlieWs.onmessage = () => {
+            clearTimeout(timeout);
+            resolve(true);
+          };
         }),
       ]);
 
@@ -516,9 +598,194 @@ describe("Hub Server Network & API (Phase 3)", () => {
       expect(
         charlieEvents.some((e) => e.data?.payload?.body === "Direct message for Bob only"),
       ).toBe(false);
+    });
 
-      bobWs.close();
-      charlieWs.close();
+    it("closes with code 1008 if session_id is missing", async () => {
+      await app.listen({ port: 0 });
+      const addr = app.server.address() as AddressInfo;
+
+      const proj = app.ctx.projectService.createProject("WS No Sess", testUserId).project;
+      const wsUrl = `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}`;
+      const ws = new globalThis.WebSocket(wsUrl, { headers: { Origin: "http://localhost:5173" } });
+      openSockets.push(ws);
+
+      const code = await new Promise<number>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("WS close timeout")), 3000);
+        ws.onclose = (e) => {
+          clearTimeout(timeout);
+          resolve(e.code);
+        };
+      });
+
+      expect(code).toBe(1008);
+    });
+
+    it("closes with code 1008 if Origin header is absent or invalid in restricted CORS mode", async () => {
+      // Create an app instance with strict origin (not wildcard)
+      const strictApp = buildApp({ CORS_ORIGINS: "http://allowed.app.com" }, app.ctx.db);
+      await strictApp.listen({ port: 0 });
+      const addr = strictApp.server.address() as AddressInfo;
+
+      const proj = strictApp.ctx.projectService.createProject(
+        "Strict Origin Room",
+        testUserId,
+      ).project;
+      const session = strictApp.ctx.sessionService.joinProject(
+        proj.project_id,
+        "ag-strict",
+        testUserId,
+      );
+
+      try {
+        // 1. Missing Origin header
+        const wsNoOrigin = new globalThis.WebSocket(
+          `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}&session_id=${session.session_id}`,
+        );
+        openSockets.push(wsNoOrigin);
+
+        const codeNoOrigin = await new Promise<number>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("WS close timeout")), 3000);
+          wsNoOrigin.onclose = (e) => {
+            clearTimeout(timeout);
+            resolve(e.code);
+          };
+        });
+        expect(codeNoOrigin).toBe(1008);
+
+        // 2. Invalid Origin header
+        const wsBadOrigin = new globalThis.WebSocket(
+          `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}&session_id=${session.session_id}`,
+          { headers: { Origin: "http://attacker.com" } },
+        );
+        openSockets.push(wsBadOrigin);
+
+        const codeBadOrigin = await new Promise<number>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("WS close timeout")), 3000);
+          wsBadOrigin.onclose = (e) => {
+            clearTimeout(timeout);
+            resolve(e.code);
+          };
+        });
+        expect(codeBadOrigin).toBe(1008);
+      } finally {
+        await strictApp.close();
+      }
+    });
+
+    it("rejects token in query string when in production mode", async () => {
+      const prodApp = buildApp(
+        { NODE_ENV: "production", CORS_ORIGINS: "http://localhost:5173" },
+        app.ctx.db,
+      );
+      await prodApp.listen({ port: 0 });
+      const addr = prodApp.server.address() as AddressInfo;
+
+      const proj = prodApp.ctx.projectService.createProject("Prod WS Room", testUserId).project;
+      const session = prodApp.ctx.sessionService.joinProject(
+        proj.project_id,
+        "ag-prod",
+        testUserId,
+      );
+
+      try {
+        // Query param token should be rejected in production
+        const ws = new globalThis.WebSocket(
+          `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}&session_id=${session.session_id}`,
+          { headers: { Origin: "http://localhost:5173" } },
+        );
+        openSockets.push(ws);
+
+        const code = await new Promise<number>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("WS close timeout")), 3000);
+          ws.onclose = (e) => {
+            clearTimeout(timeout);
+            resolve(e.code);
+          };
+        });
+
+        expect(code).toBe(1008);
+      } finally {
+        await prodApp.close();
+      }
+    });
+  });
+
+  describe("Scope Authorization Enforcement", () => {
+    it("enforces scope boundaries and rejects insufficient permissions with 403", async () => {
+      const readOnlyToken = app.ctx.authService.createToken(testUserId, "agents-hub", [
+        "projects:read",
+        "messages:read",
+      ]);
+      const proj = app.ctx.projectService.createProject("Scope Room", testUserId).project;
+      const session = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-scope",
+        testUserId,
+      );
+
+      // Attempting to send message requires messages:write -> should fail 403
+      const msgRes = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/messages`,
+        headers: { authorization: `Bearer ${readOnlyToken}` },
+        payload: {
+          session_id: session.session_id,
+          body: "Trying to write with read-only token",
+        },
+      });
+      expect(msgRes.statusCode).toBe(403);
+      expect(msgRes.json().error.code).toBe("FORBIDDEN");
+
+      // Attempting to claim lock requires locks:write -> should fail 403
+      const lockRes = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/locks/claim`,
+        headers: { authorization: `Bearer ${readOnlyToken}` },
+        payload: {
+          session_id: session.session_id,
+          paths: ["src/index.ts"],
+          reason: "Read token claiming lock",
+        },
+      });
+      expect(lockRes.statusCode).toBe(403);
+      expect(lockRes.json().error.code).toBe("FORBIDDEN");
+    });
+  });
+
+  describe("Event Bus Transactional Integrity", () => {
+    it("does not notify subscribers when a transaction is rolled back", () => {
+      const proj = app.ctx.projectService.createProject("Tx Rollback Room", testUserId).project;
+      const capturedEvents: unknown[] = [];
+      const unsubscribe = app.ctx.eventBus.subscribe((ev) => {
+        if (ev.project_id === proj.project_id) {
+          capturedEvents.push(ev);
+        }
+      });
+
+      // Execute transaction that throws
+      expect(() => {
+        app.ctx.eventBus.transaction(() => {
+          app.ctx.eventBus.recordEvent(proj.project_id, "agent-fail", "agent.joined", {
+            agent_id: "agent-fail",
+          });
+          throw new Error("Simulated failure after event record");
+        });
+      }).toThrow("Simulated failure after event record");
+
+      // No events should have been broadcast to subscribers
+      expect(capturedEvents.length).toBe(0);
+
+      // Execute committed transaction
+      app.ctx.eventBus.transaction(() => {
+        app.ctx.eventBus.recordEvent(proj.project_id, "agent-ok", "agent.joined", {
+          agent_id: "agent-ok",
+        });
+      });
+
+      // Exactly 1 event should have been broadcast
+      expect(capturedEvents.length).toBe(1);
+
+      unsubscribe();
     });
   });
 });

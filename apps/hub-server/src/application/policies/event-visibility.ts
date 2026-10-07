@@ -8,13 +8,9 @@ import type { EventEnvelope } from "@agents-hub/shared";
  * - Message events (message.created):
  *   - If recipient_agent_ids is empty: broadcast (visible to everyone).
  *   - If recipient_agent_ids has agents: visible ONLY if requestingAgentId is sender OR in recipient_agent_ids.
- *   - If requestingAgentId is undefined (e.g. human dashboard observer), it is visible to project members.
+ *   - If requestingAgentId is undefined, directed messages are NEVER visible (confidential to target agents).
  */
 export function isEventVisibleToAgent(event: EventEnvelope, requestingAgentId?: string): boolean {
-  if (!requestingAgentId) {
-    return true; // Visible to human dashboard observer of the project
-  }
-
   if (event.type === "message.created") {
     const payload = event.payload as {
       sender_id?: string;
@@ -26,6 +22,10 @@ export function isEventVisibleToAgent(event: EventEnvelope, requestingAgentId?: 
 
     if (recipients.length === 0) {
       return true; // Public broadcast message in the channel
+    }
+
+    if (!requestingAgentId) {
+      return false; // Directed messages are never visible without an authenticated agent identity
     }
 
     return senderId === requestingAgentId || recipients.includes(requestingAgentId);
