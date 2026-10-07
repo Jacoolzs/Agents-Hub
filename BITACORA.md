@@ -77,6 +77,23 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Fase 1 Completada: Contratos Compartidos (`packages/shared`)
+- **Implementación de contratos centrales:**
+  - `ids.ts`: Esquema estricto de UUIDv4 con `crypto.randomUUID()`.
+  - `time.ts`: Fechas UTC estrictas en formato ISO 8601 terminadas en 'Z'.
+  - `pagination.ts`: Secuencias monotónicas por proyecto y codecs seguros para Cursores opacos base64url.
+  - `errors.ts`: Esquema `ApiError` y clase `AppError` con los 11 códigos tipados (`UNAUTHENTICATED`, `FORBIDDEN`, `PROJECT_NOT_FOUND`, `INVALID_INPUT`, `MESSAGE_TOO_LARGE`, `CURSOR_INVALID`, `LOCK_CONFLICT`, `LOCK_NOT_OWNER`, `SESSION_EXPIRED`, `RATE_LIMITED`, `INTERNAL_ERROR`).
+  - `schemas/project.ts`: Esquemas Zod para `Project` y `Membership` (roles: owner, maintainer, collaborator, reader).
+  - `schemas/session.ts`: Esquema `AgentSession` (active, idle, disconnected).
+  - `schemas/message.ts`: Esquemas de mensaje con límite estricto de 16 KiB en el body, canales, destinatarios y prioridades.
+  - `schemas/status.ts`: Esquema de `StatusReport` con `objective`, `progress`, `decision`, `blocked_by` y `next_step`.
+  - `schemas/lock.ts`: Esquema de `WorkspaceLock` con normalización POSIX y rechazo estricto de traversal (`..`, `.`), rutas absolutas (`/` o letras de disco Windows `C:`) y bytes nulos.
+  - `events.ts`: Esquema `EventEnvelope` con versionado estricto (`payload_version: 1`), límite de 64 KiB en el payload y tipos de eventos de dominio tipados.
+- **Calidad y validación:**
+  - Suite de 13 pruebas unitarias exhaustivas en `packages/shared/src/index.test.ts`.
+  - Biome (`pnpm lint`), TypeScript (`pnpm typecheck`), Vitest (`pnpm test`) y Build (`pnpm -r build`) 100% verdes (19 tests totales en el monorepo).
+- **Siguiente paso:** Proceder con la **Fase 2 — Base de datos y dominio del Hub** (`apps/hub-server`).
+
 ### [2026-10-07] — Fase 0 Completada: Bootstrap del Monorepo y Calidad
 - **Herramientas base:** Node `v24.12.0` verificado; `pnpm` `v12.10.1` instalado y configurado con workspace (`apps/*`, `packages/*`).
 - **Bloqueo técnico superado:** `better-sqlite3` falló en compilación nativa en Windows por falta de binarios para Node 24 y ausencia de Visual Studio C++ toolset. Se reemplazó por `node:sqlite` (`DatabaseSync`), integrado nativamente en Node 24 sin dependencias de compilación externa.
