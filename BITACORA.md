@@ -77,6 +77,14 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Auditoría de las Fases 0 a 4
+- Se revisó la implementación actual contra `DEVELOPMENT_PLAN.md` y se ejecutaron `pnpm lint`, `pnpm typecheck`, `pnpm test` y `pnpm -r build`.
+- Resultado: typecheck, tests (37) y build pasan; lint falla por cinco archivos MCP sin formatear.
+- Se detectaron bloqueos de aprobación: los endpoints aceptan `sender_id`/`agent_id` del cliente sin vincularlos a una sesión autenticada; inbox y WebSocket no filtran eventos dirigidos; `wsHub.broadcast` no está conectado al event bus.
+- También faltan Origin seguro para WebSocket, scopes efectivos, renew/idempotencia/ack de cursor, validación runtime de argumentos MCP y tests reales por `stdio`.
+- Se crea `REVIEW_PHASES_0_4.md` con prioridades P0/P1, correcciones exactas, pruebas faltantes y mensaje listo para Gemini.
+- No se aprueba iniciar la Fase 5 hasta corregir los P0/P1 y repetir todos los comandos de aceptación.
+
 ### [2026-10-07] — Fase 4 Completada: Servidor MCP Local (`packages/mcp-server`)
 - **Implementación del servidor MCP (en rama `feat/phase-4-mcp-server`):**
   - `client/retry.ts`: Reintentos automáticos con backoff exponencial para códigos transitorios (`408`, `429`, `502`, `503`, `504`) y fallos de conexión de red.
