@@ -69,6 +69,12 @@ Un agente de terminal funciona por ciclo de petición/respuesta. No escucha sock
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Regla de contexto obligatorio del repositorio
+- Se establece `AGENTS.md` como la guía operativa del repositorio.
+- Toda persona o agente debe leer completa `BITACORA.md` antes de planear, decidir arquitectura o modificar el proyecto.
+- Todo avance relevante, decisión, bloqueo, solución o cambio de alcance debe registrarse en esta bitácora durante la misma sesión.
+- Se conserva como estado vigente el alcance lean del MVP: comunicación, estado compartido y locks; orquestación activa y Docker quedan fuera hasta nueva decisión explícita.
+
 ### [2026-10-07] — Corrección de Alcance (MVP Lean) y Reto de Recepción de Mensajes
 #### 💡 Correcciones y foco real
 - **Ajuste de alcance:** Se corrige ADR-002: el MVP se centra estrictamente en **comunicación y coordinación básica**, no en orquestación automática compleja.
