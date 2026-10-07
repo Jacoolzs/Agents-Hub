@@ -39,6 +39,7 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-007 | 2026-10-07 | Hub central como autoridad; MCP como adaptador local | El servidor MCP local usa `stdio` con el agente y el Hub usa HTTPS/WebSocket; identidad, permisos, persistencia, cursores y locks viven en el Hub. | Aceptado |
 | ADR-008 | 2026-10-07 | MVP monolítico modular con SQLite/WAL | Reduce complejidad operacional y permite validar el producto antes de separar servicios o añadir Redis/PostgreSQL. | Aceptado |
 | ADR-009 | 2026-10-07 | Seguridad por proyecto, mínimo privilegio y contexto estructurado | Aislar proyectos, validar entradas, limitar capacidades, auditar acciones y evitar exposición de razonamiento privado o secretos. | Aceptado |
+| ADR-010 | 2026-10-07 | Stack tecnológico del MVP | TypeScript 6 + Node 24 LTS, pnpm, Fastify, WebSocket, MCP SDK v2, Zod, SQLite/WAL con better-sqlite3/Drizzle, React/Vite/Tailwind, Vitest, Playwright, Pino y GitHub Actions. | Aceptado |
 
 ---
 
@@ -84,6 +85,16 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - MVP: monolito modular TypeScript con SQLite/WAL, contratos versionados y cursor de eventos; PostgreSQL, Redis, Docker, P2P e integración Git quedan para fases posteriores.
 - Seguridad: aislamiento por proyecto, mínimo privilegio, tokens revocables y con audiencia, TLS/WSS, validación de `Origin`, límites, auditoría y prohibición de registrar secretos o razonamiento privado.
 - Plan: contratos/seguridad, Hub, MCP local, dashboard, validación y luego capacidades avanzadas sólo con evidencia.
+
+### [2026-10-07] — Selección tecnológica concreta del MVP
+- Runtime y lenguaje: Node.js 24.x Active LTS y TypeScript 6.x estricto.
+- Monorepo: pnpm workspaces, sin Turborepo inicialmente.
+- Backend: Fastify 5, `@fastify/websocket`/`ws`, Zod 4, Pino y SDK oficial MCP v2.
+- Datos: SQLite con WAL, `better-sqlite3`, Drizzle ORM y Drizzle Kit para migraciones.
+- Frontend: React + Vite + Tailwind CSS, con TanStack Query para cache de API.
+- Calidad: Biome, `tsc --noEmit`, Vitest, Playwright y GitHub Actions.
+- Despliegue inicial: proceso Node único con Caddy/Nginx y volumen persistente; Docker, Redis, Kubernetes y PostgreSQL quedan condicionados a evidencia de escala o necesidad operativa.
+- Se fija como regla mantener un lockfile, dependencias mínimas y actualizaciones verificadas con pruebas.
 
 ### [2026-10-07] — Regla de contexto obligatorio del repositorio
 - Se establece `AGENTS.md` como la guía operativa del repositorio.

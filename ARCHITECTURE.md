@@ -159,7 +159,37 @@ BITACORA.md
 AGENTS.md
 ```
 
-Stack base: TypeScript estricto, pnpm workspaces, Node.js LTS, Fastify para HTTP, `ws` o equivalente para WebSocket, SDK oficial de MCP, SQLite/WAL, Vitest y Playwright. Las versiones concretas se fijan al iniciar código y se actualizan con pruebas, no por copiar versiones de una conversación.
+## 8.1 Stack tecnológico decidido
+
+| Capa | Tecnología | Motivo y límite |
+|---|---|---|
+| Lenguaje | TypeScript 6.x, `strict: true` | Tipos compartidos entre Hub, MCP y web. Se evita mezclar lenguajes en el MVP. |
+| Runtime | Node.js 24.x Active LTS | Línea estable para producción; no se usa Node Current como runtime principal. |
+| Monorepo | pnpm workspaces | Dependencias y paquetes internos simples; no añadimos Turborepo hasta tener una necesidad de cache/build distribuido. |
+| MCP | `@modelcontextprotocol/server` y `@modelcontextprotocol/client` v2 | SDK oficial, servidor local por `stdio`, schemas compatibles y soporte de transportes. |
+| Validación | Zod 4 | Validación en límites, tipos inferidos y contratos compartidos; todo input externo se valida una vez al entrar. |
+| Hub HTTP | Fastify 5 | Bajo overhead, plugins maduros y buen soporte TypeScript. |
+| Eventos | `@fastify/websocket` sobre `ws` | Canal de presencia/UI; no reemplaza el inbox persistente ni la recuperación por cursor. |
+| Persistencia MVP | SQLite + WAL, `better-sqlite3` y Drizzle ORM | Instalación local sencilla y transacciones claras. Se mantiene un repositorio abstracto para migrar a PostgreSQL. |
+| Migraciones | Drizzle Kit | Migraciones versionadas dentro del repositorio; nunca cambios manuales en producción. |
+| Dashboard | React + Vite + Tailwind CSS | UI rápida y pequeña, sin introducir SSR ni complejidad de Next.js para el MVP. |
+| Estado web | TanStack Query + estado local de React | Cache de API; WebSocket invalida/actualiza consultas, no se duplica la lógica del dominio. |
+| Pruebas unitarias/integración | Vitest | Tests rápidos para dominio, repositorios, API y protocolo de inbox. |
+| Pruebas E2E | Playwright, Chromium primero | Flujo humano completo del dashboard; Firefox/WebKit se añaden si aparece una necesidad real. |
+| Logs | Pino, JSON estructurado | Bajo overhead; redacción obligatoria de tokens, secretos y contenido privado sensible. |
+| Calidad | Biome + `tsc --noEmit` | Formato y lint rápidos, más verificación estricta del compilador. |
+| CI | GitHub Actions | `pnpm install --frozen-lockfile`, lint, typecheck, tests, build y auditoría de dependencias. |
+| Desarrollo local | Node directo + SQLite local | Docker no es requisito para desarrollar ni ejecutar el MVP. |
+| Producción inicial | Un proceso Node detrás de Caddy/Nginx con TLS y volumen persistente | Sencillo para validar; PostgreSQL y varias réplicas sólo después de medir límites. |
+
+### Reglas de versionado tecnológico
+
+- Usar Node 24 LTS como baseline; no usar APIs disponibles sólo en Node Current.
+- Commitear `pnpm-lock.yaml` y usar `--frozen-lockfile` en CI.
+- Mantener dependencias directas mínimas; cada nueva dependencia debe justificar seguridad, mantenimiento y tamaño.
+- Actualizar por lotes pequeños, con changelog, tests y revisión de vulnerabilidades.
+- Separar la compatibilidad del SDK MCP de la lógica de negocio para poder seguir cambios de protocolo.
+- No introducir Redis, Kafka, Kubernetes, microservicios ni Docker sandboxing antes de una métrica que justifique su coste.
 
 ## 9. Plan de ejecución
 
