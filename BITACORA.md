@@ -77,6 +77,27 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Fase 3 Completada: API HTTP y WebSocket del Hub (`apps/hub-server`)
+- **Implementación de red y capas de transporte (en rama `feat/phase-3-hub-network`):**
+  - `http/auth/auth-service.ts`: Autenticación segura basada en tokens con hashing SHA-256 (`ah_*`), audiencia, expiración y control de permisos por proyecto.
+  - `http/websocket/ws-hub.ts`: Servidor WebSocket hub para suscripción en tiempo real de eventos por proyecto (`/v1/projects/:projectId/events`) con desconexión inmediata de tokens inválidos.
+  - `app.ts`: API versionada bajo `/v1`:
+    - `/health/live` y `/health/ready` con propagación de `x-request-id`.
+    - `POST /v1/projects` y `GET /v1/projects/:projectId`.
+    - `POST /v1/projects/:projectId/sessions`, `POST /v1/sessions/:sessionId/heartbeat`, `DELETE /v1/sessions/:sessionId`.
+    - `GET /v1/projects/:projectId/inbox?after=<cursor>&limit=<n>` con paginación monotónica mediante cursores URL-safe.
+    - `POST /v1/projects/:projectId/messages`.
+    - `POST /v1/projects/:projectId/status` y `GET /v1/projects/:projectId/status`.
+    - `POST /v1/projects/:projectId/locks/claim`, `DELETE /v1/projects/:projectId/locks` y `GET /v1/projects/:projectId/locks`.
+    - `GET /v1/projects/:projectId/team-status`.
+    - Manejador uniforme de errores de API mapeando `AppError` a códigos de estado HTTP correspondientes (`401`, `403`, `404`, `409`, `413`, `422`, `429`, `500`).
+- **Validación y calidad:**
+  - Suite de integración de 7 pruebas en `apps/hub-server/src/app.test.ts` cubriendo autenticación, ciclo de vida de sesiones, paginación por cursores, conflicto 409 de locks y team-status.
+  - Total de tests en el monorepo: 35 tests verdes.
+  - Biome, TypeScript strict, Vitest y Build 100% limpios y verificados.
+- **Siguiente paso:** Fusionar `feat/phase-3-hub-network` a `main` y proceder con **Fase 4 — Servidor MCP Local (`packages/mcp-server`)**.
+
+
 ### [2026-10-07] — Fase 2 Completada: Base de Datos y Dominio del Hub (`apps/hub-server`)
 - **Implementación de persistencia y dominio (en rama `feat/phase-2-hub-domain`):**
   - `infrastructure/db/migrations.ts`: Esquemas SQL relacionales para `users`, `projects`, `memberships`, `agent_sessions`, `messages`, `status_reports`, `workspace_locks`, `events`, `audit_entries` y `auth_tokens`.
