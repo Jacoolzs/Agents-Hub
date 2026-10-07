@@ -77,6 +77,29 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Fase 4 Completada: Servidor MCP Local (`packages/mcp-server`)
+- **Implementación del servidor MCP (en rama `feat/phase-4-mcp-server`):**
+  - `client/retry.ts`: Reintentos automáticos con backoff exponencial para códigos transitorios (`408`, `429`, `502`, `503`, `504`) y fallos de conexión de red.
+  - `client/hub-client.ts`: Cliente HTTP ligero que conecta el proceso local del desarrollador con el Hub central por HTTPS.
+  - `server.ts` & `main.ts`: Servidor MCP por `stdio` usando `@modelcontextprotocol/sdk`:
+    - Enrutamiento estricto de logs y diagnósticos a `stderr`, reservando `stdout` exclusivamente para tramas JSON-RPC válidas.
+    - Manejo de entorno: `AGENTS_HUB_URL`, `AGENTS_HUB_TOKEN`, `AGENTS_HUB_PROJECT_ID`, `AGENTS_HUB_AGENT_NAME`.
+    - Herramientas colaborativas registradas y funcionales:
+      1. `join_project`: Inicializa presencia en la sala y obtiene contexto.
+      2. `check_inbox`: Consulta de novedades y mensajes por cursores opacos.
+      3. `wait_for_messages`: Long-polling / espera activa de hasta 60s (estrategia híbrida ADR-006).
+      4. `send_team_message`: Mensajería dirigida o broadcast por canal con prioridades.
+      5. `report_status`: Publicación de objetivos, progreso, decisiones y bloqueos.
+      6. `claim_module_lock`: Bloqueo preventivo de rutas con detección de conflicto jerárquico.
+      7. `release_module_lock`: Liberación de archivos editados.
+      8. `get_team_status`: Consulta del estado global del equipo (agentes, tareas y locks).
+- **Validación y calidad:**
+  - Suite de tests para el servidor MCP y cliente HTTP en `packages/mcp-server/src/main.test.ts`.
+  - 37 tests totales pasando en verde en todo el monorepo.
+  - Biome (`pnpm lint`), TypeScript (`pnpm typecheck`), Vitest (`pnpm test`) y Build (`pnpm -r build`) 100% limpios.
+- **Siguiente paso:** Fusionar `feat/phase-4-mcp-server` a `main` y proceder con la **Fase 5 — Validación del Escenario reproducible del MVP** (dos agentes en terminal simulando colaboración cruzada).
+
+
 ### [2026-10-07] — Fase 3 Completada: API HTTP y WebSocket del Hub (`apps/hub-server`)
 - **Implementación de red y capas de transporte (en rama `feat/phase-3-hub-network`):**
   - `http/auth/auth-service.ts`: Autenticación segura basada en tokens con hashing SHA-256 (`ah_*`), audiencia, expiración y control de permisos por proyecto.
