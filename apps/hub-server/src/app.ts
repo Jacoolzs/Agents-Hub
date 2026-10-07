@@ -418,58 +418,85 @@ export function buildApp(
   });
 
   // WebSocket endpoint for real-time events
-  app.get("/v1/projects/:projectId/events", { websocket: true }, (socket, req) => {
-    const { projectId } = req.params as { projectId: string };
-    const origin = req.headers.origin;
+  void app.register(async (wsScope) => {
+    wsScope.get("/v1/projects/:projectId/events", { websocket: true }, (socket, req) => {
+      const params = req?.params as { projectId?: string } | undefined;
+      let projectId = params?.projectId;
+      if (!projectId && req?.url) {
+        const match = req.url.match(/\/v1\/projects\/([^/?]+)\/events/);
+        if (match?.[1]) {
+          projectId = match[1];
+        }
+      }
 
-    // Validate Origin if present
-    if (origin && !corsOrigins.includes(origin) && !corsOrigins.includes("*")) {
-      socket.close(1008, "Invalid Origin");
-      return;
-    }
-
-    const authHeader = req.headers.authorization;
-    const token =
-      req.query && typeof req.query === "object" && "token" in req.query
-        ? String(req.query.token)
-        : authHeader?.startsWith("Bearer ")
-          ? authHeader.substring(7)
-          : "";
-
-    const sessionId =
-      req.query && typeof req.query === "object" && "session_id" in req.query
-        ? String(req.query.session_id)
-        : undefined;
-
-    try {
-      if (!token) {
-        socket.close(1008, "Token missing");
+      if (!projectId) {
+        socket.close(1008, "Invalid project ID");
         return;
       }
-      const verified = authService.verifyToken(token);
-      authService.checkProjectPermission(verified.userId, projectId);
 
-      let agentId: string | undefined;
-      if (sessionId) {
-        const session = sessionService.validateSessionForUser(
-          sessionId,
-          verified.userId,
-          projectId,
-        );
-        agentId = session.agent_id;
+      const origin = req?.headers?.origin;
+
+      // Validate Origin if present
+      if (origin && !corsOrigins.includes(origin) && !corsOrigins.includes("*")) {
+        socket.close(1008, "Invalid Origin");
+        return;
       }
 
-      wsHub.register({
-        socket,
-        projectId,
-        userId: verified.userId,
-        agentId,
-      });
+      const authHeader = req?.headers?.authorization;
+      let token = "";
+      let sessionId: string | undefined;
 
-      socket.send(JSON.stringify({ type: "connected", projectId, agentId }));
-    } catch {
-      socket.close(1008, "Unauthorized");
-    }
+      if (req?.query && typeof req.query === "object") {
+        if ("token" in req.query) token = String(req.query.token);
+        if ("session_id" in req.query) sessionId = String(req.query.session_id);
+      }
+
+      if (!token && req?.url) {
+        try {
+          const u = new URL(req.url, "http://localhost");
+          if (u.searchParams.has("token")) token = u.searchParams.get("token") ?? "";
+          if (!sessionId && u.searchParams.has("session_id")) {
+            sessionId = u.searchParams.get("session_id") ?? undefined;
+          }
+        } catch {
+          // ignore URL parse error
+        }
+      }
+
+      if (!token && authHeader?.startsWith("Bearer ")) {
+        token = authHeader.substring(7);
+      }
+
+      try {
+        if (!token) {
+          socket.close(1008, "Token missing");
+          return;
+        }
+        const verified = authService.verifyToken(token);
+        authService.checkProjectPermission(verified.userId, projectId);
+
+        let agentId: string | undefined;
+        if (sessionId) {
+          const session = sessionService.validateSessionForUser(
+            sessionId,
+            verified.userId,
+            projectId,
+          );
+          agentId = session.agent_id;
+        }
+
+        wsHub.register({
+          socket,
+          projectId,
+          userId: verified.userId,
+          agentId,
+        });
+
+        socket.send(JSON.stringify({ type: "connected", projectId, agentId }));
+      } catch {
+        socket.close(1008, "Unauthorized");
+      }
+    });
   });
 
   return app as unknown as FastifyInstance & { ctx: AppContext };

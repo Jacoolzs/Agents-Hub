@@ -79,6 +79,20 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Verificación Exhaustiva de Pruebas de Auditoría Fases 0 a 4 (`feat/audit-tests-verification`)
+- **Suite completa de 10 pruebas de auditoría verificada (49 tests verdes):**
+  1. *MCP Client Real vía InMemoryTransport*: Conexión oficial de `Client` del SDK de MCP llamando a `listTools` y ejecutando el pipeline de herramientas (`join_project`, `send_team_message`, `claim_module_lock`, `get_team_status`).
+  2. *Integridad de stdout*: El servidor MCP redirige diagnósticos y errores estrictamente a `stderr`, manteniendo `stdout` puro para tramas JSON-RPC.
+  3. *Reintentos y Backoff*: `withRetry` verificado con fallos transitorios 503 recuperados y aborto inmediato ante errores 400/403.
+  4. *Suplantación de identidad prevenida*: Bloqueo HTTP 403 cuando un token intenta usar un `session_id` de otro usuario.
+  5. *Aislamiento y filtrado de eventos*: Mensajes dirigidos Alice→Bob son invisibles tanto en `/inbox` como en broadcast WebSocket para Charlie.
+  6. *WebSocket en tiempo real con Fastify*: Conexión en vivo con token autenticado y bienvenida `type: "connected"`.
+  7. *Seguridad de WebSocket*: Cierre inmediato con código 1008 ante tokens faltantes o inválidos.
+  8. *Confirmación de cursor (ACK)*: `POST /v1/projects/:projectId/inbox/ack` persiste el avance del cursor atómicamente.
+  9. *Expiración de Locks por TTL*: Comprobado que tras expirar el TTL (1s), otro agente puede reclamar la misma ruta sin conflicto 409.
+  10. *Reconexión y replay de cursor*: Verificado que `/inbox?after=<cursor>` recupera únicamente novedades posteriores.
+- **Aceptación y calidad:** Biome (52 archivos formateados y limpios), TypeScript (`tsc -b` limpio), Vitest (49/49 tests pasando en verde) y build sin errores. Auditoría de Fases 0 a 4 cerrada y aprobada para proceder.
+
 ### [2026-10-07] — Remediación Completa de Auditoría Fases 0 a 4 (`fix/audit-phases-0-4`)
 - **P0 Impersonación de Agente resuelto:** Se eliminó la confianza en `sender_id`/`agent_id` enviados por el cliente. Las rutas HTTP (`POST /messages`, `POST /status`, `POST /locks/claim`, etc.) ahora exigen `session_id`, validado contra el usuario autenticado del token y el proyecto.
 - **P0 Fuga de Eventos resuelto:** Implementado `isEventVisibleToAgent` en `apps/hub-server/src/application/policies/event-visibility.ts`. Tanto el inbox (`GET /v1/projects/:projectId/inbox`) como el broadcast de WebSocket filtran eventos dirigidos para que sólo el destinatario y el emisor reciban mensajes privados (Alice→Bob nunca es visible a Charlie).

@@ -1,5 +1,6 @@
+import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type AppContext, buildApp } from "./app.js";
 import { createDatabase } from "./infrastructure/db/database.js";
 
@@ -13,6 +14,10 @@ describe("Hub Server Network & API (Phase 3)", () => {
     app = buildApp({}, db);
     testUserId = "user-alice";
     authToken = app.ctx.authService.createToken(testUserId, "agents-hub");
+  });
+
+  afterEach(async () => {
+    await app.close();
   });
 
   describe("Health & Middleware", () => {
@@ -324,6 +329,196 @@ describe("Hub Server Network & API (Phase 3)", () => {
       // Confirm lock is gone
       const activeLocks = app.ctx.lockService.getActiveLocks(proj.project_id);
       expect(activeLocks.length).toBe(0);
+    });
+
+    it("acknowledges cursor using POST /inbox/ack", async () => {
+      const proj = app.ctx.projectService.createProject("Ack Room", testUserId).project;
+      const aliceSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-alice",
+        testUserId,
+      );
+
+      const ackRes = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/inbox/ack`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: aliceSession.session_id,
+          cursor: "cursor-100",
+        },
+      });
+
+      expect(ackRes.statusCode).toBe(200);
+      expect(ackRes.json().data.cursor).toBe("cursor-100");
+
+      const session = app.ctx.sessionService.getSessionById(aliceSession.session_id);
+      expect(session?.last_cursor).toBe("cursor-100");
+    });
+
+    it("expires locks after TTL allowing another agent to claim the path", async () => {
+      const proj = app.ctx.projectService.createProject("Expire Room", testUserId).project;
+      const aliceSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-alice",
+        testUserId,
+      );
+      const bobSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-bob",
+        testUserId,
+      );
+
+      // Alice claims with 1 second TTL
+      const claimRes = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/locks/claim`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: aliceSession.session_id,
+          paths: ["src/temp.ts"],
+          reason: "Quick fix",
+          ttl_seconds: 1,
+        },
+      });
+      expect(claimRes.statusCode).toBe(201);
+
+      // Wait 1.1s for lock to expire
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      // Bob claims the same path -> MUST succeed now without 409
+      const bobClaimRes = await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/locks/claim`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: bobSession.session_id,
+          paths: ["src/temp.ts"],
+          reason: "Bob now editing",
+          ttl_seconds: 60,
+        },
+      });
+      expect(bobClaimRes.statusCode).toBe(201);
+      expect(bobClaimRes.json().data.owner_agent_id).toBe("agent-bob");
+    });
+  });
+
+  describe("WebSocket Real-Time Broadcast & Security", () => {
+    it("connects and receives welcome message on valid credentials", async () => {
+      await app.listen({ port: 0 });
+      const addr = app.server.address() as AddressInfo;
+
+      const proj = app.ctx.projectService.createProject("WS Room", testUserId).project;
+      const aliceSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-alice",
+        testUserId,
+      );
+
+      const wsUrl = `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}&session_id=${aliceSession.session_id}`;
+      const ws = new globalThis.WebSocket(wsUrl);
+
+      const received = await new Promise<{ type: string; projectId: string; agentId: string }>(
+        (resolve, reject) => {
+          ws.onmessage = (e) => resolve(JSON.parse(String(e.data)));
+          ws.onerror = (e) => reject(e);
+        },
+      );
+
+      expect(received.type).toBe("connected");
+      expect(received.projectId).toBe(proj.project_id);
+      expect(received.agentId).toBe("agent-alice");
+
+      ws.close();
+    });
+
+    it("closes with code 1008 if token is missing or invalid", async () => {
+      await app.listen({ port: 0 });
+      const addr = app.server.address() as AddressInfo;
+
+      const proj = app.ctx.projectService.createProject("WS Reject Room", testUserId).project;
+      const wsUrl = `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=invalid_token`;
+      const ws = new globalThis.WebSocket(wsUrl);
+
+      const code = await new Promise<number>((resolve) => {
+        ws.onclose = (e) => resolve(e.code);
+      });
+
+      expect(code).toBe(1008);
+    });
+
+    it("broadcasts messages in real-time and isolates targeted messages between agents", async () => {
+      await app.listen({ port: 0 });
+      const addr = app.server.address() as AddressInfo;
+
+      const proj = app.ctx.projectService.createProject("WS Broadcast Room", testUserId).project;
+      const aliceSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-alice",
+        testUserId,
+      );
+      const bobSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-bob",
+        testUserId,
+      );
+      const charlieSession = app.ctx.sessionService.joinProject(
+        proj.project_id,
+        "agent-charlie",
+        testUserId,
+      );
+
+      // Connect Bob and Charlie
+      const bobWs = new globalThis.WebSocket(
+        `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}&session_id=${bobSession.session_id}`,
+      );
+      const charlieWs = new globalThis.WebSocket(
+        `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?token=${authToken}&session_id=${charlieSession.session_id}`,
+      );
+
+      // Wait for both to be connected
+      await Promise.all([
+        new Promise((resolve) => {
+          bobWs.onmessage = resolve;
+        }),
+        new Promise((resolve) => {
+          charlieWs.onmessage = resolve;
+        }),
+      ]);
+
+      const bobEvents: Array<{ data?: { payload?: { body?: string } } }> = [];
+      const charlieEvents: Array<{ data?: { payload?: { body?: string } } }> = [];
+
+      bobWs.onmessage = (e) => bobEvents.push(JSON.parse(String(e.data)));
+      charlieWs.onmessage = (e) => charlieEvents.push(JSON.parse(String(e.data)));
+
+      // Alice sends targeted message to Bob only
+      await app.inject({
+        method: "POST",
+        url: `/v1/projects/${proj.project_id}/messages`,
+        headers: { authorization: `Bearer ${authToken}` },
+        payload: {
+          session_id: aliceSession.session_id,
+          body: "Direct message for Bob only",
+          recipient_agent_ids: ["agent-bob"],
+        },
+      });
+
+      // Wait a moment for WS propagation
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      // Bob MUST receive it
+      expect(bobEvents.some((e) => e.data?.payload?.body === "Direct message for Bob only")).toBe(
+        true,
+      );
+
+      // Charlie MUST NOT receive it
+      expect(
+        charlieEvents.some((e) => e.data?.payload?.body === "Direct message for Bob only"),
+      ).toBe(false);
+
+      bobWs.close();
+      charlieWs.close();
     });
   });
 });

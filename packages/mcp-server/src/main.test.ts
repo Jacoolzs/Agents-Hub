@@ -150,4 +150,99 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
       expect(invalidClaimRes.content[0].text).toContain("Invalid arguments for claim_module_lock");
     }
   });
+
+  it("connects real MCP Client via InMemoryTransport and executes tool pipeline end-to-end", async () => {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+
+    const server = createMcpServer({ hubClient: client });
+    const mcpClient = new Client({ name: "test-client", version: "1.0.0" }, { capabilities: {} });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([server.connect(serverTransport), mcpClient.connect(clientTransport)]);
+
+    // 1. List tools
+    const tools = await mcpClient.listTools();
+    const toolNames = tools.tools.map((t) => t.name);
+    expect(toolNames).toContain("join_project");
+    expect(toolNames).toContain("check_inbox");
+    expect(toolNames).toContain("wait_for_messages");
+    expect(toolNames).toContain("send_team_message");
+    expect(toolNames).toContain("report_status");
+    expect(toolNames).toContain("claim_module_lock");
+    expect(toolNames).toContain("release_module_lock");
+    expect(toolNames).toContain("get_team_status");
+
+    // 2. Call join_project
+    const joinRes = await mcpClient.callTool({
+      name: "join_project",
+      arguments: { project_id: "proj-1", agent_name: "agent-alice" },
+    });
+    expect(joinRes.isError).toBeFalsy();
+    const joinContent = joinRes.content as Array<{ type: string; text: string }>;
+    expect(joinContent[0]?.text).toContain("sess-123");
+
+    // 3. Call send_team_message
+    const sendRes = await mcpClient.callTool({
+      name: "send_team_message",
+      arguments: { body: "Hello through real MCP client" },
+    });
+    expect(sendRes.isError).toBeFalsy();
+    const sendContent = sendRes.content as Array<{ type: string; text: string }>;
+    expect(sendContent[0]?.text).toContain("msg-1");
+
+    // 4. Call claim_module_lock
+    const lockRes = await mcpClient.callTool({
+      name: "claim_module_lock",
+      arguments: { paths: ["src/index.ts"], reason: "Editing" },
+    });
+    expect(lockRes.isError).toBeFalsy();
+    const lockContent = lockRes.content as Array<{ type: string; text: string }>;
+    expect(lockContent[0]?.text).toContain("lock-1");
+
+    // 5. Cleanup
+    await mcpClient.close();
+    await server.close();
+  });
+
+  describe("Retry Backoff & Resilience", () => {
+    it("retries on 503 and succeeds on subsequent attempt", async () => {
+      const { withRetry } = await import("./client/retry.js");
+      let attempts = 0;
+      const result = await withRetry(
+        async () => {
+          attempts++;
+          if (attempts < 2) {
+            const err = new Error("Service unavailable") as Error & { status: number };
+            err.status = 503;
+            throw err;
+          }
+          return "success";
+        },
+        { initialDelayMs: 10, maxDelayMs: 50, maxRetries: 3 },
+      );
+
+      expect(result).toBe("success");
+      expect(attempts).toBe(2);
+    });
+
+    it("does not retry on 400 or 403 non-retryable errors", async () => {
+      const { withRetry } = await import("./client/retry.js");
+      let attempts = 0;
+      await expect(
+        withRetry(
+          async () => {
+            attempts++;
+            const err = new Error("Forbidden") as Error & { status: number };
+            err.status = 403;
+            throw err;
+          },
+          { initialDelayMs: 10, maxRetries: 3 },
+        ),
+      ).rejects.toThrow("Forbidden");
+
+      expect(attempts).toBe(1);
+    });
+  });
 });
