@@ -17,10 +17,10 @@ export function AppContent() {
   return (
     <Shell>
       {{
-        messages: <MessageFeed />,
-        agents: <AgentsPanel />,
-        locks: <LocksPanel />,
-        members: <MembersPanel />,
+        messages: (active) => <MessageFeed active={active} />,
+        agents: (active) => <AgentsPanel active={active} />,
+        locks: (active) => <LocksPanel active={active} />,
+        members: (active) => <MembersPanel active={active} />,
       }}
     </Shell>
   );

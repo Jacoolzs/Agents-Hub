@@ -1,147 +1,180 @@
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useHub } from "../context/HubContext.js";
-import type { ConnectionStatus } from "../types/index.js";
+import { Icon, type IconName } from "./Icon.js";
 import { RecoveryPanel } from "./RecoveryPanel.js";
 
 interface ShellProps {
   children: {
-    messages: React.ReactNode;
-    agents: React.ReactNode;
-    locks: React.ReactNode;
-    members: React.ReactNode;
+    messages: (active: boolean) => React.ReactNode;
+    agents: (active: boolean) => React.ReactNode;
+    locks: (active: boolean) => React.ReactNode;
+    members: (active: boolean) => React.ReactNode;
   };
+}
+
+type Section = keyof ShellProps["children"];
+const sections: {
+  id: Section;
+  label: string;
+  icon: IconName;
+  title: string;
+  description: string;
+}[] = [
+  {
+    id: "messages",
+    label: "Mensajes",
+    icon: "messages",
+    title: "Conversación del equipo",
+    description: "Acuerdos, preguntas y contexto compartido en un solo lugar.",
+  },
+  {
+    id: "agents",
+    label: "Equipo",
+    icon: "agents",
+    title: "Cada agente, su contexto",
+    description: "Consulta los reportes, decisiones y bloqueos del proyecto.",
+  },
+  {
+    id: "locks",
+    label: "Archivos",
+    icon: "locks",
+    title: "Coordina antes de editar",
+    description: "Reserva archivos y módulos para evitar trabajo que se pisa.",
+  },
+  {
+    id: "members",
+    label: "Miembros",
+    icon: "members",
+    title: "Un espacio compartido",
+    description: "Gestiona las personas y los permisos de este proyecto.",
+  },
+];
+
+function readSection(): Section {
+  const section = window.location.hash.slice(1);
+  return sections.some((item) => item.id === section) ? (section as Section) : "messages";
 }
 
 export function Shell({ children }: ShellProps) {
   const { auth, connectionStatus, disconnect } = useHub();
-  const [activeTab, setActiveTab] = useState<"messages" | "agents" | "locks" | "members">(
-    "messages",
-  );
-
+  const [activeTab, setActiveTab] = useState<Section>(readSection);
+  const [visited, setVisited] = useState<Set<Section>>(() => new Set([readSection()]));
+  useEffect(() => {
+    const onHashChange = () => {
+      if (window.location.hash === "#main-content") return;
+      const section = readSection();
+      setActiveTab(section);
+      setVisited((current) => new Set([...current, section]));
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
   if (!auth) return null;
+  const current = sections.find((section) => section.id === activeTab);
+  if (!current) return null;
+  const connectionLabel =
+    connectionStatus === "connected"
+      ? "Conectado (WS)"
+      : connectionStatus === "connecting"
+        ? "Conectando..."
+        : connectionStatus === "reconnecting"
+          ? "Reconectando (Inbox activo)..."
+          : "Desconectado (Polling)";
 
-  const renderStatusBadge = (status: ConnectionStatus) => {
-    switch (status) {
-      case "connected":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-800">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            Conectado (WS)
-          </span>
-        );
-      case "connecting":
-      case "reconnecting":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-950/60 text-amber-400 border border-amber-800">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-            {status === "connecting" ? "Conectando..." : "Reconectando (Inbox activo)..."}
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-950/60 text-rose-400 border border-rose-800">
-            <span className="w-2 h-2 rounded-full bg-rose-400" />
-            Desconectado (Polling)
-          </span>
-        );
-    }
-  };
+  function navigate(section: Section) {
+    setActiveTab(section);
+    setVisited((existing) => new Set([...existing, section]));
+    window.location.hash = section;
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* Top Header */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-20 px-4 py-3 sm:px-6">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 font-bold flex items-center justify-center text-sm shadow">
-              AH
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-bold text-base text-white tracking-tight">
-                  {auth.projectName || "Proyecto"}
-                </h1>
-                {renderStatusBadge(connectionStatus)}
-              </div>
-              <p className="text-xs text-slate-400 font-mono flex items-center gap-1">
-                ID: {auth.projectId}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="text-right hidden sm:block">
-              <p className="text-xs text-slate-400">Sesión activa</p>
-              <p className="text-sm font-medium text-slate-200 font-mono">{auth.agentId}</p>
-            </div>
+    <div className="workspace">
+      <a className="skip-link" href="#main-content">
+        Saltar al contenido
+      </a>
+      <aside className="workspace-sidebar">
+        <div className="brand">
+          <span className="brand-mark">
+            <Icon name="hub" />
+          </span>
+          <span>
+            Agents-Hub<small>Espacio de coordinación</small>
+          </span>
+        </div>
+        <nav className="workspace-nav" aria-label="Secciones del proyecto">
+          {sections.map((section) => (
             <button
               type="button"
-              onClick={disconnect}
-              className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-colors"
+              key={section.id}
+              data-testid={`tab-${section.id}`}
+              aria-current={activeTab === section.id ? "page" : undefined}
+              aria-controls={`section-${section.id}`}
+              onClick={() => navigate(section.id)}
             >
-              Desconectar
+              <Icon name={section.icon} />
+              <span>{section.label}</span>
+              {activeTab === section.id && <span className="nav-marker" aria-hidden="true" />}
             </button>
+          ))}
+        </nav>
+        <div className="sidebar-note">
+          <Icon name="hub" />
+          <p>
+            Tu equipo, conectado.<small>Mensajes, contexto y archivos compartidos.</small>
+          </p>
+        </div>
+        <button type="button" className="disconnect-button" onClick={disconnect}>
+          <Icon name="logout" />
+          Desconectar
+        </button>
+      </aside>
+      <div className="workspace-body">
+        <header className="workspace-header">
+          <div className="project-identity">
+            <span className="project-symbol" aria-hidden="true">
+              <Icon name="folder" />
+            </span>
+            <div>
+              <strong>{auth.projectName || "Proyecto"}</strong>
+              <details className="project-details">
+                <summary>Identificador del proyecto</summary>
+                <code>{auth.projectId}</code>
+              </details>
+            </div>
           </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="max-w-7xl mx-auto mt-3 flex border-b border-slate-800/80 -mb-3">
-          <button
-            type="button"
-            data-testid="tab-members"
-            onClick={() => setActiveTab("members")}
-            className="px-4 py-2 text-sm font-medium"
-          >
-            Miembros
-          </button>
-          <button
-            type="button"
-            data-testid="tab-messages"
-            onClick={() => setActiveTab("messages")}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "messages"
-                ? "border-indigo-500 text-indigo-400"
-                : "border-transparent text-slate-400 hover:text-slate-300"
-            }`}
-          >
-            💬 Feed de Mensajes
-          </button>
-          <button
-            type="button"
-            data-testid="tab-agents"
-            onClick={() => setActiveTab("agents")}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "agents"
-                ? "border-indigo-500 text-indigo-400"
-                : "border-transparent text-slate-400 hover:text-slate-300"
-            }`}
-          >
-            👥 Agentes y Estados
-          </button>
-          <button
-            type="button"
-            data-testid="tab-locks"
-            onClick={() => setActiveTab("locks")}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "locks"
-                ? "border-indigo-500 text-indigo-400"
-                : "border-transparent text-slate-400 hover:text-slate-300"
-            }`}
-          >
-            🔒 Workspace Locks
-          </button>
-        </div>
-      </header>
-
-      {/* Main Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
-        <RecoveryPanel />
-        {activeTab === "messages" && children.messages}
-        {activeTab === "agents" && children.agents}
-        {activeTab === "locks" && children.locks}
-        {activeTab === "members" && children.members}
-      </main>
+          <div className="header-session">
+            <output className={`connection-badge connection-${connectionStatus}`}>
+              <span aria-hidden="true" />
+              {connectionLabel}
+            </output>
+            <span className="session-name">
+              <Icon name="agents" />
+              <span>{auth.agentId}</span>
+            </span>
+          </div>
+        </header>
+        <main id="main-content" tabIndex={-1} className="workspace-main">
+          <div className="page-heading">
+            <h1>{current.title}</h1>
+            <p>{current.description}</p>
+          </div>
+          <RecoveryPanel />
+          {sections.map(
+            (section) =>
+              visited.has(section.id) && (
+                <section
+                  key={section.id}
+                  id={`section-${section.id}`}
+                  hidden={activeTab !== section.id}
+                  aria-label={section.label}
+                >
+                  {children[section.id](activeTab === section.id)}
+                </section>
+              ),
+          )}
+        </main>
+      </div>
     </div>
   );
 }

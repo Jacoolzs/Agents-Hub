@@ -1,5 +1,6 @@
 import type React from "react";
 import { useState } from "react";
+import { Icon } from "../../components/Icon.js";
 import { ErrorBanner } from "../../components/States.js";
 import { useHub } from "../../context/HubContext.js";
 import { createProject, fetchProject, joinSession, membershipRequest } from "../../lib/api.js";
@@ -19,6 +20,7 @@ export function ConnectView() {
   const [agentId, setAgentId] = useState("dashboard-user");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<unknown | null>(null);
+  const [showToken, setShowToken] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,165 +96,240 @@ export function ConnectView() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-950 text-slate-100">
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-6 sm:p-8 space-y-6">
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-600/20 text-indigo-400 font-bold text-xl border border-indigo-500/30">
-            AH
+    <div className="connect-layout">
+      <aside className="connect-story">
+        <div className="brand">
+          <span className="brand-mark">
+            <Icon name="hub" />
+          </span>
+          <span>Agents-Hub</span>
+        </div>
+        <div>
+          <h2>
+            Un equipo de agentes.
+            <br />
+            Un contexto compartido.
+          </h2>
+          <p>
+            Conecta las conversaciones, las decisiones y los archivos de tu proyecto. Cada agente
+            trabaja en su entorno; el equipo se encuentra aquí.
+          </p>
+          <svg className="coordination-map" viewBox="0 0 440 180" fill="none" aria-hidden="true">
+            <path
+              d="M76 90H166M274 90H364M220 42V64M220 116V144"
+              stroke="#567797"
+              strokeWidth="2"
+            />
+            <rect x="166" y="64" width="108" height="52" rx="12" fill="#315bdf" />
+            <rect x="24" y="64" width="52" height="52" rx="12" fill="#203650" stroke="#567797" />
+            <rect x="364" y="64" width="52" height="52" rx="12" fill="#203650" stroke="#567797" />
+            <circle cx="220" cy="30" r="12" fill="#a9c9ff" />
+            <circle cx="220" cy="156" r="12" fill="#83c8b6" />
+            <path
+              d="M41 82h18M41 90h12M41 98h18M381 82h18M381 90h12M381 98h18"
+              stroke="#bdcde0"
+              strokeWidth="2"
+            />
+            <text
+              x="220"
+              y="96"
+              fill="white"
+              textAnchor="middle"
+              fontSize="16"
+              fontFamily="Segoe UI, sans-serif"
+            >
+              Tu proyecto
+            </text>
+          </svg>
+        </div>
+        <div className="story-footer">
+          Comunicación intencional. Contexto visible. Trabajo coordinado.
+        </div>
+      </aside>
+      <div className="connect-content">
+        <div className="connect-card">
+          <div>
+            <h1>Agents-Hub</h1>
+            <p className="intro">
+              {mode === "join"
+                ? "Entra al espacio de tu equipo para continuar la colaboración."
+                : "Crea un espacio para coordinar tu próximo proyecto."}
+            </p>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Agents-Hub</h1>
-          <p className="text-sm text-slate-400">
-            Dashboard de coordinación y supervisión en tiempo real
+
+          <div className="mode-switch" aria-label="Acceso al proyecto">
+            <button
+              type="button"
+              aria-pressed={mode === "join"}
+              onClick={() => {
+                setMode("join");
+                setError(null);
+              }}
+            >
+              Conectar Proyecto
+            </button>
+            <button
+              type="button"
+              aria-pressed={mode === "create"}
+              onClick={() => {
+                setMode("create");
+                setError(null);
+              }}
+            >
+              Crear Proyecto
+            </button>
+          </div>
+
+          <ErrorBanner error={error} onDismiss={() => setError(null)} />
+
+          <form onSubmit={handleSubmit} className="space-y-5" aria-busy={isLoading}>
+            <div>
+              <label htmlFor="hub-url" className="block text-sm font-semibold text-slate-700 mb-1">
+                Dirección del Hub
+              </label>
+              <input
+                id="hub-url"
+                type="url"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900"
+                placeholder="http://127.0.0.1:8787"
+                aria-describedby="hub-url-hint"
+                required
+              />
+              <p id="hub-url-hint" className="field-hint">
+                Usa la dirección que te compartió el anfitrión.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="auth-token"
+                className="block text-xs font-semibold text-slate-700 mb-1"
+              >
+                Token de acceso personal
+              </label>
+              <input
+                id="auth-token"
+                type={showToken ? "text" : "password"}
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:border-blue-500 font-mono"
+                placeholder="ah_..."
+                autoComplete="off"
+                spellCheck={false}
+                aria-describedby="token-hint"
+                required
+              />
+              <div className="flex items-center justify-between gap-2">
+                <p id="token-hint" className="field-hint">
+                  Se conserva sólo durante esta sesión.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowToken((show) => !show)}
+                  aria-pressed={showToken}
+                  className="text-xs text-blue-700 px-2"
+                >
+                  {showToken ? "Ocultar token" : "Mostrar token"}
+                </button>
+              </div>
+            </div>
+
+            {mode === "join" && (
+              <div>
+                <label
+                  htmlFor="invitation"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  Invitación (sólo la primera vez)
+                </label>
+                <input
+                  id="invitation"
+                  type="password"
+                  value={invitation}
+                  onChange={(e) => setInvitation(e.target.value)}
+                  placeholder="ahi_..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+                />
+              </div>
+            )}
+
+            {mode === "join" ? (
+              <div>
+                <label
+                  htmlFor="project-id"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  ID del Proyecto
+                </label>
+                <input
+                  id="project-id"
+                  type="text"
+                  value={projectId}
+                  onChange={(e) => setProjectId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:border-blue-500 font-mono"
+                  placeholder="00000000-0000-0000-0000-000000000000"
+                  required
+                />
+              </div>
+            ) : (
+              <div>
+                <label
+                  htmlFor="project-name"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  Nombre del Nuevo Proyecto
+                </label>
+                <input
+                  id="project-name"
+                  type="text"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:border-blue-500"
+                  placeholder="Mi Proyecto Colaborativo"
+                  required
+                />
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="agent-id" className="block text-xs font-semibold text-slate-700 mb-1">
+                Tu nombre en el equipo
+              </label>
+              <input
+                id="agent-id"
+                type="text"
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:border-blue-500 font-mono"
+                placeholder="dashboard-user"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-50 disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors shadow-lg shadow-indigo-600/20"
+            >
+              {isLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Conectando...
+                </span>
+              ) : mode === "join" ? (
+                "Ingresar al Dashboard"
+              ) : (
+                "Crear y Conectar"
+              )}
+            </button>
+          </form>
+          <p className="connect-note">
+            Necesitas un token personal y el ID del proyecto. Si aún no tienes acceso, solicita una
+            invitación al anfitrión.
           </p>
         </div>
-
-        <div className="flex border-b border-slate-800">
-          <button
-            type="button"
-            className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-              mode === "join"
-                ? "border-indigo-500 text-indigo-400"
-                : "border-transparent text-slate-400 hover:text-slate-300"
-            }`}
-            onClick={() => setMode("join")}
-          >
-            Conectar Proyecto
-          </button>
-          <button
-            type="button"
-            className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-              mode === "create"
-                ? "border-indigo-500 text-indigo-400"
-                : "border-transparent text-slate-400 hover:text-slate-300"
-            }`}
-            onClick={() => setMode("create")}
-          >
-            Crear Proyecto
-          </button>
-        </div>
-
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="hub-url" className="block text-xs font-semibold text-slate-300 mb-1">
-              URL del Hub Server
-            </label>
-            <input
-              id="hub-url"
-              type="text"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
-              placeholder="http://127.0.0.1:8787"
-              required
-            />
-          </div>
-
-          <div>
-            <label htmlFor="auth-token" className="block text-xs font-semibold text-slate-300 mb-1">
-              Token de Acceso personal
-            </label>
-            <input
-              id="auth-token"
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
-              placeholder="ah_..."
-              required
-            />
-          </div>
-
-          {mode === "join" && (
-            <div>
-              <label
-                htmlFor="invitation"
-                className="block text-xs font-semibold text-slate-300 mb-1"
-              >
-                Invitación (sólo la primera vez)
-              </label>
-              <input
-                id="invitation"
-                type="password"
-                value={invitation}
-                onChange={(e) => setInvitation(e.target.value)}
-                placeholder="ahi_..."
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm"
-              />
-            </div>
-          )}
-
-          {mode === "join" ? (
-            <div>
-              <label
-                htmlFor="project-id"
-                className="block text-xs font-semibold text-slate-300 mb-1"
-              >
-                ID del Proyecto
-              </label>
-              <input
-                id="project-id"
-                type="text"
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
-                placeholder="00000000-0000-0000-0000-000000000000"
-                required
-              />
-            </div>
-          ) : (
-            <div>
-              <label
-                htmlFor="project-name"
-                className="block text-xs font-semibold text-slate-300 mb-1"
-              >
-                Nombre del Nuevo Proyecto
-              </label>
-              <input
-                id="project-name"
-                type="text"
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-                placeholder="Mi Proyecto Colaborativo"
-                required
-              />
-            </div>
-          )}
-
-          <div>
-            <label htmlFor="agent-id" className="block text-xs font-semibold text-slate-300 mb-1">
-              Identificador de Sesión / Agente
-            </label>
-            <input
-              id="agent-id"
-              type="text"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
-              placeholder="dashboard-user"
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors shadow-lg shadow-indigo-600/20"
-          >
-            {isLoading ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Conectando...
-              </span>
-            ) : mode === "join" ? (
-              "Ingresar al Dashboard"
-            ) : (
-              "Crear y Conectar"
-            )}
-          </button>
-        </form>
       </div>
     </div>
   );

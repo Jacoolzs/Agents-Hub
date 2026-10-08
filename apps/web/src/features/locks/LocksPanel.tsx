@@ -13,7 +13,7 @@ import {
   renewLock,
 } from "../../lib/api.js";
 
-export function LocksPanel() {
+export function LocksPanel({ active = true }: { active?: boolean }) {
   const { auth } = useHub();
   const queryClient = useQueryClient();
 
@@ -24,9 +24,11 @@ export function LocksPanel() {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [active]);
 
   const locksQuery = useQuery({
     queryKey: ["locks", auth?.projectId],
@@ -34,7 +36,7 @@ export function LocksPanel() {
       if (!auth) throw new Error("No auth");
       return fetchLocks(auth.baseUrl, auth.token, auth.projectId);
     },
-    enabled: Boolean(auth),
+    enabled: Boolean(auth) && active,
     refetchInterval: 5000,
   });
 
@@ -70,7 +72,7 @@ export function LocksPanel() {
 
   const membershipQuery = useQuery({
     queryKey: ["current-membership", auth?.projectId, auth?.userId],
-    enabled: Boolean(auth),
+    enabled: Boolean(auth) && active,
     retry: false,
     queryFn: async () => {
       if (!auth) throw new Error("No auth");
@@ -142,9 +144,9 @@ export function LocksPanel() {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Left 2 Cols: Active Locks */}
       <div className="lg:col-span-2 space-y-4">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-          <h2 className="text-base font-bold text-white">Locks de Archivos y Módulos</h2>
-          <span className="text-xs text-slate-500">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+          <h2 className="text-base font-bold text-slate-900">Locks de Archivos y Módulos</h2>
+          <span className="text-xs text-slate-600">
             {locks.length} {locks.length === 1 ? "lock activo" : "locks activos"}
           </span>
         </div>
@@ -174,27 +176,27 @@ export function LocksPanel() {
               return (
                 <div
                   key={lock.lock_id}
-                  className={`bg-slate-900/60 border rounded-xl p-4 space-y-2.5 transition-all ${
-                    isOwner ? "border-indigo-800/60" : "border-slate-800"
+                  className={`bg-white/60 border rounded-xl p-4 space-y-2.5 transition-all ${
+                    isOwner ? "border-blue-200/60" : "border-slate-200"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm text-slate-100 font-mono">
+                        <span className="font-semibold text-sm text-slate-900 font-mono">
                           {lock.owner_agent_id}
                         </span>
                         {isOwner && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-900/60 text-indigo-300 border border-indigo-700">
+                          <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-blue-50/60 text-blue-700 border border-blue-200">
                             Mi Lock
                           </span>
                         )}
-                        <span className="px-2 py-0.5 rounded text-xs font-mono bg-slate-950 text-slate-400 border border-slate-800">
+                        <span className="px-2 py-0.5 rounded text-xs font-mono bg-slate-50 text-slate-600 border border-slate-200">
                           Expira en: {formatExpiresAt(lock.expires_at)}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-300">
-                        <span className="text-slate-500 font-medium">Motivo: </span>
+                      <p className="text-xs text-slate-700">
+                        <span className="text-slate-600 font-medium">Motivo: </span>
                         {lock.reason}
                       </p>
                     </div>
@@ -217,7 +219,7 @@ export function LocksPanel() {
                             ttlSeconds < 1 ||
                             ttlSeconds > 3600
                           }
-                          className="px-3 py-1 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                          className="px-3 py-1 bg-emerald-50 hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
                         >
                           Renovar {ttlSeconds}s
                         </button>
@@ -227,7 +229,7 @@ export function LocksPanel() {
                           type="button"
                           onClick={() => releaseMutation.mutate(lock.lock_id)}
                           disabled={releaseMutation.isPending}
-                          className="px-3 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 hover:text-rose-200 border border-rose-800 rounded-lg text-xs font-medium transition-colors"
+                          className="px-3 py-1 bg-rose-50 hover:bg-rose-50 text-rose-700 hover:text-rose-700 border border-rose-200 rounded-lg text-xs font-medium transition-colors"
                         >
                           Liberar
                         </button>
@@ -236,13 +238,13 @@ export function LocksPanel() {
                   </div>
 
                   {/* Paths locked */}
-                  <div className="bg-slate-950/80 rounded-lg p-2 border border-slate-800/80">
-                    <span className="text-[11px] text-slate-500 block mb-1">Rutas bloqueadas:</span>
-                    <ul className="space-y-0.5 font-mono text-xs text-indigo-300">
+                  <div className="bg-slate-50/80 rounded-lg p-2 border border-slate-200/80">
+                    <span className="text-xs text-slate-600 block mb-1">Rutas bloqueadas:</span>
+                    <ul className="space-y-0.5 font-mono text-xs text-blue-700">
                       {lock.paths.map((p) => (
                         <li key={p} className="flex items-center gap-1.5">
-                          <span className="text-slate-600">▪</span>
-                          <span>{p}</span>
+                          <span className="text-slate-500">▪</span>
+                          <span className="min-w-0 break-words">{p}</span>
                         </li>
                       ))}
                     </ul>
@@ -256,28 +258,28 @@ export function LocksPanel() {
 
       {/* Right 1 Col: Claim Lock Form */}
       <div className="space-y-4">
-        <div className="pb-2 border-b border-slate-800">
-          <h2 className="text-base font-bold text-white">Reclamar Lock de Archivo</h2>
-          <p className="text-xs text-slate-400">Previene conflictos antes de editar código</p>
+        <div className="pb-2 border-b border-slate-200">
+          <h2 className="text-base font-bold text-slate-900">Reclamar Lock de Archivo</h2>
+          <p className="text-xs text-slate-600">Previene conflictos antes de editar código</p>
         </div>
 
         <ErrorBanner error={formError} onDismiss={() => setFormError(null)} />
 
         <form
           onSubmit={handleClaim}
-          className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3"
+          className="bg-white border border-slate-200 rounded-xl p-4 space-y-3"
         >
           <div>
-            <label htmlFor="lock-paths" className="block text-xs font-semibold text-slate-300 mb-1">
+            <label htmlFor="lock-paths" className="block text-xs font-semibold text-slate-700 mb-1">
               Rutas a Bloquear (separadas por coma o línea) *
             </label>
             <textarea
               id="lock-paths"
               value={pathsInput}
               onChange={(e) => setPathsInput(e.target.value)}
-              placeholder="src/components/Header.tsx&#10;src/lib/api.ts"
+              placeholder={"src/components/Header.tsx\nsrc/lib/api.ts"}
               rows={3}
-              className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono resize-none"
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono resize-none"
               required
             />
           </div>
@@ -285,7 +287,7 @@ export function LocksPanel() {
           <div>
             <label
               htmlFor="lock-reason"
-              className="block text-xs font-semibold text-slate-300 mb-1"
+              className="block text-xs font-semibold text-slate-700 mb-1"
             >
               Motivo del Lock *
             </label>
@@ -295,13 +297,13 @@ export function LocksPanel() {
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Ej: Refactorizando llamadas de API"
-              className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="lock-ttl" className="block text-xs font-semibold text-slate-300 mb-1">
+            <label htmlFor="lock-ttl" className="block text-xs font-semibold text-slate-700 mb-1">
               TTL para reclamar o renovar (segundos)
             </label>
             <input
@@ -311,14 +313,14 @@ export function LocksPanel() {
               max={3600}
               value={ttlSeconds}
               onChange={(e) => setTtlSeconds(e.target.valueAsNumber)}
-              className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-mono"
             />
           </div>
 
           <button
             type="submit"
             disabled={claimMutation.isPending || !pathsInput.trim() || !reason.trim()}
-            className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900 disabled:opacity-50 text-white font-medium rounded-lg text-xs transition-colors shadow"
+            className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-50 disabled:opacity-50 text-white font-medium rounded-lg text-xs transition-colors shadow"
           >
             {claimMutation.isPending ? "Reclamando..." : "Reclamar Lock"}
           </button>

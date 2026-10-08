@@ -2,6 +2,7 @@ import type { Message, MessageHistoryFilters, MessagePriority } from "@agents-hu
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import type React from "react";
 import { useMemo, useState } from "react";
+import { Icon } from "../../components/Icon.js";
 import { EmptyState, ErrorBanner } from "../../components/States.js";
 import { useHub } from "../../context/HubContext.js";
 import { fetchMessageHistory, sendMessage } from "../../lib/api.js";
@@ -17,7 +18,7 @@ function matchesHistoryFilters(message: Message, filters: MessageHistoryFilters)
   );
 }
 
-export function MessageFeed() {
+export function MessageFeed({ active = true }: { active?: boolean }) {
   const { auth, events, syncError, realtimeManager } = useHub();
 
   const [filterDraft, setFilterDraft] = useState({
@@ -33,11 +34,13 @@ export function MessageFeed() {
   const [newPriority, setNewPriority] = useState<MessagePriority>("normal");
   const [newRecipients, setNewRecipients] = useState("");
   const [newBody, setNewBody] = useState("");
+  const [sent, setSent] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [formError, setFormError] = useState<unknown | null>(null);
 
   const historyQuery = useInfiniteQuery({
     queryKey: ["message-history", auth?.projectId, auth?.sessionId, historyFilters],
-    enabled: auth !== null,
+    enabled: auth !== null && active,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => {
       if (!auth) throw new Error("No auth");
@@ -67,6 +70,7 @@ export function MessageFeed() {
     },
     onSuccess: () => {
       setNewBody("");
+      setSent(true);
       setFormError(null);
       void realtimeManager?.recoverMissedEvents();
     },
@@ -77,12 +81,22 @@ export function MessageFeed() {
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newBody.trim()) return;
+    if (!newBody.trim() || sendMutation.isPending) return;
+    setSent(false);
     sendMutation.mutate();
   };
 
   const applyFilters = (event: React.FormEvent) => {
     event.preventDefault();
+    if (
+      filterDraft.from &&
+      filterDraft.to &&
+      new Date(filterDraft.from) >= new Date(filterDraft.to)
+    ) {
+      setFormError(new Error("La fecha inicial debe ser anterior a la fecha final."));
+      return;
+    }
+    setFormError(null);
     const clean = (value: string) => value.trim() || undefined;
     setHistoryFilters({
       ...(clean(filterDraft.text) ? { text: clean(filterDraft.text) } : {}),
@@ -123,241 +137,276 @@ export function MessageFeed() {
     );
   }, [events, historyFilters, historyQuery.data]);
 
-  const renderPriorityBadge = (priority?: MessagePriority) => {
-    switch (priority) {
-      case "urgent":
-        return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-900/60 text-rose-300 border border-rose-700 uppercase">
-            Urgente
-          </span>
-        );
-      case "high":
-        return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/60 text-amber-300 border border-amber-700 uppercase">
-            Alta
-          </span>
-        );
-      case "low":
-        return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400">
-            Baja
-          </span>
-        );
-      default:
-        return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-900/40 text-indigo-300 border border-indigo-800/50">
-            Normal
-          </span>
-        );
-    }
+  const filterLabels = {
+    text: "Buscar texto",
+    channel: "Canal",
+    sender: "Remitente",
+    recipient: "Destinatario",
   };
+  const priorityLabels = { normal: "Normal", low: "Baja", high: "Alta", urgent: "Urgente" };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)] space-y-4">
-      {/* Authorized server-side history filters */}
-      <div className="pb-3 border-b border-slate-800 space-y-2">
-        <form onSubmit={applyFilters} className="grid grid-cols-2 lg:grid-cols-6 gap-2">
+    <div className="conversation">
+      <div className="history-toolbar">
+        <form
+          onSubmit={applyFilters}
+          className="grid grid-cols-2 xl:grid-cols-4 gap-4"
+          aria-label="Buscar en el historial"
+        >
           {(["text", "channel", "sender", "recipient"] as const).map((field) => (
-            <input
+            <div
               key={field}
-              aria-label={`Filtro ${
-                field === "text"
-                  ? "texto"
-                  : field === "channel"
-                    ? "canal"
-                    : field === "sender"
-                      ? "remitente"
-                      : "destinatario"
-              }`}
-              value={filterDraft[field]}
-              onChange={(event) =>
-                setFilterDraft((current) => ({ ...current, [field]: event.target.value }))
-              }
-              placeholder={
-                field === "text"
-                  ? "Buscar texto"
-                  : field === "channel"
-                    ? "Canal"
-                    : field === "sender"
-                      ? "Remitente"
-                      : "Destinatario"
-              }
-              maxLength={field === "text" ? 200 : 100}
-              className="px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-            />
+              hidden={!showAdvancedFilters && (field === "sender" || field === "recipient")}
+            >
+              <label htmlFor={`history-${field}`}>{filterLabels[field]}</label>
+              <input
+                id={`history-${field}`}
+                aria-label={`Filtro ${field === "text" ? "texto" : field === "channel" ? "canal" : field === "sender" ? "remitente" : "destinatario"}`}
+                value={filterDraft[field]}
+                onChange={(event) =>
+                  setFilterDraft((current) => ({ ...current, [field]: event.target.value }))
+                }
+                placeholder={field === "text" ? "Una palabra o un acuerdo…" : "Todos"}
+                maxLength={field === "text" ? 200 : 100}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800"
+              />
+            </div>
           ))}
-          <input
-            type="datetime-local"
-            aria-label="Filtro desde"
-            value={filterDraft.from}
-            onChange={(event) =>
-              setFilterDraft((current) => ({ ...current, from: event.target.value }))
-            }
-            className="px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-          />
-          <input
-            type="datetime-local"
-            aria-label="Filtro hasta"
-            value={filterDraft.to}
-            onChange={(event) =>
-              setFilterDraft((current) => ({ ...current, to: event.target.value }))
-            }
-            className="px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-          />
-          <div className="col-span-2 lg:col-span-6 flex items-center justify-between gap-2">
-            <div className="flex gap-2">
+          <div hidden={!showAdvancedFilters}>
+            <label htmlFor="history-from">Desde</label>
+            <input
+              id="history-from"
+              type="datetime-local"
+              aria-label="Filtro desde"
+              value={filterDraft.from}
+              onChange={(event) =>
+                setFilterDraft((current) => ({ ...current, from: event.target.value }))
+              }
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800"
+            />
+          </div>
+          <div hidden={!showAdvancedFilters}>
+            <label htmlFor="history-to">Hasta</label>
+            <input
+              id="history-to"
+              type="datetime-local"
+              aria-label="Filtro hasta"
+              value={filterDraft.to}
+              onChange={(event) =>
+                setFilterDraft((current) => ({ ...current, to: event.target.value }))
+              }
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800"
+            />
+          </div>
+          <div className="col-span-2 flex items-end justify-between flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="submit"
-                className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-xs font-medium text-white"
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-medium text-white inline-flex items-center gap-2"
               >
+                <Icon name="search" />
                 Aplicar filtros
               </button>
               <button
                 type="button"
                 onClick={clearFilters}
-                className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white"
+                className="px-3 py-2 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50"
               >
                 Limpiar
               </button>
+              <button
+                type="button"
+                aria-expanded={showAdvancedFilters}
+                onClick={() => setShowAdvancedFilters((show) => !show)}
+                className="px-3 py-2 text-sm text-slate-700 rounded-lg hover:bg-slate-50"
+              >
+                {showAdvancedFilters ? "Menos filtros" : "Más filtros"}
+              </button>
             </div>
-            <span className="text-xs text-slate-500">
-              {messages.length} {messages.length === 1 ? "mensaje" : "mensajes"}
+            <span className="text-xs text-slate-600">
+              {messages.length} {messages.length === 1 ? "mensaje cargado" : "mensajes cargados"}
             </span>
           </div>
         </form>
       </div>
 
-      {/* Messages List Area */}
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-        <ErrorBanner error={syncError} />
-        <ErrorBanner error={historyQuery.error} />
+      <ErrorBanner error={syncError} />
+      <ErrorBanner error={historyQuery.error} />
+      <div
+        className="message-list"
+        aria-label="Historial de mensajes"
+        aria-busy={historyQuery.isFetching}
+      >
         {historyQuery.hasNextPage && (
-          <div className="flex justify-center pb-1">
+          <div className="flex justify-center py-4">
             <button
               type="button"
               onClick={() => void historyQuery.fetchNextPage()}
               disabled={historyQuery.isFetchingNextPage}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-xs font-medium text-slate-300 hover:border-indigo-600 hover:text-indigo-200 disabled:opacity-50"
+              className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               {historyQuery.isFetchingNextPage ? "Cargando…" : "Cargar mensajes anteriores"}
             </button>
           </div>
         )}
         {messages.length === 0 ? (
-          <EmptyState
-            title={historyQuery.isPending ? "Cargando historial" : "No hay mensajes en este canal"}
-            description={
-              historyQuery.isPending
-                ? "Recuperando mensajes retenidos sin modificar el cursor del inbox."
-                : "Envía un mensaje utilizando el formulario de abajo para iniciar la colaboración."
-            }
-          />
+          <div className="py-6">
+            <EmptyState
+              title={
+                historyQuery.isPending
+                  ? "Cargando historial"
+                  : Object.keys(historyFilters).length
+                    ? "No hay coincidencias"
+                    : "La conversación empieza aquí"
+              }
+              description={
+                historyQuery.isPending
+                  ? "Recuperando los mensajes disponibles del proyecto."
+                  : Object.keys(historyFilters).length
+                    ? "Prueba otra búsqueda o limpia los filtros para ver los mensajes disponibles."
+                    : "Comparte una pregunta, un acuerdo o el contexto que necesita tu equipo."
+              }
+              action={
+                Object.keys(historyFilters).length ? (
+                  <button type="button" onClick={clearFilters} className="text-blue-700 px-4">
+                    Limpiar filtros
+                  </button>
+                ) : undefined
+              }
+            />
+          </div>
         ) : (
           messages.map((msg) => (
-            <div
+            <article
               key={msg.message_id}
-              className={`p-3.5 rounded-xl border transition-all ${
-                msg.sender_id === auth?.agentId
-                  ? "bg-slate-900/90 border-indigo-900/40"
-                  : "bg-slate-900/50 border-slate-800"
-              }`}
+              className="message-row"
+              aria-label={`Mensaje de ${msg.sender_id}`}
             >
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm text-indigo-300 font-mono">
-                    {msg.sender_id}
+              <div className="message-meta">
+                <span className="message-author font-mono">{msg.sender_id}</span>
+                {msg.sender_id === auth?.agentId && (
+                  <span className="text-xs text-slate-600">Tú</span>
+                )}
+                <span className="text-xs text-blue-700 font-mono">#{msg.channel}</span>
+                {msg.priority !== "normal" && (
+                  <span
+                    className={`px-2 py-1 rounded text-xs font-medium ${msg.priority === "urgent" ? "bg-rose-50 text-rose-700" : msg.priority === "high" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}`}
+                  >
+                    {priorityLabels[msg.priority]}
                   </span>
-                  <span className="text-xs text-slate-400 font-mono">#{msg.channel}</span>
-                  {renderPriorityBadge(msg.priority)}
-                  {msg.recipient_agent_ids && msg.recipient_agent_ids.length > 0 && (
-                    <span className="text-xs text-amber-400/90 font-mono">
-                      ➔ {msg.recipient_agent_ids.join(", ")}
-                    </span>
-                  )}
-                </div>
-                <time className="text-[11px] text-slate-400 font-mono">
-                  {new Date(msg.created_at).toLocaleTimeString()}
+                )}
+                <time dateTime={msg.created_at}>
+                  {new Date(msg.created_at).toLocaleString("es", {
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </time>
               </div>
-
-              {/* Message Body (No CoT, No tokens) */}
-              <p className="text-sm text-slate-200 whitespace-pre-wrap break-words leading-relaxed">
-                {msg.body}
-              </p>
-            </div>
+              <p className="message-body">{msg.body}</p>
+              {msg.recipient_agent_ids.length > 0 && (
+                <p className="message-privacy">
+                  Privado para: {msg.recipient_agent_ids.join(", ")}
+                </p>
+              )}
+            </article>
           ))
         )}
       </div>
 
-      {/* Send Message Form */}
-      <div className="pt-2 border-t border-slate-800 space-y-2">
-        <ErrorBanner error={formError} onDismiss={() => setFormError(null)} />
-        <form
-          onSubmit={handleSend}
-          className="space-y-3 bg-slate-900/80 border border-slate-800 p-3.5 rounded-xl"
-        >
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-slate-400">Canal:</span>
-              <input
-                type="text"
-                value={newChannel}
-                onChange={(e) => setNewChannel(e.target.value)}
-                placeholder="general"
-                className="w-28 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
-              />
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-slate-400">Prioridad:</span>
-              <select
-                value={newPriority}
-                onChange={(e) => setNewPriority(e.target.value as MessagePriority)}
-                className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-              >
-                <option value="normal">Normal</option>
-                <option value="low">Baja</option>
-                <option value="high">Alta</option>
-                <option value="urgent">Urgente</option>
-              </select>
-            </div>
-
-            <div className="flex-1 flex items-center gap-1.5 min-w-[200px]">
-              <span className="text-xs text-slate-400">Destinatarios:</span>
-              <input
-                type="text"
-                value={newRecipients}
-                onChange={(e) => setNewRecipients(e.target.value)}
-                placeholder="opcional: agente1, agente2"
-                className="flex-1 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-end gap-2">
-            <textarea
-              value={newBody}
-              onChange={(e) => setNewBody(e.target.value)}
-              placeholder="Escribe un mensaje para coordinar con el equipo..."
-              rows={2}
-              className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-indigo-500 resize-none"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  handleSend(e);
-                }
-              }}
+      <ErrorBanner error={formError} onDismiss={() => setFormError(null)} />
+      <form
+        onSubmit={handleSend}
+        className="message-composer"
+        aria-label="Enviar un mensaje"
+        aria-busy={sendMutation.isPending}
+      >
+        <div className="composer-heading">
+          <h2>Nuevo mensaje</h2>
+          <span>Comparte contexto útil para el equipo</span>
+        </div>
+        <div className="composer-fields">
+          <div>
+            <label htmlFor="message-channel">Canal</label>
+            <input
+              id="message-channel"
+              type="text"
+              value={newChannel}
+              onChange={(e) => setNewChannel(e.target.value)}
+              placeholder="general"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800"
             />
-            <button
-              type="submit"
-              disabled={sendMutation.isPending || !newBody.trim()}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900 disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors shadow"
-            >
-              {sendMutation.isPending ? "Enviando..." : "Enviar"}
-            </button>
           </div>
-        </form>
-      </div>
+          <div>
+            <label htmlFor="message-priority">Prioridad</label>
+            <select
+              id="message-priority"
+              value={newPriority}
+              onChange={(e) => setNewPriority(e.target.value as MessagePriority)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800"
+            >
+              <option value="normal">Normal</option>
+              <option value="low">Baja</option>
+              <option value="high">Alta</option>
+              <option value="urgent">Urgente</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="message-recipients">
+              Destinatarios <span className="font-normal">(opcional)</span>
+            </label>
+            <input
+              id="message-recipients"
+              type="text"
+              value={newRecipients}
+              onChange={(e) => setNewRecipients(e.target.value)}
+              placeholder="agente1, agente2"
+              aria-describedby="message-audience"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800"
+            />
+          </div>
+        </div>
+        <label htmlFor="message-body" className="sr-only">
+          Mensaje
+        </label>
+        <textarea
+          id="message-body"
+          value={newBody}
+          onChange={(e) => {
+            setNewBody(e.target.value);
+            setSent(false);
+          }}
+          placeholder="Escribe un mensaje para coordinar con el equipo..."
+          rows={3}
+          className="w-full px-3 py-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-900"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              handleSend(e);
+            }
+          }}
+        />
+        <div className="compose-footer">
+          <div>
+            <p id="message-audience">
+              {newRecipients.trim()
+                ? "Mensaje dirigido a los destinatarios indicados."
+                : "Visible para todo el equipo."}
+            </p>
+            <p>Ctrl / ⌘ + Enter para enviar</p>
+            <output className="text-xs text-emerald-700">{sent ? "Mensaje enviado." : ""}</output>
+          </div>
+          <button
+            type="submit"
+            disabled={sendMutation.isPending || !newBody.trim()}
+            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded-lg text-sm inline-flex items-center gap-2"
+          >
+            <Icon name="send" />
+            {sendMutation.isPending ? "Enviando..." : "Enviar"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

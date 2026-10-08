@@ -43,7 +43,7 @@ export function RecoveryPanel() {
 
   return (
     <section
-      className="mb-4 p-4 border border-amber-800 rounded-lg bg-amber-950/30 space-y-3"
+      className="mb-4 p-4 border border-amber-200 rounded-lg bg-amber-50/30 space-y-3"
       aria-label="Recuperación de historial"
     >
       <p>
@@ -56,7 +56,7 @@ export function RecoveryPanel() {
           type="button"
           disabled={busy}
           onClick={() => void review()}
-          className="px-3 py-2 bg-slate-800 rounded disabled:opacity-50"
+          className="px-3 py-2 bg-slate-100 rounded disabled:opacity-50"
         >
           Revisar estado actual
         </button>
@@ -86,7 +86,7 @@ export function RecoveryPanel() {
             type="button"
             disabled={busy}
             onClick={() => void accept()}
-            className="px-3 py-2 bg-amber-800 rounded disabled:opacity-50"
+            className="px-3 py-2 bg-amber-50 rounded disabled:opacity-50"
           >
             Aceptar historial perdido y continuar
           </button>

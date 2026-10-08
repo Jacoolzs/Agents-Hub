@@ -22,6 +22,12 @@ Actualizado: 2026-10-08. Esta sección se actualiza al finalizar **cada tarea** 
 
 Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](docs/ROADMAP.md), preservando alcance y aceptación, con commits y publicación progresivos desde una rama nueva. El objetivo completo sigue pendiente; 10.1/10.2/10.5 están publicadas y el CI del acumulado está aprobado. Por instrucción del usuario, detenerse tras cerrar 10.5 y **no iniciar 10.3** hasta nueva autorización.
 
+Solicitud más reciente completada localmente: el usuario eligió instalar ambas skills y renovar UI/UX antes de 10.3. `frontend-design` y `ui-ux-pro-max` están instaladas bajo `C:/Users/orlan/.codex/skills`, con sus recursos completos y búsquedas locales ejecutadas. Se utilizaron las dos para la renovación de conexión, navegación, mensajes, equipo, archivos, miembros y avisos; dirección vigente en [UI_DESIGN](docs/UI_DESIGN.md). No se inicia 10.3 ni se declara terminado el roadmap.
+
+Estado al cierre de renovación: rama `feat/phase-10-message-history`, HEAD `7780d6d` (cierre documental), igual a la referencia local de seguimiento; se preserva el registro previo de comparación. Renovación y bitácora quedan sin commit/push: 13 archivos rastreados modificados y dos nuevos (`Icon.tsx`, `docs/UI_DESIGN.md`). No se consultó CI remoto ni se hizo fetch en esta tarea. Pruebas de esta sesión: pnpm check PASS (135 tests/19 suites), build monorepo PASS; tras corregir navegación se repiten lint y build web PASS, y E2E final 11/11 PASS. git diff --check PASS. Las ejecuciones de prueba terminaron; no se intervino el Hub/túnel personal.
+
+Los borradores/filtros se conservan entre secciones, las consultas y contador se pausan al ocultarlas, los filtros secundarios se despliegan y los mensajes muestran fecha/privacidad. Tokens permanecen en memoria y se enmascaran hasta una acción explícita. Se mantienen los contratos y ADR vigentes; sin dependencias ni servicios nuevos. Capturas reproducibles en test-results mediante el E2E de renovación (datos efímeros, sin secretos). Se revisaron conexión/mensajes/equipo/archivos/miembros en escritorio y móvil. No se afirma certificación completa WCAG ni aceptación humana del piloto.
+
 - Directorio: `C:\Users\orlan\Documents\GitHub\Agents-Hub`. Retomar en este checkout y comprobar HEAD/status contra la rama remota.
 - Rama de trabajo: `feat/phase-10-message-history`, creada desde `main` en `13a81d8`; commits `4c5feba` (base 8.1–9.2), `28f9638` (10.1) y `9c33fa2` (10.2) publicados en `origin/feat/phase-10-message-history`.
 - Incremento 10.5 publicado en `3c0ba1b` (`feat: expose explicit lock renewal in MCP and dashboard`). Revalidar HEAD y `git status` antes de continuar; rama remota actualizada sin merge a main. No hay cambios ajenos detectados ni artefactos operativos añadidos.
@@ -48,7 +54,7 @@ Documentos de apoyo: [inventario de contratos](docs/API_CONTRACT.md), [arquitect
 
 ### Por dónde seguir y cómo: próximo incremento
 
-**Trabajo detenido por instrucción del usuario; no iniciar 10.3.** Los pasos siguientes son el relevo propuesto para cuando el usuario autorice continuar: respuestas correlacionadas y selección de destinatarios. Registrar contrato antes de implementar. `correlation_id` ya existe como campo libre; decidir compatibilidad de clientes anteriores y referencia canónica sin tratar cualquier string previo como UUID de mensaje.
+**Renovación UI/UX terminada localmente; 10.3 sigue pendiente de autorización.** Próxima tarea concreta: revisar los cambios locales/capturas con el usuario, conservar el rediseño y registrar cualquier ajuste solicitado antes de publicar o ampliar funcionalidad. Para retomarlo, usar docs/UI_DESIGN.md, Shell/Icon/index.css y los paneles de apps/web/src; pnpm build y pnpm test:e2e regeneran las capturas. Aceptación técnica observada: flujos previos pasan, navegación/Volver/teclado conservan borrador/filtros y no hay overflow en 375/768/1024/1440 ni landscape. La interfaz se adapta al stack existente, sin imágenes o fuentes remotas. Si se autoriza 10.3, los pasos siguientes concretan respuestas correlacionadas y selección de destinatarios. Registrar contrato antes de implementar. `correlation_id` ya existe como campo libre; decidir compatibilidad de clientes anteriores y referencia canónica sin tratar cualquier string previo como UUID de mensaje.
 
 1. Revisar `MessageFeed`, `SendMessageInputSchema`/`MessageSchema`, `MessageService`, puerto/adaptador de mensajes y rutas. Añadir selección por lista de agentes existentes (team-status), conservando destinatarios válidos aunque estén desconectados; no depender exclusivamente de presencia activa.
 2. Definir regla de respuesta que nunca amplíe la visibilidad original. Una referencia al mensaje padre sólo puede comprobarse después de autorizar proyecto/sesión y visibilidad; rechazar privado ajeno sin inferir existencia ni contenido. No confiar en correlation_id enviado como prueba de autorización.
@@ -91,11 +97,14 @@ Compilar antes de Playwright: sirve el bundle de producción y usa el adaptador 
 ### Mensaje sugerido para el chat nuevo
 
 ```text
-El trabajo se detuvo tras 10.5 por solicitud del usuario. No iniciar 10.3
-ni otras fases hasta nueva autorización. Si el usuario autoriza continuar:
+La renovación UI/UX fue autorizada y terminó localmente antes de 10.3.
+Hay cambios sin commit/push sobre feat/phase-10-message-history/7780d6d.
+No iniciar 10.3 hasta nueva autorización. Para revisar la renovación:
 Lee AGENTS.md y BITACORA.md completas, especialmente el relevo vigente.
 Contrasta rama, commit, cambios locales y código actual; conserva lo no publicado.
-Empieza por 10.3: respuestas correlacionadas y selector de destinatarios,
+Lee docs/UI_DESIGN.md y usa ambas skills instaladas en el directorio personal.
+Check (135), build y E2E (11) pasaron; las capturas se regeneran con E2E.
+Si se autoriza 10.3, continúa con respuestas correlacionadas y selector de destinatarios,
 registrando privacidad de respuestas y compatibilidad de correlation_id. Sigue los pasos y archivos
 del relevo, conserva ADR-018–021 y los límites del roadmap. Actualiza la bitácora
 y el relevo al terminar cada tarea, con lo hecho, cómo verificarlo y por dónde seguir.
@@ -176,6 +185,23 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-08] — Renovación UI/UX autorizada e instalación de skills
+- El usuario autoriza instalar ambas skills y realizar la renovación antes de 10.3. Se conserva el cambio documental previo en BITACORA.md sobre `feat/phase-10-message-history`/`7780d6d`; no se inicia 10.3.
+- `skill-installer` instala `frontend-design` desde `anthropics/skills/skills/frontend-design` y `ui-ux-pro-max` desde `nextlevelbuilder/ui-ux-pro-max-skill/.claude/skills/ui-ux-pro-max` en el directorio personal de Codex, con exit 0. Se leen ambas instrucciones y referencias de accesibilidad; búsquedas locales verifican recomendaciones de dashboard, foco/teclado y formularios React.
+- Se registra en docs/UI_DESIGN.md la dirección visual antes de implementar: navegación marina, superficies claras, tipografía local, conversación como prioridad y controles adaptables. Se corrige la recomendación genérica de landing/violeta para adecuarla a la coordinación real; sin nuevas dependencias ni servicios.
+- Siguiente paso: renovar componentes web preservando API/privacidad/ACK/recovery/locks y verificar check/build/E2E más revisión visual escritorio/móvil. Instalación de skills terminada; renovación en curso y pruebas pendientes.
+- Primer pase implementado: entrada con identidad propia y token visible sólo por acción, navegación adaptable con URL hash, secciones visitadas preservadas, conversación tipográfica con fecha/privacidad, formularios etiquetados y superficies claras en equipo/archivos/miembros/recovery. pnpm check pasa lint/typecheck/135 pruebas; build PASS y 11 E2E PASS (10 previos + regresión de teclado/borradores/anchos 375/768/1024/1440/landscape/movimiento reducido).
+- Revisión real de capturas detecta filtros demasiado altos en móvil y botones deshabilitados de poco contraste. Se corrigen mediante filtros adicionales desplegables y colores legibles; las consultas/temporizador de secciones ocultas se pausan conservando borradores. Invitaciones enmascaradas con mostrar/copiar explícitos. Estos ajustes requieren repetir los gates finales y revisar nuevas capturas; no se atribuyen los resultados del primer pase al código final.
+- La segunda corrida mantiene 135 pruebas/check y build PASS y 10 E2E previos PASS, pero la nueva regresión detecta que Volver a una URL sin hash no cambia de Equipo a Mensajes: el listener ignoraba también el hash vacío al proteger el enlace de salto. Se acota la excepción exclusivamente a #main-content y se repetirá E2E sobre la corrección.
+- Cierre verificado: lint web PASS y bundle web recompilado PASS tras corregir el listener; E2E final 11/11 PASS en 27.5 s, incluidos navegador/stdio y renovación. Se revisan nuevas capturas de conexión, mensajes, equipo, archivos y miembros en escritorio/móvil; filtros plegados y acciones deshabilitadas legibles. Check completo anterior de esta misma composición pasó 135/135; la última corrección sólo afecta al listener, cubierta por E2E. git diff --check PASS.
+- Sólo se modifican web, E2E y documentación (13 rastreados + Icon.tsx/UI_DESIGN.md nuevos); sin dependencias, commit/push, fetch/CI nuevos, ni modificaciones de DB operativa o procesos personales. Las pruebas finalizaron. Relevo actualizado: renovación local terminada, siguiente revisión con el usuario y 10.3 aún pendiente de autorización. Piloto humano y objetivo global siguen abiertos.
+
+### [2026-10-08] — Comparación de skills para renovación UI/UX
+- El usuario solicita renovar la interfaz antes de 10.3 y pregunta por `frontend-design` frente a `ui-ux-pro-max`. Se leen AGENTS.md y la bitácora completas, y se contrasta rama/HEAD/status con el relevo: `feat/phase-10-message-history`, `7780d6d`, inicialmente limpio y coincidente con la referencia local de seguimiento.
+- El comando aportado por el usuario terminó con exit 1: Vercel no ofrece `frontend-design`. Se verifican fuentes primarias: https://github.com/anthropics/skills/tree/main/skills/frontend-design y https://github.com/nextlevelbuilder/ui-ux-pro-max-skill. La primera orienta identidad visual y revisión estética; la segunda incluye búsqueda local de patrones, sistema de diseño y guías UX/accesibilidad/stack. No se probaron resultados comparativos, por lo que no se afirma superioridad objetiva.
+- Recomendación, aún no aceptada: `ui-ux-pro-max` como base para el dashboard y `frontend-design` como complemento visual opcional. No se instala ninguna skill ni se modifica aplicación/dependencias, datos o procesos. Selección y rediseño siguen pendientes; 10.3 conserva su pausa.
+- Verificación de esta tarea: fuentes publicadas, inventario de archivos web, git status/log/referencia local y revisión documental; no se ejecutan tests/build/E2E ni se consulta CI remoto. Sólo queda BITACORA.md modificada localmente, sin commit/publicación. Siguiente paso: elección/instalación verificable de skill y lectura completa antes de diseñar.
 
 ### [2026-10-08] — Cierre de 10.5 y detención solicitada
 - El usuario solicita aviso al terminar y prohíbe iniciar 10.3. Se limita el cierre a evidencia CI y registro documental; no se empieza ninguna otra funcionalidad.

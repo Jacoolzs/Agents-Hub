@@ -35,6 +35,96 @@ test.afterAll(async () => {
   }
 });
 
+test("renovación responsive conserva borradores y permite navegar con teclado", async ({
+  page,
+}, testInfo) => {
+  const project = server.ctx.projectService.createProject("Coordinación de producto", testUserId)
+    .project.project_id;
+  const teammate = server.ctx.sessionService.joinProject(project, "frontend-agent", testUserId);
+  server.ctx.statusService.reportStatus(project, teammate.agent_id, {
+    objective: "Renovar la experiencia de colaboración",
+    progress: "in_progress",
+    decision: "Conservar los contratos y la privacidad de mensajes",
+    next_step: "Revisar los flujos con el equipo",
+  });
+  server.ctx.messageService.sendMessage(project, teammate.agent_id, {
+    channel: "general",
+    body: "La revisión de la interfaz está lista. ¿Podemos comprobar el flujo de mensajes y las reservas de archivos?",
+    priority: "high",
+  });
+  server.ctx.lockService.claimLock(project, teammate.agent_id, {
+    paths: ["src/components/conversation/MessageComposerWithAnIntentionallyLongFilename.tsx"],
+    reason: "Ajustar el formulario de mensajes",
+    ttl_seconds: 600,
+  });
+  await page.goto("/");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: testInfo.outputPath("connect-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({ path: testInfo.outputPath("connect-mobile.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.fill("#hub-url", HUB_URL);
+  await page.fill("#auth-token", authToken);
+  await page.fill("#project-id", project);
+  await page.fill("#agent-id", "design-review");
+  await page.click("button[type=submit]");
+  await expect(page.getByText("Conectado (WS)")).toBeVisible();
+  await page.getByLabel("Mensaje", { exact: true }).fill("Borrador que debe conservarse");
+  await page.getByLabel("Filtro texto", { exact: true }).fill("interfaz");
+  await page.getByRole("button", { name: "Equipo", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Equipo", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(
+    page.getByText("Renovar la experiencia de colaboración", { exact: true }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("button", { name: "Mensajes", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(page.getByLabel("Mensaje", { exact: true })).toHaveValue(
+    "Borrador que debe conservarse",
+  );
+  await expect(page.getByLabel("Filtro texto", { exact: true })).toHaveValue("interfaz");
+  await page.getByRole("button", { name: "Más filtros", exact: true }).click();
+  await expect(page.getByLabel("Filtro desde", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Menos filtros", exact: true }).click();
+  await expect(page.getByLabel("Filtro desde", { exact: true })).toBeHidden();
+  await page.getByLabel("Filtro texto", { exact: true }).fill("");
+  await page.getByLabel("Mensaje", { exact: true }).fill("");
+  for (const width of [375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const section of ["messages", "agents", "locks", "members"]) {
+      await page.getByTestId(`tab-${section}`).click();
+      await expect(page.getByTestId(`tab-${section}`)).toHaveAttribute("aria-current", "page");
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
+      if (width === 375 || width === 1440) {
+        await page.screenshot({
+          path: testInfo.outputPath(`${section}-${width}.png`),
+          fullPage: true,
+        });
+      }
+    }
+  }
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 667, height: 375 });
+  await page.getByTestId("tab-messages").click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.getByLabel("Mensaje", { exact: true }).fill("Envío comprobado con teclado");
+  await page.getByLabel("Mensaje", { exact: true }).press("Control+Enter");
+  await expect(page.getByText("Envío comprobado con teclado", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("Mensaje enviado.", { exact: true })).toBeVisible();
+});
+
 test("dos pestañas con el mismo nombre no comparten sesión y recargar permite reanudar", async ({
   page,
   browser,
@@ -142,6 +232,7 @@ test("historial paginado sobrevive recarga y muestra mensajes entrantes sin dupl
 
   await page.getByLabel("Filtro texto").fill("unique release");
   await page.getByLabel("Filtro canal").fill("releases");
+  await page.getByRole("button", { name: "Más filtros", exact: true }).click();
   await page.getByLabel("Filtro remitente").fill("history-sender");
   await page.getByRole("button", { name: "Aplicar filtros" }).click();
   await expect(page.getByText("Unique release filter target", { exact: true })).toHaveCount(1);
