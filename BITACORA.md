@@ -367,6 +367,13 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - **Cobertura faltante:** agregar pruebas unitarias/integración para ticket expirado, carrera de dos consumos simultáneos y rechazo de ticket con proyecto/sesión incorrectos. La prueba actual cubre emisión, un consumo y reutilización, pero no estas condiciones.
 - **Estado:** la Fase 5 queda en revisión final; no fusionar a `main` ni iniciar Fase 6 hasta corregir y verificar este hallazgo.
 
+### [2026-10-07] — Aprobación de auditoría residual de Fase 5
+- **Corrección verificada en `94a7d80`:** `WsTicketService.consumeTicket()` utiliza una única operación `UPDATE ... RETURNING` condicionada por hash, `used_at IS NULL` y `expires_at > now`, eliminando la ventana entre validación y consumo.
+- **Cobertura verificada:** ticket expirado, doble consumo concurrente, proyecto incorrecto y sesión incorrecta; exactamente un consumidor concurrente tiene éxito.
+- **Verificación completa:** `pnpm lint`, `pnpm typecheck`, `pnpm test` (61 tests), `pnpm test:e2e` (4 tests en producción) y `pnpm -r build` pasan.
+- **Observación no bloqueante:** un ticket válido se marca como usado antes de devolver `FORBIDDEN` cuando el proyecto o la sesión esperados no coinciden. Esto no permite suplantación y obliga a emitir otro ticket; puede endurecerse en el futuro incluyendo el binding en el `WHERE` si se desea conservar el ticket ante un intento con parámetros incorrectos.
+- **Estado:** Fase 5 aprobada técnicamente para fusionarse a `main`. La Fase 6 puede comenzar después de la fusión, respetando la bitácora y el plan vigente.
+
 ### [2026-10-07] — Corrección de Alcance (MVP Lean) y Reto de Recepción de Mensajes
 #### 💡 Correcciones y foco real
 - **Ajuste de alcance:** Se corrige ADR-002: el MVP se centra estrictamente en **comunicación y coordinación básica**, no en orquestación automática compleja.
