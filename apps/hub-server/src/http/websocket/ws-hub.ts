@@ -11,6 +11,11 @@ interface ClientSubscription {
 
 export class WebSocketHub {
   private subscriptions: Set<ClientSubscription> = new Set();
+  private maxBufferedAmount: number;
+
+  constructor(maxBufferedAmount = 1024 * 1024) {
+    this.maxBufferedAmount = maxBufferedAmount;
+  }
 
   public register(sub: ClientSubscription): void {
     this.subscriptions.add(sub);
@@ -33,6 +38,18 @@ export class WebSocketHub {
           continue;
         }
 
+        // Backpressure / slow consumer protection:
+        // If outbound buffer is excessive, drop slow consumer to protect server memory
+        if (sub.socket.bufferedAmount > this.maxBufferedAmount) {
+          try {
+            sub.socket.close(1008, "Slow consumer dropped");
+          } catch {
+            // ignore close error
+          }
+          this.subscriptions.delete(sub);
+          continue;
+        }
+
         try {
           sub.socket.send(payloadStr);
         } catch {
@@ -49,5 +66,16 @@ export class WebSocketHub {
       if (sub.projectId === projectId) count++;
     }
     return count;
+  }
+
+  public closeAll(code = 1001, reason = "Server shutting down"): void {
+    for (const sub of this.subscriptions) {
+      try {
+        sub.socket.close(code, reason);
+      } catch {
+        // ignore close error
+      }
+    }
+    this.subscriptions.clear();
   }
 }

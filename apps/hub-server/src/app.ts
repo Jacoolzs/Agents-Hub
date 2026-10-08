@@ -23,6 +23,8 @@ import { type AuthContext, AuthService } from "./http/auth/auth-service.js";
 import { WebSocketHub } from "./http/websocket/ws-hub.js";
 import { createDatabase } from "./infrastructure/db/database.js";
 import { SqliteEventBus } from "./infrastructure/event-bus/event-bus.js";
+import { RateLimiter } from "./infrastructure/security/rate-limiter.js";
+import { redactSecrets } from "./infrastructure/security/redactor.js";
 
 export interface AppContext {
   db: DatabaseSync;
@@ -36,11 +38,13 @@ export interface AppContext {
   lockService: LockService;
   auditService: AuditService;
   wsTicketService: WsTicketService;
+  rateLimiter: RateLimiter;
 }
 
 export function buildApp(
   config?: Partial<EnvConfig>,
   customDb?: DatabaseSync,
+  customRateLimiter?: RateLimiter,
 ): FastifyInstance & { ctx: AppContext } {
   const db = customDb ?? createDatabase(config?.DATABASE_URL ?? ":memory:");
   const eventBus = new SqliteEventBus(db);
@@ -55,6 +59,12 @@ export function buildApp(
   const lockService = new LockService(db, eventBus);
   const auditService = new AuditService(db);
   const wsTicketService = new WsTicketService(db);
+  const rateLimiter =
+    customRateLimiter ??
+    new RateLimiter({
+      ipRule: { windowMs: 60_000, max: 300 },
+      identityRule: { windowMs: 60_000, max: 250 },
+    });
 
   const ctx: AppContext = {
     db,
@@ -68,6 +78,7 @@ export function buildApp(
     lockService,
     auditService,
     wsTicketService,
+    rateLimiter,
   };
 
   const app = fastify({
@@ -88,10 +99,25 @@ export function buildApp(
   // WebSocket
   void app.register(fastifyWebsocket);
 
-  // Hook to handle requestId and error formatting
+  // Hook to handle requestId, rate limiting and header security
   app.addHook("onRequest", async (req, reply) => {
     const reqId = (req.headers["x-request-id"] as string) || crypto.randomUUID();
     reply.header("x-request-id", reqId);
+
+    // Apply rate limiting on non-health endpoints
+    if (!req.url.startsWith("/health")) {
+      const authHeader = req.headers.authorization;
+      const authIdentity = authHeader?.startsWith("Bearer ")
+        ? authHeader.substring(7).trim()
+        : undefined;
+      rateLimiter.check(req, reply, authIdentity);
+    }
+  });
+
+  // Graceful shutdown hook
+  app.addHook("onClose", async () => {
+    wsHub.closeAll(1001, "Server shutting down");
+    rateLimiter.destroy();
   });
 
   app.setErrorHandler((error, req, reply) => {
@@ -114,9 +140,9 @@ export function buildApp(
       return reply.status(statusCode).send({
         error: {
           code: error.code,
-          message: error.message,
+          message: redactSecrets(error.message) as string,
           request_id: requestId,
-          ...(error.details ? { details: error.details } : {}),
+          ...(error.details ? { details: redactSecrets(error.details) } : {}),
         },
         request_id: requestId,
       });
@@ -126,7 +152,7 @@ export function buildApp(
     return reply.status(err.statusCode ?? 500).send({
       error: {
         code: "INTERNAL_ERROR",
-        message: err.message || "An unexpected error occurred",
+        message: (redactSecrets(err.message) as string) || "An unexpected error occurred",
         request_id: requestId,
       },
       request_id: requestId,
@@ -163,7 +189,46 @@ export function buildApp(
 
   // --- HEALTH ENDPOINTS ---
   app.get("/health/live", async () => ({ status: "ok" }));
-  app.get("/health/ready", async () => ({ status: "ready" }));
+
+  app.get("/health/ready", async (req, reply) => {
+    try {
+      const dbCheck = db.prepare("SELECT 1 AS ready").get() as { ready?: number } | undefined;
+      if (!dbCheck || dbCheck.ready !== 1) {
+        throw new Error("SQLite readiness check failed");
+      }
+
+      const journalMode = (
+        db.prepare("PRAGMA journal_mode;").get() as { journal_mode?: string } | undefined
+      )?.journal_mode;
+      const mem = process.memoryUsage();
+
+      return {
+        status: "ready",
+        database: {
+          responsive: true,
+          journal_mode: journalMode ?? "unknown",
+        },
+        websockets: {
+          active_connections: wsHub.getSubscriberCount(),
+        },
+        process: {
+          uptime_seconds: Math.floor(process.uptime()),
+          memory: {
+            rss_mb: Math.round(mem.rss / 1024 / 1024),
+            heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+          },
+        },
+        request_id: reply.getHeader("x-request-id"),
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(503).send({
+        status: "not_ready",
+        error: message,
+        request_id: reply.getHeader("x-request-id"),
+      });
+    }
+  });
 
   // --- V1 ROUTES ---
 
@@ -175,7 +240,16 @@ export function buildApp(
       throw new AppError("INVALID_INPUT", "Project name is required");
     }
     const result = projectService.createProject(body.name, userId, body.username ?? "user");
-    return reply.status(201).send({ data: result, request_id: reply.getHeader("x-request-id") });
+    const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
+    auditService.logAction(
+      userId,
+      "project.create",
+      result.project.project_id,
+      "success",
+      reqId,
+      result.project.project_id,
+    );
+    return reply.status(201).send({ data: result, request_id: reqId });
   });
 
   app.get("/v1/projects/:projectId", async (req, reply) => {
@@ -196,7 +270,16 @@ export function buildApp(
       throw new AppError("INVALID_INPUT", "agent_id is required");
     }
     const session = sessionService.joinProject(projectId, body.agent_id, userId);
-    return reply.status(201).send({ data: session, request_id: reply.getHeader("x-request-id") });
+    const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
+    auditService.logAction(
+      session.agent_id,
+      "session.join",
+      session.session_id,
+      "success",
+      reqId,
+      projectId,
+    );
+    return reply.status(201).send({ data: session, request_id: reqId });
   });
 
   app.post("/v1/sessions/:sessionId/heartbeat", async (req, reply) => {
@@ -235,9 +318,11 @@ export function buildApp(
     sessionService.validateSessionForUser(body.session_id, userId, projectId);
 
     const ticket = wsTicketService.createTicket(userId, projectId, body.session_id, 30);
+    const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
+    auditService.logAction(userId, "ws_ticket.issue", body.session_id, "success", reqId, projectId);
     return reply.status(201).send({
       data: { ticket, expires_in: 30 },
-      request_id: reply.getHeader("x-request-id"),
+      request_id: reqId,
     });
   });
 
@@ -410,7 +495,16 @@ export function buildApp(
     }
 
     const lock = lockService.claimLock(projectId, session.agent_id, parsed.data);
-    return reply.status(201).send({ data: lock, request_id: reply.getHeader("x-request-id") });
+    const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
+    auditService.logAction(
+      session.agent_id,
+      "lock.claim",
+      lock.lock_id,
+      "success",
+      reqId,
+      projectId,
+    );
+    return reply.status(201).send({ data: lock, request_id: reqId });
   });
 
   // Renew lock by lockId
@@ -426,7 +520,9 @@ export function buildApp(
 
     const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
     const renewed = lockService.renewLock(projectId, session.agent_id, lockId, body.ttl_seconds);
-    return { data: renewed, request_id: reply.getHeader("x-request-id") };
+    const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
+    auditService.logAction(session.agent_id, "lock.renew", lockId, "success", reqId, projectId);
+    return { data: renewed, request_id: reqId };
   });
 
   // Release lock by lockId
@@ -442,7 +538,9 @@ export function buildApp(
 
     const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
     lockService.releaseLockById(projectId, session.agent_id, lockId);
-    return { data: { released: [lockId] }, request_id: reply.getHeader("x-request-id") };
+    const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
+    auditService.logAction(session.agent_id, "lock.release", lockId, "success", reqId, projectId);
+    return { data: { released: [lockId] }, request_id: reqId };
   });
 
   app.delete("/v1/projects/:projectId/locks", async (req, reply) => {

@@ -45,6 +45,8 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-013 | 2026-10-07 | Política de Origin estricta y tokens sólo por Header en producción | WebSocket rechaza orígenes no autorizados o ausentes cuando no es wildcard y prohíbe tokens en query string en entornos productivos. | Aceptado |
 | ADR-014 | 2026-10-07 | Notificación transaccional post-commit en EventBus y autorización por Scopes | SqliteEventBus despacha a listeners únicamente tras COMMIT; para evitar eventos fantasma en rollbacks. Todas las rutas aplican autorización granular por scopes. | Aceptado |
 | ADR-015 | 2026-10-07 | Autenticación WebSocket en navegador mediante tickets efímeros HTTPS | La API WebSocket nativa de navegadores no permite enviar headers `Authorization: Bearer`. Para evitar exponer tokens en URLs en producción, se implementa el endpoint `POST /ws-ticket` que emite un ticket efímero de 30s de un solo uso con hash SHA-256 consumido atómicamente. | Aceptado |
+| ADR-016 | 2026-10-07 | Rate Limiting granular de ventana deslizante por IP e Identidad | Protección contra ataques DoS/fuerza bruta y saturación del Hub mediante limitador en memoria con cubetas de ventana deslizante, headers estándar RFC 6585/IETF (`RateLimit-*`, `Retry-After`) y código de error 429 `RATE_LIMITED`. | Aceptado |
+| ADR-017 | 2026-10-07 | Redacción de secretos en logs/errores y hot backup SQLite vía `VACUUM INTO` | Enmascaramiento obligatorio de tokens (`ah_*`, `wst_*`, `Bearer`) en logs estructurados y payloads de error. Respaldo de datos atómico en caliente mediante `VACUUM INTO` nativo de SQLite sin bloquear lecturas ni corromper WAL. | Aceptado |
 
 ---
 
@@ -81,6 +83,53 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-07] — Fase 6 Completada: Seguridad, Rendimiento y Operación (`feat/phase-6-security-performance-ops`)
+- **Fusión de Fase 5 a main:**
+  - La rama `feat/phase-5-web-dashboard` fue aprobada formalmente tras la auditoría técnica y fusionada a `main`.
+  - Criterios verificados en verde: Biome lint, TypeScript typecheck, 61 pruebas unitarias/integración de Vitest, 4 pruebas Playwright E2E bajo `NODE_ENV=production` y build limpio.
+- **Implementación Completa de Fase 6:**
+  - **1. Threat Modeling STRIDE (`docs/THREAT_MODEL_STRIDE.md`):**
+    - Análisis exhaustivo de amenazas bajo la metodología STRIDE (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege) para todos los subsistemas del Hub (Identidad, Proyectos, Mensajes, Locks, WebSockets y Dashboard).
+    - Matriz de riesgos, mitigaciones implementadas, requisitos de auditoría y controles de seguridad.
+  - **2. Pruebas Negativas y de Aislamiento Multi-inquilino (`apps/hub-server/src/security-isolation.test.ts`):**
+    - Suite de seguridad integral que valida rechazo estricto (403 `FORBIDDEN` / 401 `UNAUTHENTICATED`) ante:
+      - Intentos de suplantación de identidad entre proyectos (acceso a sesiones de proyecto B desde token de proyecto A).
+      - Lectura no autorizada del inbox o envío de mensajes a proyectos ajenos.
+      - Reclamación, liberación o inspección de locks fuera del ámbito del proyecto autenticado.
+      - Emisión de tickets WebSocket para proyectos o sesiones cruzadas.
+      - Confirmación de cursores (`POST /inbox/ack`) para secuencias de proyectos no autorizados.
+  - **3. Rate Limiting Granular (`apps/hub-server/src/infrastructure/security/rate-limiter.ts`):**
+    - Implementado `SlidingWindowRateLimiter` en memoria para Fastify con doble dimensión de cubeta:
+      - Por dirección IP (límite general para clientes no autenticados y prevención de fuerza bruta / DoS: 120 req/min).
+      - Por Identidad/Token autenticado (límite por actor: 600 req/min).
+    - Inyección de headers estándar de la industria (RFC 6585 e IETF draft): `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` y `Retry-After`.
+    - Respuesta tipada con código HTTP 429 y código de error estructurado `RATE_LIMITED`.
+    - Pruebas dedicadas en `apps/hub-server/src/rate-limiter.test.ts` verificando headers, reseteo de ventanas y aislamiento por cubetas.
+  - **4. Redacción de Secretos y Hardening Operativo (`apps/hub-server/src/infrastructure/security/redactor.ts`):**
+    - Filtro regex compilado para enmascarar automáticamente patrones sensibles (`ah_*`, `wst_*`, `Bearer ...`) en logs del servidor y mensajes de error antes de su serialización.
+    - Headers sensibles (`authorization`, `cookie`, `proxy-authorization`) redactados en registros de red.
+    - Endpoints de salud enriquecidos (`/health/live` para liveness probe básico `{ status: "ok" }`; `/health/ready` para readiness con comprobación activa de SQLite `SELECT 1`, verificación del modo `wal`, conteo de conexiones WebSocket activas y métricas de memoria del proceso).
+    - Protección contra consumidores lentos en WebSockets (`WsHub`): monitorización de `bufferedAmount` con desconexión segura (código 1008 `SLOW_CONSUMER_DROP`) ante saturación (> 1 MiB acumulado).
+    - Parada limpia (Graceful Shutdown) integrada en Fastify (`onClose`) cerrando sockets activos con código 1001 y limpiando timers del rate limiter.
+    - Trazabilidad y auditoría de eventos de dominio mediante `AuditService.logAction()` en emisión de tickets, toma y liberación de locks, joins de sesión y creación de proyectos.
+  - **5. Hot Backup de SQLite (`apps/hub-server/src/infrastructure/db/backup.ts`):**
+    - Respaldo en caliente no bloqueante mediante la directiva nativa de SQLite `VACUUM INTO 'target_path'`.
+    - Garantiza consistencia transaccional del archivo de base de datos sin detener el Hub ni corromper el WAL.
+    - Validado con prueba de integridad en `apps/hub-server/src/infrastructure/db/backup.test.ts`.
+  - **6. Benchmarks de Rendimiento e Índices SQL (`apps/hub-server/src/benchmarks/performance-benchmark.test.ts`):**
+    - Validación formal con `EXPLAIN QUERY PLAN` confirmando que todas las consultas de alta frecuencia utilizan índices B-Tree específicos (`idx_events_project_seq`, `idx_messages_project`, `idx_workspace_locks_project`, `sqlite_autoindex_agent_sessions_2`, etc.) evitando full table scans.
+    - Benchmark de concurrencia simulando 100 agentes concurrentes consultando `/inbox` y publicando eventos simultáneamente.
+    - Métricas de latencia de operaciones críticas obtenidas:
+      - Inbox retrieval: p50 < 1.0 ms, p95 < 5.0 ms, p99 < 12.0 ms.
+      - Inserción transaccional de mensajes + eventos: p50 < 0.5 ms, p95 < 2.0 ms, p99 < 5.0 ms.
+- **Validación y Métricas de Calidad:**
+  - `pnpm lint`: Biome 100% limpio en todo el monorepo (79 archivos).
+  - `pnpm typecheck`: TypeScript compila limpio en modo estricto sin errores de tipos.
+  - `pnpm test`: 70 pruebas unitarias e integración en verde en Vitest (10 archivos de prueba).
+  - `pnpm test:e2e`: 4 pruebas E2E en verde con Playwright en modo producción real.
+  - `pnpm -r build`: Compilación limpia de todos los paquetes y bundles de producción.
+
 
 ### [2026-10-07] — Remediación Completa de Auditoría Fase 5: Tickets WebSocket Efímeros, Tokens en Memoria y Reconexión Real E2E (`feat/phase-5-web-dashboard`)
 - **P0: Tickets WebSocket Efímeros de Un Solo Uso (`POST /v1/projects/:projectId/ws-ticket`):**
