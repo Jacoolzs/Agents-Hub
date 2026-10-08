@@ -19,6 +19,7 @@
     { "path": "./packages/shared" },
     { "path": "./packages/testkit" },
     { "path": "./packages/mcp-server" },
-    { "path": "./apps/hub-server" }
+    { "path": "./apps/hub-server" },
+    { "path": "./apps/web" }
   ]
 }

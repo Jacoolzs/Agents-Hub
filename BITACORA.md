@@ -81,6 +81,45 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Fase 5 Completada: Dashboard Web (`feat/phase-5-web-dashboard`)
+- **Implementación completa del Dashboard Web (`apps/web`):**
+  - **Stack tecnológico utilizado:** React 19 + Vite 6 + Tailwind CSS 3 + TanStack Query 5 + `@agents-hub/shared`.
+  - **1. Shell y Gestión de Conexión:**
+    - Indicador de estado de conexión en tiempo real: `Conectado (WS)`, `Reconectando...` y `Desconectado (Polling)`.
+    - Cabecera con nombre de proyecto, ID, sesión activa (`agent_id`) y botón de desconexión.
+    - Navegación por pestañas para feed de mensajes, estados de equipo y locks de archivos.
+  - **2. Conexión y Login Seguro:**
+    - Vista `ConnectView` con capacidad de conectarse a proyectos existentes o crear nuevos proyectos (`POST /v1/projects`).
+    - Validación y autenticación mediante token de acceso (`ah_*`) y sesión de agente (`POST /v1/projects/:projectId/sessions`).
+    - Máxima seguridad de credenciales: tokens enmascarados, mantenidos estrictamente en memoria/sesión, **sin exponer tokens en URLs ni localStorage inseguro ni logs de consola**.
+  - **3. Feed de Mensajes en Tiempo Real:**
+    - Visualización cronológica de mensajes por canal, remitente, hora y prioridad (`urgent`, `high`, `normal`, `low`).
+    - Soporte de mensajes dirigidos (`recipient_agent_ids`).
+    - Formulario reactivo para envío de mensajes con invalidación automática de queries en TanStack Query.
+    - **Protección de razonamiento:** Estricta exclusión de Chain of Thought y tokens en la interfaz visual.
+  - **4. Presencia y Estados del Equipo:**
+    - Panel `AgentsPanel` con listado de agentes activos, presencia (`active`, `idle`, `disconnected`), objetivo, decisiones técnicas, bloqueos críticos (`blocked_by`) y siguientes pasos.
+    - Formulario para emitir reportes de estado vinculados a la sesión del agente.
+  - **5. Gestión de Locks de Workspace:**
+    - Panel `LocksPanel` con listado de locks activos, rutas bloqueadas, agente propietario, motivo y tiempo de expiración.
+    - Formulario para reclamar locks (`POST /locks/claim`) con TTL configurable y detección visual de conflictos 409 `LOCK_CONFLICT`.
+    - Acción para liberar locks propios (`DELETE /locks/:lockId`).
+  - **6. Resiliencia y Recuperación (WebSocket + Inbox Fallback):**
+    - `RealtimeManager` gestiona conexión WebSocket y suscripción a eventos.
+    - Rastreo continuo de cursores secuenciales y confirmación en segundo plano (`POST /inbox/ack`).
+    - Ante desconexiones transitorias o caídas de WebSocket, activa automáticamente recuperación mediante polling a `/inbox` con el último cursor guardado.
+- **Suite de Pruebas E2E con Playwright (`e2e/dashboard.spec.ts`):**
+  - *Prueba 1:* Flujo principal (conexión con token, verificación de URL y localStorage sin secretos, envío de mensaje al canal general, reclamación y liberación de lock, publicación de reporte de estado, y desconexión).
+  - *Prueba 2:* Creación de proyecto desde la UI y manejo explícito de errores ante tokens inválidos (401 `UNAUTHENTICATED`).
+  - *Prueba 3:* Recepción asíncrona de mensajes de otros agentes vía inbox y sincronización en tiempo real.
+- **Resultados de Calidad y Verificación:**
+  - `pnpm lint`: 71 archivos verificados con Biome, 0 errores, 0 advertencias.
+  - `pnpm typecheck`: Limpio (TypeScript estricto en todos los proyectos y apps).
+  - `pnpm test`: 56 tests unitarios/integración en verde (6 suites Vitest).
+  - `pnpm test:e2e`: 3 tests E2E de Playwright pasando en verde (Chromium).
+  - `pnpm -r build`: Compilación limpia de todos los paquetes y apps, incluyendo bundle optimizado de Vite en `apps/web/dist`.
+- **Siguiente paso:** Fusionar `feat/phase-5-web-dashboard` a `main` y proceder con la **Fase 6 — Seguridad, Rendimiento y Operación**.
+
 ### [2026-10-07] — Remediación Integral de Seguridad y Consistencia Fases 0 a 4 (`fix/security-audit-remediation`)
 - **1. GET /inbox sesión obligatoria:** Se eliminó la omisión de `session_id`. Se exige parámetro `session_id` validado contra el usuario y proyecto; responde 422 `INVALID_INPUT` si falta, impidiendo que mensajes dirigidos se filtren sin identidad explícita.
 - **2. WebSocket sesión obligatoria:** La conexión WebSocket exige `session_id` obligatorio. Si falta, el socket se cierra inmediatamente con código `1008 ("session_id is required")`.
