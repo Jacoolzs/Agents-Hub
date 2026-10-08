@@ -1,148 +1,103 @@
-import type { DatabaseSync } from "node:sqlite";
 import {
   type AgentSession,
   AppError,
+  UuidSchema,
   decodeCursor,
   encodeCursor,
   generateId,
   nowUtc,
 } from "@agents-hub/shared";
-import type { SqliteEventBus } from "../../infrastructure/event-bus/event-bus.js";
+import type { DomainEvents, SessionRepository } from "../ports/persistence.js";
 
 export class SessionService {
   constructor(
-    private readonly db: DatabaseSync,
-    private readonly eventBus: SqliteEventBus,
+    private readonly repository: SessionRepository,
+    private readonly eventBus: DomainEvents,
+    private readonly expireSeconds = 180,
   ) {}
 
-  public joinProject(projectId: string, agentId: string, userId: string): AgentSession {
-    return this.eventBus.transaction(() =>
-      this.serializeSession(this.joinProjectCore(projectId, agentId, userId)),
-    );
-  }
-
-  private joinProjectCore(projectId: string, agentId: string, userId: string): AgentSession {
+  public joinProject(
+    projectId: string,
+    agentId: string,
+    userId: string,
+    instanceId?: string,
+  ): AgentSession {
     if (typeof agentId !== "string" || agentId.trim().length > 100)
       throw new AppError("INVALID_INPUT", "Invalid agent ID");
-    const trimmedAgentId = agentId.trim();
-    if (!trimmedAgentId) {
-      throw new AppError("INVALID_INPUT", "Agent ID cannot be empty");
-    }
-
-    const now = nowUtc();
-    const existingStmt = this.db.prepare(
-      "SELECT * FROM agent_sessions WHERE project_id = ? AND agent_id = ?",
-    );
-    const existing = existingStmt.get(projectId, trimmedAgentId) as AgentSession | undefined;
-
-    if (existing) {
-      if (existing.user_id !== userId) {
-        throw new AppError("FORBIDDEN", "Agent name belongs to another user");
+    const name = agentId.trim();
+    if (!name) throw new AppError("INVALID_INPUT", "Agent ID cannot be empty");
+    if (instanceId !== undefined && !UuidSchema.safeParse(instanceId).success)
+      throw new AppError("INVALID_INPUT", "Invalid instance ID");
+    return this.eventBus.transaction(() => {
+      const now = nowUtc();
+      const existing = this.repository.findByAgent(projectId, name);
+      let session: AgentSession;
+      if (existing) {
+        if (existing.user_id !== userId)
+          throw new AppError("FORBIDDEN", "Agent name belongs to another user");
+        const expired = this.isExpired(existing);
+        if (existing.status !== "disconnected" && !expired) {
+          if (instanceId && this.repository.instanceId(existing.session_id) === instanceId)
+            return existing;
+          throw new AppError(
+            "STATE_CONFLICT",
+            "El nombre de agente ya tiene una instancia conectada. Usa otro nombre, desconecta la instancia actual o espera su vencimiento.",
+          );
+        }
+        if (existing.status !== "disconnected")
+          this.eventBus.recordEvent(projectId, name, "agent.left", { agent_id: name });
+        const replacementId = generateId();
+        this.repository.rotateSession(existing.session_id, replacementId, now, instanceId);
+        session = { ...existing, session_id: replacementId, status: "active", last_seen_at: now };
+      } else {
+        session = {
+          session_id: generateId(),
+          agent_id: name,
+          project_id: projectId,
+          user_id: userId,
+          status: "active",
+          last_seen_at: now,
+          created_at: now,
+          last_cursor: encodeCursor(0),
+        };
+        this.repository.insert(session, instanceId);
       }
-      this.db
-        .prepare(`
-        UPDATE agent_sessions
-        SET status = 'active', last_seen_at = ?
-        WHERE session_id = ?
-      `)
-        .run(now, existing.session_id);
-
-      this.eventBus.recordEvent(projectId, trimmedAgentId, "agent.joined", {
-        agent_id: trimmedAgentId,
-        session_id: existing.session_id,
+      this.eventBus.recordEvent(projectId, name, "agent.joined", {
+        agent_id: name,
+        session_id: session.session_id,
       });
-
-      return {
-        ...existing,
-        status: "active",
-        last_seen_at: now,
-      };
-    }
-
-    const sessionId = generateId();
-    this.db
-      .prepare(`
-      INSERT INTO agent_sessions (session_id, agent_id, project_id, user_id, status, last_seen_at, created_at)
-      VALUES (?, ?, ?, ?, 'active', ?, ?)
-    `)
-      .run(sessionId, trimmedAgentId, projectId, userId, now, now);
-
-    this.eventBus.recordEvent(projectId, trimmedAgentId, "agent.joined", {
-      agent_id: trimmedAgentId,
-      session_id: sessionId,
+      return session;
     });
-
-    return {
-      session_id: sessionId,
-      agent_id: trimmedAgentId,
-      project_id: projectId,
-      user_id: userId,
-      status: "active",
-      last_seen_at: now,
-      created_at: now,
-    };
   }
 
   public heartbeat(projectId: string, agentId: string): void {
-    this.eventBus.transaction(() => this.heartbeatCore(projectId, agentId));
-  }
-
-  private heartbeatCore(projectId: string, agentId: string): void {
-    const now = nowUtc();
-    const result = this.db
-      .prepare(`
-      UPDATE agent_sessions
-      SET last_seen_at = ?, status = 'active'
-      WHERE project_id = ? AND agent_id = ?
-    `)
-      .run(now, projectId, agentId);
-
-    if (result.changes === 0) {
-      throw new AppError(
-        "SESSION_EXPIRED",
-        `Agent ${agentId} is not connected to project ${projectId}`,
-      );
-    }
-
-    this.eventBus.recordEvent(projectId, agentId, "agent.heartbeat", { agent_id: agentId });
+    this.eventBus.transaction(() => {
+      if (!this.repository.updatePresence(projectId, agentId, "active", nowUtc()))
+        throw new AppError(
+          "SESSION_EXPIRED",
+          `Agent ${agentId} is not connected to project ${projectId}`,
+        );
+      this.eventBus.recordEvent(projectId, agentId, "agent.heartbeat", { agent_id: agentId });
+    });
   }
 
   public updateCursor(projectId: string, agentId: string, cursor: string): void {
     const sequence = decodeCursor(cursor);
     if (sequence === null) throw new AppError("CURSOR_INVALID", "Invalid cursor");
-    this.db
-      .prepare(`
-      UPDATE agent_sessions
-      SET last_cursor = ?, last_sequence = ?
-      WHERE project_id = ? AND agent_id = ? AND last_sequence <= ?
-    `)
-      .run(cursor, sequence, projectId, agentId, sequence);
+    this.repository.confirmCursor(projectId, agentId, cursor, sequence);
   }
 
   public disconnect(projectId: string, agentId: string): void {
-    this.eventBus.transaction(() => this.disconnectCore(projectId, agentId));
-  }
-
-  private disconnectCore(projectId: string, agentId: string): void {
-    const now = nowUtc();
-    this.db
-      .prepare(`
-      UPDATE agent_sessions
-      SET status = 'disconnected', last_seen_at = ?
-      WHERE project_id = ? AND agent_id = ?
-    `)
-      .run(now, projectId, agentId);
-
-    this.eventBus.recordEvent(projectId, agentId, "agent.left", { agent_id: agentId });
+    this.eventBus.transaction(() => {
+      this.repository.updatePresence(projectId, agentId, "disconnected", nowUtc());
+      this.eventBus.recordEvent(projectId, agentId, "agent.left", { agent_id: agentId });
+    });
   }
 
   public getSessionById(sessionId: string): AgentSession {
-    const stmt = this.db.prepare("SELECT * FROM agent_sessions WHERE session_id = ?");
-    const row = stmt.get(sessionId) as AgentSession | undefined;
-    if (!row) {
-      throw new AppError("SESSION_EXPIRED", `Session ${sessionId} not found`);
-    }
-    return this.serializeSession(row);
+    const session = this.repository.findById(sessionId);
+    if (!session) throw new AppError("SESSION_EXPIRED", `Session ${sessionId} not found`);
+    return session;
   }
 
   public validateSessionForUser(
@@ -151,51 +106,31 @@ export class SessionService {
     projectId: string,
   ): AgentSession {
     const session = this.getSessionById(sessionId);
-    if (session.user_id !== userId) {
+    if (session.user_id !== userId)
       throw new AppError("FORBIDDEN", `Session ${sessionId} does not belong to user ${userId}`);
-    }
-    if (session.project_id !== projectId) {
+    if (session.project_id !== projectId)
       throw new AppError(
         "FORBIDDEN",
         `Session ${sessionId} does not belong to project ${projectId}`,
       );
-    }
-    if (session.status === "disconnected") {
+    if (session.status === "disconnected" || this.isExpired(session))
       throw new AppError("SESSION_EXPIRED", `Session ${sessionId} is disconnected`);
-    }
     return session;
   }
 
   public getActiveSessions(projectId: string): AgentSession[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM agent_sessions WHERE project_id = ? AND status IN ('active', 'idle')",
-    );
-    return (stmt.all(projectId) as unknown as AgentSession[]).map((row) =>
-      this.serializeSession(row),
-    );
+    return this.repository.activeByProject(projectId);
   }
 
-  private serializeSession(row: AgentSession): AgentSession {
-    return {
-      session_id: row.session_id,
-      project_id: row.project_id,
-      agent_id: row.agent_id,
-      user_id: row.user_id,
-      status: row.status,
-      last_seen_at: row.last_seen_at,
-      created_at: row.created_at,
-      last_cursor: row.last_cursor || encodeCursor(0),
-    };
+  private isExpired(session: AgentSession): boolean {
+    return Date.now() - Date.parse(session.last_seen_at) >= this.expireSeconds * 1000;
   }
 
   public expireSessions(idleSeconds = 60, disconnectSeconds = 180): number {
     const now = Date.now();
     return this.eventBus.transaction(() => {
-      const rows = this.db
-        .prepare("SELECT * FROM agent_sessions WHERE status != 'disconnected'")
-        .all() as unknown as AgentSession[];
       let changed = 0;
-      for (const row of rows) {
+      for (const row of this.repository.connected()) {
         const age = now - Date.parse(row.last_seen_at);
         const status =
           age >= disconnectSeconds * 1000
@@ -204,9 +139,7 @@ export class SessionService {
               ? "idle"
               : row.status;
         if (status === row.status) continue;
-        this.db
-          .prepare("UPDATE agent_sessions SET status = ? WHERE session_id = ?")
-          .run(status, row.session_id);
+        this.repository.setStatus(row.session_id, status);
         this.eventBus.recordEvent(
           row.project_id,
           row.agent_id,

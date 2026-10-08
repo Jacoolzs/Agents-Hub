@@ -69,6 +69,16 @@ export function HubProvider({ children }: { children: React.ReactNode }) {
     setEvents([]);
     setSyncError(null);
     const unsubError = manager.onRecoveryError(setSyncError);
+    const onPageHide = () => {
+      void disconnectSession(
+        auth.baseUrl,
+        auth.token,
+        auth.sessionId,
+        auth.projectId,
+        auth.agentId,
+      ).catch(() => {});
+    };
+    window.addEventListener("pagehide", onPageHide);
     const heartbeat = setInterval(() => {
       void heartbeatSession(
         auth.baseUrl,
@@ -115,6 +125,7 @@ export function HubProvider({ children }: { children: React.ReactNode }) {
       unsubStatus();
       unsubEvent();
       unsubError();
+      window.removeEventListener("pagehide", onPageHide);
       clearInterval(heartbeat);
       manager.destroy();
       pendingDisconnect.current.set(

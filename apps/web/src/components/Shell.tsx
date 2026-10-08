@@ -2,6 +2,7 @@ import type React from "react";
 import { useState } from "react";
 import { useHub } from "../context/HubContext.js";
 import type { ConnectionStatus } from "../types/index.js";
+import { RecoveryPanel } from "./RecoveryPanel.js";
 
 interface ShellProps {
   children: {
@@ -135,6 +136,7 @@ export function Shell({ children }: ShellProps) {
 
       {/* Main Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
+        <RecoveryPanel />
         {activeTab === "messages" && children.messages}
         {activeTab === "agents" && children.agents}
         {activeTab === "locks" && children.locks}

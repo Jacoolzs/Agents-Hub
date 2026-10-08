@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import { AppError, IdempotencyKeySchema } from "@agents-hub/shared";
-import type { SqliteEventBus } from "../../infrastructure/event-bus/event-bus.js";
+import type { IdempotencyRepository, UnitOfWork } from "../ports/persistence.js";
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -16,8 +15,8 @@ function canonical(value: unknown): string {
 
 export class IdempotencyService {
   constructor(
-    private db: DatabaseSync,
-    private eventBus: SqliteEventBus,
+    private repository: IdempotencyRepository,
+    private eventBus: UnitOfWork,
   ) {}
 
   public execute<T>(
@@ -34,35 +33,24 @@ export class IdempotencyService {
     const hash = createHash("sha256").update(canonical(payload)).digest("hex");
     return this.eventBus.transaction(() => {
       const now = new Date().toISOString();
-      this.db.prepare("DELETE FROM idempotency_records WHERE expires_at <= ?").run(now);
-      const row = this.db
-        .prepare(
-          "SELECT request_hash, result FROM idempotency_records WHERE user_id = ? AND project_id = ? AND operation = ? AND key = ?",
-        )
-        .get(userId, projectId, operation, parsed.data) as
-        | { request_hash: string; result: string }
-        | undefined;
+      this.repository.purgeExpired(now);
+      const identity = { user_id: userId, project_id: projectId, operation, key: parsed.data };
+      const row = this.repository.find(identity);
       if (row) {
         if (row.request_hash !== hash)
           throw new AppError(
             "IDEMPOTENCY_CONFLICT",
-            "Idempotency key was already used for a different request",
+            "Idempotency key was already used for a different request or an earlier command contract",
           );
-        return JSON.parse(row.result) as T;
+        return row.result as T;
       }
       const result = command();
-      this.db
-        .prepare("INSERT INTO idempotency_records VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(
-          userId,
-          projectId,
-          operation,
-          parsed.data,
-          hash,
-          JSON.stringify(result ?? null),
-          now,
-          new Date(Date.now() + 86400000).toISOString(),
-        );
+      this.repository.insert(identity, {
+        request_hash: hash,
+        result,
+        created_at: now,
+        expires_at: new Date(Date.now() + 86400000).toISOString(),
+      });
       return result;
     });
   }

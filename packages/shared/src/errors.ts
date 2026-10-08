@@ -7,6 +7,7 @@ export const ApiErrorCodeSchema = z.enum([
   "INVALID_INPUT",
   "MESSAGE_TOO_LARGE",
   "CURSOR_INVALID",
+  "CURSOR_EXPIRED",
   "LOCK_CONFLICT",
   "LOCK_NOT_OWNER",
   "SESSION_EXPIRED",

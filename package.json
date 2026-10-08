@@ -6,6 +6,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "share": "node scripts/share.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "mcp:config": "node scripts/mcp-config.mjs",
     "test:share": "node scripts/share-smoke.mjs",
     "admin": "node apps/hub-server/dist/admin.js",
     "benchmark": "node apps/hub-server/dist/benchmarks/network-benchmark.js",

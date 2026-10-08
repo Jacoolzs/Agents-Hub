@@ -5,6 +5,7 @@ import { useHub } from "../../context/HubContext.js";
 import { createProject, fetchProject, joinSession, membershipRequest } from "../../lib/api.js";
 
 export function ConnectView() {
+  const [instanceId] = useState(() => crypto.randomUUID());
   const { connect } = useHub();
 
   const [mode, setMode] = useState<"join" | "create">("join");
@@ -73,6 +74,7 @@ export function ConnectView() {
         cleanToken,
         finalProjectId,
         cleanAgentId || "dashboard-user",
+        instanceId,
       );
 
       connect({

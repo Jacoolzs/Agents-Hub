@@ -54,6 +54,8 @@ Configurar el cliente MCP con `command: node`, `args: [ruta-absoluta/packages/mc
 
 `check_inbox` lee desde el checkpoint confirmado. Después de consumir una página, confirmar su `next_cursor` con `ack_inbox` o con el próximo `check_inbox({cursor})`. Nunca confirmar antes de consumir. El nuevo proceso obtiene el checkpoint en `join_project`; la entrega puede repetirse hasta confirmación, por diseño. `wait_for_messages` se cancela con el cliente MCP y tiene máximo 60 segundos. Heartbeat cada 30 segundos; EOF/SIGINT/SIGTERM desconecta. Si se mata forzosamente el proceso, la presencia vence en el Hub.
 
+Un nombre admite una sola instancia vigente. MCP usa un `instance_id` interno para repetir join tras respuesta perdida; otro proceso recibe 409 y debe usar un nombre distinto o esperar desconexión/vencimiento (180 s por defecto). Reanudar conserva checkpoint y locks según TTL, pero cambia `session_id`; llamadas y tickets antiguos se invalidan. Dashboard envía disconnect keepalive al recargar. Consulta [sesiones](SESSIONS.md) y [recuperación tras retención](RECOVERY.md).
+
 Mensajes/estado/claim aceptan `idempotency_key`; reutilizarla únicamente con la misma petición. MCP genera una por llamada cuando se omite y la mantiene en los reintentos HTTP. Para reintentar otra llamada de herramienta, pasar la misma clave. Registros persistidos 24 horas, ligados a usuario/proyecto/operación y hash de payload. Payload diferente devuelve 409. Liberación por `lock_id` y legacy por `paths`.
 
 ## Acceso y revocación

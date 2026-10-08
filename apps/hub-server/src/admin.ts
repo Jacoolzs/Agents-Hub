@@ -7,6 +7,7 @@ import { AuditService } from "./application/services/audit-service.js";
 import { AuthService } from "./http/auth/auth-service.js";
 import { backupDatabase } from "./infrastructure/db/backup.js";
 import { createDatabase } from "./infrastructure/db/database.js";
+import { SqliteAuditRepository } from "./infrastructure/repositories/sqlite-audit-repository.js";
 
 const DEFAULT_SCOPES = [
   "projects:read",
@@ -57,7 +58,7 @@ export function runAdmin(args: string[]): unknown {
     );
   const db = createDatabase(config.DATABASE_URL);
   const auth = new AuthService(db);
-  const audit = new AuditService(db);
+  const audit = new AuditService(new SqliteAuditRepository(db));
   try {
     if (command === "create-user") {
       if (!value || !/^[A-Za-z0-9._-]{1,80}$/.test(value))

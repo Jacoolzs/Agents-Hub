@@ -156,4 +156,21 @@ export const MIGRATIONS = [
     CREATE INDEX idx_messages_retention ON messages(created_at);
   `,
   },
+  {
+    version: 4,
+    sql: `ALTER TABLE project_sequences ADD COLUMN retained_after INTEGER NOT NULL DEFAULT 0;
+    WITH ordered AS (
+      SELECT project_id, sequence, LAG(sequence, 1, 0) OVER (PARTITION BY project_id ORDER BY sequence) AS previous
+      FROM events
+    )
+    UPDATE project_sequences SET retained_after = CASE
+      WHEN COALESCE((SELECT MAX(sequence) FROM events WHERE events.project_id = project_sequences.project_id), 0) < sequence
+      THEN sequence
+      ELSE COALESCE((SELECT MAX(sequence - 1) FROM ordered WHERE ordered.project_id = project_sequences.project_id AND sequence > previous + 1), 0)
+    END;`,
+  },
+  {
+    version: 5,
+    sql: "ALTER TABLE agent_sessions ADD COLUMN instance_id TEXT;",
+  },
 ];

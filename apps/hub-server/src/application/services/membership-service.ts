@@ -1,20 +1,22 @@
 import crypto from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import {
   AppError,
   CreateInvitationInputSchema,
   type MembershipRole,
   nowUtc,
 } from "@agents-hub/shared";
-import type { AuthService } from "../../http/auth/auth-service.js";
-import type { SqliteEventBus } from "../../infrastructure/event-bus/event-bus.js";
+import type {
+  DomainEvents,
+  MembershipRepository,
+  ProjectAuthorization,
+} from "../ports/persistence.js";
 import type { AuditService } from "./audit-service.js";
 
 export class MembershipService {
   constructor(
-    private db: DatabaseSync,
-    private events: SqliteEventBus,
-    private auth: AuthService,
+    private repository: MembershipRepository,
+    private events: DomainEvents,
+    private auth: ProjectAuthorization,
     private audit: AuditService,
   ) {}
 
@@ -39,11 +41,15 @@ export class MembershipService {
     const token = `ahi_${crypto.randomBytes(24).toString("base64url")}`;
     const expiresAt = new Date(Date.now() + parsed.data.ttl_seconds * 1000).toISOString();
     this.events.transaction(() => {
-      this.db
-        .prepare(
-          "INSERT INTO invitations (invitation_id, project_id, token_hash, created_by, role, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .run(id, projectId, this.hash(token), userId, parsed.data.role, expiresAt, nowUtc());
+      this.repository.insertInvitation({
+        invitation_id: id,
+        project_id: projectId,
+        token_hash: this.hash(token),
+        created_by: userId,
+        role: parsed.data.role,
+        expires_at: expiresAt,
+        created_at: nowUtc(),
+      });
       this.audit.logAction(userId, "invitation.issue", id, "success", requestId, projectId);
     });
     return {
@@ -57,48 +63,35 @@ export class MembershipService {
 
   public listInvitations(userId: string, projectId: string) {
     this.admin(userId, projectId);
-    return this.db
-      .prepare(
-        "SELECT invitation_id, project_id, role, expires_at, created_at, revoked_at, consumed_at FROM invitations WHERE project_id = ? ORDER BY created_at DESC",
-      )
-      .all(projectId);
+    return this.repository.listInvitations(projectId);
   }
 
   public revokeInvitation(userId: string, projectId: string, id: string, requestId: string) {
-    const row = this.db
-      .prepare("SELECT role FROM invitations WHERE project_id = ? AND invitation_id = ?")
-      .get(projectId, id) as { role: MembershipRole } | undefined;
-    this.admin(userId, projectId, row?.role);
-    if (!row) throw new AppError("PROJECT_NOT_FOUND", "Invitation not found");
+    const role = this.repository.invitationRole(projectId, id);
+    this.admin(userId, projectId, role);
+    if (!role) throw new AppError("PROJECT_NOT_FOUND", "Invitation not found");
     this.events.transaction(() => {
-      this.db
-        .prepare("UPDATE invitations SET revoked_at = ? WHERE project_id = ? AND invitation_id = ?")
-        .run(nowUtc(), projectId, id);
+      this.repository.revokeInvitation(projectId, id, nowUtc());
       this.audit.logAction(userId, "invitation.revoke", id, "success", requestId, projectId);
     });
   }
 
   public acceptInvitation(userId: string, projectId: string, token: string, requestId: string) {
     return this.events.transaction(() => {
-      if (!this.db.prepare("SELECT 1 FROM users WHERE user_id = ?").get(userId))
+      if (!this.repository.userExists(userId))
         throw new AppError(
           "UNAUTHENTICATED",
           "Provision a user identity before accepting an invitation",
         );
-      if (
-        this.db
-          .prepare("SELECT 1 FROM memberships WHERE project_id = ? AND user_id = ?")
-          .get(projectId, userId)
-      )
+      if (this.repository.memberExists(projectId, userId))
         throw new AppError("STATE_CONFLICT", "Already a member of this project");
       const now = nowUtc();
-      const invitation = this.db
-        .prepare(`UPDATE invitations SET consumed_at = ?, consumed_by = ?
-        WHERE token_hash = ? AND project_id = ? AND expires_at > ? AND consumed_at IS NULL AND revoked_at IS NULL
-        RETURNING invitation_id, role`)
-        .get(now, userId, this.hash(token), projectId, now) as
-        | { invitation_id: string; role: MembershipRole }
-        | undefined;
+      const invitation = this.repository.consumeInvitation(
+        projectId,
+        userId,
+        this.hash(token),
+        now,
+      );
       if (!invitation)
         throw new AppError("UNAUTHENTICATED", "Invalid, expired, revoked or consumed invitation");
       const result = {
@@ -108,9 +101,7 @@ export class MembershipService {
         role: invitation.role,
         created_at: now,
       };
-      this.db
-        .prepare("INSERT INTO memberships VALUES (?, ?, ?, ?, ?)")
-        .run(result.membership_id, projectId, userId, result.role, now);
+      this.repository.insertMembership(result);
       this.audit.logAction(
         userId,
         "invitation.accept",
@@ -129,11 +120,7 @@ export class MembershipService {
 
   public listMembers(userId: string, projectId: string) {
     this.auth.checkProjectPermission(userId, projectId);
-    return this.db
-      .prepare(
-        "SELECT m.*, u.username FROM memberships m JOIN users u ON u.user_id = m.user_id WHERE project_id = ?",
-      )
-      .all(projectId);
+    return this.repository.listMembers(projectId);
   }
 
   public changeMember(
@@ -148,20 +135,12 @@ export class MembershipService {
       this.admin(userId, projectId, target);
       if (target === "owner" || role === "owner")
         throw new AppError("FORBIDDEN", "Use ownership transfer to change the owner");
-      if (role) this.admin(userId, projectId, role);
-      if (role)
-        this.db
-          .prepare("UPDATE memberships SET role = ? WHERE project_id = ? AND user_id = ?")
-          .run(role, projectId, targetUserId);
-      else {
-        this.db
-          .prepare("DELETE FROM memberships WHERE project_id = ? AND user_id = ?")
-          .run(projectId, targetUserId);
-        this.db
-          .prepare(
-            "UPDATE agent_sessions SET status = 'disconnected' WHERE project_id = ? AND user_id = ?",
-          )
-          .run(projectId, targetUserId);
+      if (role) {
+        this.admin(userId, projectId, role);
+        this.repository.setRole(projectId, targetUserId, role);
+      } else {
+        this.repository.removeMember(projectId, targetUserId);
+        this.repository.disconnectUserSessions(projectId, targetUserId);
       }
       this.audit.logAction(
         userId,
@@ -189,17 +168,7 @@ export class MembershipService {
       if (this.admin(userId, projectId) !== "owner")
         throw new AppError("FORBIDDEN", "Only the owner can transfer ownership");
       this.auth.checkProjectPermission(targetUserId, projectId);
-      this.db
-        .prepare(
-          "UPDATE memberships SET role = 'maintainer' WHERE project_id = ? AND role = 'owner'",
-        )
-        .run(projectId);
-      this.db
-        .prepare("UPDATE memberships SET role = 'owner' WHERE project_id = ? AND user_id = ?")
-        .run(projectId, targetUserId);
-      this.db
-        .prepare("UPDATE projects SET updated_at = ? WHERE project_id = ?")
-        .run(nowUtc(), projectId);
+      this.repository.transferOwnership(projectId, targetUserId, nowUtc());
       this.audit.logAction(
         userId,
         "membership.ownership",

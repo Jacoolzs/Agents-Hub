@@ -1,5 +1,7 @@
 # Agents-Hub — plan de desarrollo ejecutable
 
+Continuación propuesta después de las fases 0–6: [docs/ROADMAP.md](docs/ROADMAP.md), con validación del piloto, consolidación, mejoras de uso y ampliaciones condicionadas a decisiones de alcance.
+
 **Estado actual:** implementación del piloto publicada en `main`, con CI verificado en Linux y Windows. Este documento conserva el plan y sus criterios; consultar [el cierre vigente](docs/MVP_CLOSEOUT.md) para distinguir lo implementado de lo pendiente y [la guía de operación](docs/OPERATIONS.md) para probarlo.
 
 Este documento es una guía de implementación para Gemini o cualquier agente de desarrollo que trabaje en el repositorio. Debe ejecutarse por fases, en el orden indicado. No se debe saltar directamente al dashboard ni añadir funcionalidades futuras antes de completar los contratos y pruebas del dominio.

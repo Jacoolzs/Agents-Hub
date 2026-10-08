@@ -1,9 +1,17 @@
 import type { DatabaseSync } from "node:sqlite";
-import { type EventEnvelope, type EventType, generateId, nowUtc } from "@agents-hub/shared";
+import {
+  AppError,
+  type EventEnvelope,
+  type EventType,
+  encodeCursor,
+  generateId,
+  nowUtc,
+} from "@agents-hub/shared";
 
 export type EventListener = (event: EventEnvelope) => void;
+import type { DomainEvents } from "../../application/ports/persistence.js";
 
-export class SqliteEventBus {
+export class SqliteEventBus implements DomainEvents {
   private listeners: Set<EventListener> = new Set();
   private inTransaction = false;
   private pendingEvents: EventEnvelope[] = [];
@@ -130,6 +138,53 @@ export class SqliteEventBus {
       .prepare("SELECT sequence FROM project_sequences WHERE project_id = ?")
       .get(projectId) as { sequence: number } | undefined;
     return row?.sequence ?? 0;
+  }
+
+  public getRetentionBoundary(projectId: string): number {
+    const row = this.db
+      .prepare("SELECT retained_after FROM project_sequences WHERE project_id = ?")
+      .get(projectId) as { retained_after: number } | undefined;
+    return row?.retained_after ?? 0;
+  }
+
+  public assertCursorAvailable(projectId: string, sequence: number): void {
+    const boundary = this.getRetentionBoundary(projectId);
+    if (sequence < boundary)
+      throw new AppError(
+        "CURSOR_EXPIRED",
+        "Parte del historial ya no está disponible. Revisa el estado actual y acepta la pérdida antes de continuar.",
+        undefined,
+        {
+          resume_cursor: encodeCursor(boundary),
+          recovery_path: `/v1/projects/${projectId}/inbox/recovery`,
+        },
+      );
+    if (sequence > this.getMaxSequence(projectId))
+      throw new AppError("CURSOR_INVALID", "Cursor exceeds the project sequence");
+  }
+
+  public pruneEventsBefore(before: string): number {
+    return this.transaction(() => {
+      const projects = this.db
+        .prepare(
+          "SELECT project_id, MAX(sequence) AS boundary FROM events WHERE occurred_at < ? GROUP BY project_id",
+        )
+        .all(before) as Array<{ project_id: string; boundary: number }>;
+      let removed = 0;
+      for (const project of projects) {
+        this.db
+          .prepare(
+            "UPDATE project_sequences SET retained_after = MAX(retained_after, ?) WHERE project_id = ?",
+          )
+          .run(project.boundary, project.project_id);
+        removed += Number(
+          this.db
+            .prepare("DELETE FROM events WHERE project_id = ? AND sequence <= ?")
+            .run(project.project_id, project.boundary).changes,
+        );
+      }
+      return removed;
+    });
   }
 
   public getEventBySequence(projectId: string, sequence: number): EventEnvelope | undefined {

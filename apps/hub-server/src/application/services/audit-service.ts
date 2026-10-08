@@ -1,8 +1,8 @@
-import type { DatabaseSync } from "node:sqlite";
 import { generateId, nowUtc } from "@agents-hub/shared";
+import type { AuditRepository } from "../ports/persistence.js";
 
 export class AuditService {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly repository: AuditRepository) {}
 
   public logAction(
     actorId: string,
@@ -13,11 +13,15 @@ export class AuditService {
     projectId?: string,
   ): void {
     const auditId = generateId();
-    this.db
-      .prepare(`
-      INSERT INTO audit_entries (audit_id, project_id, actor_id, action, resource, result, request_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-      .run(auditId, projectId ?? null, actorId, action, resource, result, requestId, nowUtc());
+    this.repository.insert({
+      audit_id: auditId,
+      project_id: projectId,
+      actor_id: actorId,
+      action,
+      resource,
+      result,
+      request_id: requestId,
+      created_at: nowUtc(),
+    });
   }
 }

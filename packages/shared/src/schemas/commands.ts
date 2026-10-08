@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { UuidSchema } from "../ids.js";
 import { CursorSchema } from "../pagination.js";
+import { WorkspaceLockSchema } from "./lock.js";
 import { MembershipRoleSchema } from "./project.js";
+import { AgentSessionSchema } from "./session.js";
+import { StatusReportSchema } from "./status.js";
 
 export const IdempotencyKeySchema = z
   .string()
@@ -15,7 +18,7 @@ export const CreateProjectInputSchema = z
   })
   .strict();
 export const JoinSessionInputSchema = z
-  .object({ agent_id: z.string().trim().min(1).max(100) })
+  .object({ agent_id: z.string().trim().min(1).max(100), instance_id: UuidSchema.optional() })
   .strict();
 export const JoinProjectInputSchema = z
   .object({
@@ -37,6 +40,31 @@ export const WaitForMessagesInputSchema = z
   })
   .strict();
 export const AckInboxInputSchema = z.object({ cursor: CursorSchema }).strict();
+export const ResyncInboxInputSchema = z
+  .object({
+    cursor: CursorSchema,
+    accept_history_gap: z.literal(true),
+  })
+  .strict();
+export const InboxRecoverySchema = z.object({
+  resume_cursor: CursorSchema,
+  snapshot: z.object({
+    statuses: z.array(StatusReportSchema),
+    active_agents: z.array(AgentSessionSchema).optional(),
+    locks: z.array(WorkspaceLockSchema).optional(),
+  }),
+  warning: z.string(),
+});
+export type InboxRecovery = z.infer<typeof InboxRecoverySchema>;
+export const HubCapabilitiesSchema = z
+  .object({
+    api_version: z.literal("v1"),
+    contract_revision: z.literal(1),
+    features: z.array(
+      z.enum(["exclusive_instances", "cursor_recovery", "explicit_ack", "idempotent_commands"]),
+    ),
+  })
+  .strict();
 export const SessionActionInputSchema = z
   .object({
     project_id: UuidSchema,

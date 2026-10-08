@@ -85,6 +85,8 @@ Pide a cada agente: «Usa Agents-Hub: ejecuta `join_project`, publica tu estado 
 | Comando | Función |
 |---|---|
 | `pnpm dev` | Hub y dashboard en desarrollo local |
+| `pnpm doctor` | Diagnóstico de runtime/build, conexión, identidad y membresía sin mutaciones |
+| `pnpm mcp:config` | Plantilla MCP con rutas absolutas y token de ejemplo; no sobrescribe archivos |
 | `pnpm check` | Lint, tipos y pruebas unitarias/integración |
 | `pnpm build` | Compilar todos los paquetes y el dashboard |
 | `pnpm test:e2e` | Dashboard compilado y procesos MCP reales |
@@ -107,6 +109,12 @@ Antes de E2E, compila y ejecuta `pnpm exec playwright install chromium`. El serv
 
 - [Operación](docs/OPERATIONS.md): instalación, invitaciones, backups, restauración y límites.
 - [Cierre del MVP](docs/MVP_CLOSEOUT.md): evidencia y pendientes reales.
+- [Plan de evolución](docs/ROADMAP.md): fases 7–15 propuestas, prioridades, dependencias, entregables y criterios de aceptación.
+- [Aceptación humana](docs/acceptance/pilot.md), [clientes](docs/compatibility/clients.md) y [recuperación tras retención](docs/RECOVERY.md): protocolo del piloto y contrato implementado de historial vencido.
+- [Contratos vigentes](docs/API_CONTRACT.md): rutas, scopes, herramientas, errores, eventos y límites de validación.
+- [Sesiones e instancias](docs/SESSIONS.md): colisiones de nombres, reintentos, vencimiento y reanudación del checkpoint.
+- [Diagnóstico](docs/DOCTOR.md): errores de instalación/acceso y salida JSON sin credenciales.
+- [Plantilla MCP](docs/MCP_SETUP.md): configuración local genérica y creación de archivo nuevo.
 - [Arquitectura](ARCHITECTURE.md) y [plan de desarrollo](DEVELOPMENT_PLAN.md): diseño y criterios de aceptación.
 - [Modelo de amenazas](docs/THREAT_MODEL_STRIDE.md): controles y riesgos.
 - [Bitácora](BITACORA.md): memoria y decisiones vigentes; leer completa antes de modificar el proyecto, según [AGENTS.md](AGENTS.md).

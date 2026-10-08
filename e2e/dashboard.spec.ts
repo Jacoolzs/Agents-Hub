@@ -7,7 +7,7 @@ const PORT = 8787;
 const HUB_URL = `http://127.0.0.1:${PORT}`;
 let authToken = "";
 let testProjectId = "";
-const testUserId = "user-playwright-tester";
+const testUserId = crypto.randomUUID();
 
 test.beforeAll(async () => {
   server = buildApp({
@@ -33,6 +33,107 @@ test.afterAll(async () => {
     await server.close();
     server.ctx.db.close();
   }
+});
+
+test("dos pestañas con el mismo nombre no comparten sesión y recargar permite reanudar", async ({
+  page,
+  browser,
+}) => {
+  const project = server.ctx.projectService.createProject("Instance UI", testUserId).project
+    .project_id;
+  const connect = async (target: typeof page) => {
+    await target.goto("/");
+    await target.fill("#hub-url", HUB_URL);
+    await target.fill("#auth-token", authToken);
+    await target.fill("#project-id", project);
+    await target.fill("#agent-id", "exclusive-dashboard");
+    await target.click("button[type=submit]");
+  };
+  await connect(page);
+  await expect(page.getByText("Conectado (WS)")).toBeVisible();
+  const original = server.ctx.sessionService.getActiveSessions(project)[0];
+  const context = await browser.newContext();
+  try {
+    const duplicate = await context.newPage();
+    await connect(duplicate);
+    await expect(duplicate.getByText("STATE_CONFLICT", { exact: true })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+  await page.locator("textarea").fill("La primera pestaña sigue conectada");
+  await page.getByRole("button", { name: "Enviar", exact: true }).click();
+  await expect(page.getByText("La primera pestaña sigue conectada", { exact: true })).toHaveCount(
+    1,
+  );
+  await page.reload();
+  await expect
+    .poll(() => server.ctx.sessionService.getSessionById(original?.session_id ?? "").status)
+    .toBe("disconnected");
+  await page.fill("#hub-url", HUB_URL);
+  await page.fill("#auth-token", authToken);
+  await page.fill("#project-id", project);
+  await page.fill("#agent-id", "exclusive-dashboard");
+  await page.click("button[type=submit]");
+  await expect(page.getByText("Conectado (WS)")).toBeVisible();
+  const resumed = server.ctx.sessionService.getActiveSessions(project)[0];
+  expect(resumed?.session_id).not.toBe(original?.session_id);
+});
+
+test("historial vencido requiere revisión y aceptación explícita antes de recuperar mensajes retenidos", async ({
+  page,
+}) => {
+  const project = server.ctx.projectService.createProject("Retention UI", testUserId).project
+    .project_id;
+  const sender = server.ctx.sessionService.joinProject(project, "retention-sender", testUserId);
+  server.ctx.statusService.reportStatus(project, sender.agent_id, {
+    objective: "Contrato vigente",
+    progress: "in_progress",
+  });
+  server.ctx.lockService.claimLock(project, sender.agent_id, {
+    paths: ["src/current"],
+    reason: "Current work",
+    ttl_seconds: 300,
+  });
+  server.ctx.messageService.sendMessage(project, sender.agent_id, {
+    body: "Mensaje borrado por retención",
+    channel: "general",
+    priority: "normal",
+  });
+  server.ctx.db
+    .prepare("UPDATE events SET occurred_at = '2000-01-01T00:00:00.000Z' WHERE project_id = ?")
+    .run(project);
+  server.ctx.eventBus.pruneEventsBefore("2001-01-01T00:00:00.000Z");
+  server.ctx.messageService.sendMessage(project, sender.agent_id, {
+    body: "Mensaje conservado después de retención",
+    channel: "general",
+    priority: "normal",
+  });
+  await page.goto("/");
+  await page.fill("#hub-url", HUB_URL);
+  await page.fill("#auth-token", authToken);
+  await page.fill("#project-id", project);
+  await page.fill("#agent-id", "retention-dashboard");
+  await page.click("button[type=submit]");
+  await expect(page.getByText("CURSOR_EXPIRED", { exact: true })).toBeVisible();
+  const session = server.ctx.sessionService
+    .getActiveSessions(project)
+    .find((session) => session.agent_id === "retention-dashboard");
+  expect(session?.last_cursor).toBe("MA");
+  await expect(
+    page.getByText("Mensaje conservado después de retención", { exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Revisar estado actual" }).click();
+  await expect(page.getByText(/retention-sender: Contrato vigente/)).toBeVisible();
+  await expect(page.getByText(/Rutas bloqueadas: src\/current/)).toBeVisible();
+  expect(server.ctx.sessionService.getSessionById(session?.session_id ?? "").last_cursor).toBe(
+    "MA",
+  );
+  await page.getByRole("button", { name: "Aceptar historial perdido y continuar" }).click();
+  await expect(
+    page.getByText("Mensaje conservado después de retención", { exact: true }),
+  ).toHaveCount(1);
+  await expect(page.getByText("Mensaje borrado por retención", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("CURSOR_EXPIRED", { exact: true })).toHaveCount(0);
 });
 
 test("invitación UI con identidades distintas y revocación de acceso", async ({

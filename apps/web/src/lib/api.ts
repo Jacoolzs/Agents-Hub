@@ -6,6 +6,7 @@ import type {
   StatusReport,
   WorkspaceLock,
 } from "@agents-hub/shared";
+import { type InboxRecovery, InboxRecoverySchema } from "@agents-hub/shared";
 import type { InboxResponse, TeamStatusData } from "../types/index.js";
 
 export class ApiClientError extends Error {
@@ -133,11 +134,12 @@ export async function joinSession(
   token: string,
   projectId: string,
   agentId: string,
+  instanceId = crypto.randomUUID(),
 ): Promise<AgentSession> {
   const res = await fetch(`${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/sessions`, {
     method: "POST",
     headers: makeHeaders(token),
-    body: JSON.stringify({ agent_id: agentId }),
+    body: JSON.stringify({ agent_id: agentId, instance_id: instanceId }),
   });
   return handleResponse<AgentSession>(res);
 }
@@ -186,13 +188,32 @@ export async function ackInbox(
   projectId: string,
   sessionId: string,
   cursor: string,
+  acceptHistoryGap = false,
 ): Promise<{ status: string; cursor: string }> {
   const res = await fetch(`${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/inbox/ack`, {
     method: "POST",
     headers: makeHeaders(token),
-    body: JSON.stringify({ session_id: sessionId, cursor }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      cursor,
+      ...(acceptHistoryGap ? { accept_history_gap: true } : {}),
+    }),
   });
   return handleResponse<{ status: string; cursor: string }>(res);
+}
+
+export async function fetchInboxRecovery(
+  baseUrl: string,
+  token: string,
+  projectId: string,
+  sessionId: string,
+): Promise<InboxRecovery> {
+  const data = await membershipRequest<unknown>(
+    baseUrl,
+    token,
+    `/v1/projects/${encodeURIComponent(projectId)}/inbox/recovery?session_id=${encodeURIComponent(sessionId)}`,
+  );
+  return InboxRecoverySchema.parse(data);
 }
 
 export async function sendMessage(

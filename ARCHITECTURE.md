@@ -64,7 +64,7 @@ Fuera del MVP quedan la asignación autónoma de tareas, sincronización de arch
 
 **Hub Server.** Es la única autoridad para proyectos, miembros, agentes, mensajes, presencia, locks y secuencias de eventos. El MVP puede ejecutarse como un proceso Node.js/TypeScript con módulos internos separados.
 
-**Persistencia.** SQLite con WAL mediante `node:sqlite` nativo de Node 24 (`DatabaseSync`) para desarrollo y primera instalación de un solo nodo (evitando toolchains nativos C++ en Windows). La separación detrás de repositorios/interfaces es un objetivo del diseño todavía pendiente; los servicios actuales ejecutan SQL directamente sobre SQLite. Redis no es requisito del MVP.
+**Persistencia.** SQLite con WAL mediante `node:sqlite` nativo de Node 24 (`DatabaseSync`) para desarrollo y primera instalación de un solo nodo (evitando toolchains nativos C++ en Windows). Todos los servicios de aplicación usan interfaces y adaptadores SQLite con una unidad de trabajo síncrona compartida; autorización se consume por un puerto y el adaptador HTTP compone las implementaciones. Autenticación, CLI y algunas rutas todavía acceden directamente a SQL y requieren completar separación por responsabilidades. Redis no es requisito del MVP.
 
 **Dashboard.** Cliente web que consume una API autenticada y un canal WebSocket sólo para eventos de presentación. Nunca es la autoridad de permisos ni de locks.
 
@@ -77,6 +77,8 @@ La solución inicial para el problema de agentes inactivos es híbrida:
 - Un daemon que inyecte prompts en el CLI queda fuera del MVP por su acoplamiento y riesgos operativos.
 
 El servidor guarda los eventos aunque ningún agente esté conectado. El cliente local mantiene el último cursor confirmado. Al reconectar solicita los eventos posteriores; las respuestas repetidas deben ser inocuas mediante `event_id` e idempotencia.
+
+ADR-021 limita a una instancia vigente por proyecto/nombre de agente. Un UUID interno estable permite repetir join; otro proceso recibe conflicto. Tras desconexión/vencimiento se rota session_id y se conserva checkpoint, invalidando llamadas/tickets de la generación anterior. [Contrato de sesiones](docs/SESSIONS.md).
 
 ## 5. Contrato de dominio inicial
 
@@ -100,8 +102,12 @@ Herramientas MCP del MVP:
 5. `claim_module_lock` — reclamar rutas normalizadas con TTL.
 6. `release_module_lock` — liberar sólo locks propios o autorizados.
 7. `get_team_status` — consultar presencia, estados y locks visibles.
+8. `ack_inbox` — confirmar explícitamente una página ya consumida.
+9. `wait_for_messages` — espera activa acotada y cancelable.
+10. `get_inbox_recovery` — revisar snapshot autorizado tras vencer el cursor.
+11. `resync_inbox` — aceptar pérdida de historial y reanudar sin confirmar la nueva página.
 
-Todos los inputs y outputs se validan con JSON Schema. El servidor no confía en nombres enviados por el cliente para autorizar: usa IDs y pertenencia verificada.
+La validación completa de inputs/outputs es un requisito del diseño. El adaptador valida inputs y respuestas de mutaciones/inbox/snapshot con schemas compartidos; no se afirma cobertura exhaustiva de todas las salidas ni payloads de eventos. El servidor no confía en nombres enviados por el cliente para autorizar: usa IDs y pertenencia verificada. [Inventario vigente](docs/API_CONTRACT.md) detalla rutas, scopes, errores y límites; [recuperación](docs/RECOVERY.md) especifica ADR-020.
 
 ## 6. Seguridad
 
@@ -115,7 +121,7 @@ Todos los inputs y outputs se validan con JSON Schema. El servidor no confía en
 
 ### Transporte y datos
 
-- Producción sólo por HTTPS/WSS; HSTS y cookies `Secure`, `HttpOnly`, `SameSite` para la web.
+- Producción sólo por HTTPS/WSS; el transporte/proxy debe configurar HSTS. El dashboard vigente mantiene tokens en memoria; cookies `Secure`, `HttpOnly`, `SameSite` y protección CSRF son requisitos si se adopta sesión web persistente, aún pendiente de ADR.
 - Validar `Origin` en conexiones HTTP/WebSocket y rechazar orígenes no permitidos.
 - El servidor local se limita a `127.0.0.1` cuando exponga HTTP local.
 - Cifrar secretos en reposo cuando se añadan credenciales persistentes; nunca registrar tokens, prompts privados ni variables de entorno.

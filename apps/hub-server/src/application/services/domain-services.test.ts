@@ -3,6 +3,12 @@ import { AppError, encodeCursor } from "@agents-hub/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDatabase } from "../../infrastructure/db/database.js";
 import { SqliteEventBus } from "../../infrastructure/event-bus/event-bus.js";
+import { SqliteLockRepository } from "../../infrastructure/repositories/sqlite-lock-repository.js";
+import { SqliteMessageRepository } from "../../infrastructure/repositories/sqlite-message-repository.js";
+import { SqliteProjectRepository } from "../../infrastructure/repositories/sqlite-project-repository.js";
+import { SqliteSessionRepository } from "../../infrastructure/repositories/sqlite-session-repository.js";
+import { SqliteStatusRepository } from "../../infrastructure/repositories/sqlite-status-repository.js";
+import { SqliteTicketRepository } from "../../infrastructure/repositories/sqlite-ticket-repository.js";
 import { LockService } from "./lock-service.js";
 import { MessageService } from "./message-service.js";
 import { ProjectService } from "./project-service.js";
@@ -22,11 +28,11 @@ describe("Hub Server Domain Services (Phase 2)", () => {
   beforeEach(() => {
     db = createDatabase(":memory:");
     eventBus = new SqliteEventBus(db);
-    projectService = new ProjectService(db, eventBus);
-    sessionService = new SessionService(db, eventBus);
-    messageService = new MessageService(db, eventBus);
-    statusService = new StatusService(db, eventBus);
-    lockService = new LockService(db, eventBus);
+    projectService = new ProjectService(new SqliteProjectRepository(db), eventBus);
+    sessionService = new SessionService(new SqliteSessionRepository(db), eventBus);
+    messageService = new MessageService(new SqliteMessageRepository(db), eventBus);
+    statusService = new StatusService(new SqliteStatusRepository(db), eventBus);
+    lockService = new LockService(new SqliteLockRepository(db), eventBus);
   });
 
   describe("Projects & Memberships", () => {
@@ -208,7 +214,7 @@ describe("Hub Server Domain Services (Phase 2)", () => {
     let testSessionId: string;
 
     beforeEach(() => {
-      wsTicketService = new WsTicketService(db);
+      wsTicketService = new WsTicketService(new SqliteTicketRepository(db));
       testUserId = "user-ticket-tester";
       db.prepare("INSERT INTO users (user_id, username, created_at) VALUES (?, ?, ?)").run(
         testUserId,

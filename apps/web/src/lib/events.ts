@@ -1,7 +1,7 @@
 import type { EventEnvelope } from "@agents-hub/shared";
 import { decodeCursor } from "@agents-hub/shared";
 import type { ConnectionStatus } from "../types/index.js";
-import { ackInbox, createWsTicket, fetchInbox } from "./api.js";
+import { ApiClientError, ackInbox, createWsTicket, fetchInbox } from "./api.js";
 
 export type EventListener = (event: EventEnvelope) => void;
 export type StatusListener = (status: ConnectionStatus) => void;
@@ -29,6 +29,23 @@ export class RealtimeManager {
   private deliveredSequence = 0;
   private recoveryTimeout: ReturnType<typeof setTimeout> | null = null;
   private errorListeners = new Set<(error: unknown | null) => void>();
+  private historyUnavailable = false;
+
+  public async acceptHistoryGap(cursor: string): Promise<void> {
+    if (!this.historyUnavailable || this.isDestroyed) return;
+    const ack = await ackInbox(
+      this.config.baseUrl,
+      this.config.token,
+      this.config.projectId,
+      this.config.sessionId,
+      cursor,
+      true,
+    );
+    if (this.isDestroyed) return;
+    this.setLastCursor(ack.cursor);
+    this.historyUnavailable = false;
+    await this.recoverMissedEvents();
+  }
 
   public onRecoveryError(listener: (error: unknown | null) => void): () => void {
     this.errorListeners.add(listener);
@@ -57,6 +74,7 @@ export class RealtimeManager {
       this.lastCursor = null;
       this.lastSequence = 0;
       this.deliveredSequence = 0;
+      this.historyUnavailable = false;
       this.reconnectAttempts = 0;
       void this.connect();
     }
@@ -214,7 +232,7 @@ export class RealtimeManager {
   }
 
   public async recoverMissedEvents(): Promise<void> {
-    if (this.isDestroyed) return;
+    if (this.isDestroyed || this.historyUnavailable) return;
     this.recoverAgain = true;
     if (this.recovery) return this.recovery;
     this.recovery = this.drainInbox();
@@ -261,8 +279,10 @@ export class RealtimeManager {
       for (const listener of this.errorListeners) listener(null);
     } catch (error) {
       if (this.isDestroyed) return;
+      if (error instanceof ApiClientError && error.code === "CURSOR_EXPIRED")
+        this.historyUnavailable = true;
       for (const listener of this.errorListeners) listener(error);
-      if (!this.recoveryTimeout)
+      if (!this.historyUnavailable && !this.recoveryTimeout)
         this.recoveryTimeout = setTimeout(() => {
           this.recoveryTimeout = null;
           void this.recoverMissedEvents();

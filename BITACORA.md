@@ -14,6 +14,96 @@ Cada avance, idea, decisión de diseño, bloqueo y solución debe registrarse aq
 
 ---
 
+## Relevo vigente para el siguiente chat
+
+Actualizado: 2026-10-08. Esta sección se actualiza al finalizar **cada tarea** según [AGENTS.md](AGENTS.md); las entradas cronológicas conservan la evidencia histórica. Leer igualmente toda la bitácora antes de decidir/modificar y verificar el worktree actual: este relevo no reemplaza esa comprobación.
+
+### Objetivo y punto de corte
+
+Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](docs/ROADMAP.md), preservando alcance y aceptación, con commits y publicación progresivos desde una rama nueva. El objetivo completo sigue pendiente; el trabajo continúa ahora con 10.1.
+
+- Directorio: `C:\Users\orlan\Documents\GitHub\Agents-Hub`. Retomar en **este mismo checkout** para disponer del trabajo no publicado.
+- Rama de trabajo: `feat/phase-10-message-history`, creada desde `main` en HEAD `13a81d8ef310a3362419654e43fbd23ae9203bb0` y conservando el worktree local.
+- Hay cambios locales extensos y archivos nuevos de implementación/documentación, **sin commit ni push**. La revalidación actual observa 33 archivos rastreados modificados y 25 sin seguimiento. `git diff` no incluye el contenido de archivos sin seguimiento: inspeccionar también `git status --short` y esos archivos. Un clon nuevo de GitHub no contiene estos incrementos.
+- Se preservaron cambios documentales que ya existían al iniciar la implementación. No descartarlos ni hacer reset/checkout/pull indiscriminado. Publicación/CI remoto de los incrementos nuevos no están verificados.
+- Las ejecuciones de verificación registradas terminaron; no hay un test pendiente que este relevo pida esperar. El estado del Hub/túnel operativo personal no se ha inspeccionado en esta tarea: no asumir que está apagado ni reiniciarlo para retomar código.
+
+### Lo implementado y con qué
+
+| Trabajo | Estado local / referencias |
+|---|---|
+| 8.1–8.3: repositorios, transacciones y separación | Servicios de aplicación usan puertos y nueve adaptadores SQLite. HTTP separado en `apps/hub-server/src/http/routes/`; MCP en `packages/mcp-server/src/tools/`. Auditoría/entidad/evento/idempotencia de mensajes/estado/locks comparten commit y rollback |
+| 8.4: retención y recuperación | Migración 4, frontera `retained_after`, 410 CURSOR_EXPIRED, snapshot autorizado y aceptación explícita; [RECOVERY](docs/RECOVERY.md), `recovery.test.ts` |
+| 8.5: instancias y reintentos | Migración 5, una instancia vigente por nombre, UUID de proceso, session_id nuevo al reanudar y checkpoint conservado; fencing de llamadas/tickets/sockets viejos; [SESSIONS](docs/SESSIONS.md), `session-instances.test.ts` |
+| Idempotencia tras reanudar | Huella usa payload de dominio + agente lógico validado, no session_id temporal. Registros antiguos pueden dar conflicto hasta TTL 24 h; no reemitir automáticamente con otra clave |
+| 9.1: diagnóstico | `pnpm doctor` / `--json`, sólo GET, sin datos sensibles ni mutaciones; capacidades en `/v1/capabilities`; [DOCTOR](docs/DOCTOR.md) |
+| 9.2: plantilla genérica | `pnpm mcp:config`, rutas absolutas, token placeholder, creación exclusiva `--output`; [MCP_SETUP](docs/MCP_SETUP.md). Guías y aceptación de productos concretos siguen pendientes |
+
+Usar el stack existente: Node 24 LTS (última versión observada 24.12.0), pnpm/workspaces/lockfile, TypeScript estricto, Zod, Fastify, `node:sqlite`/WAL, MCP SDK v1, React/Vite/Tailwind/TanStack Query, Vitest, Playwright y Biome. No se añadieron dependencias en estos incrementos. No introducir otro SDK, ORM, base de datos, servicio o virtualización sin necesidad comprobada y decisión registrada.
+
+Documentos de apoyo: [inventario de contratos](docs/API_CONTRACT.md), [arquitectura](ARCHITECTURE.md), [plan inicial](DEVELOPMENT_PLAN.md), [operación](docs/OPERATIONS.md). El plan original 0–6 y los informes antiguos son historia; no rehacer defectos ya corregidos basándose en una entrada anterior al estado vigente.
+
+### Por dónde seguir y cómo: próximo incremento
+
+**Prioridad recomendada: 10.1, historial paginado independiente del inbox; preparar 10.2 sin ampliar el incremento innecesariamente.** No se ha implementado todavía. El feed actual usa eventos del inbox, por lo que un checkpoint confirmado no sirve para navegar mensajes antiguos al regresar.
+
+1. Inspeccionar `MessageService`, el puerto `MessageRepository` en `apps/hub-server/src/application/ports/persistence.ts`, `infrastructure/repositories/sqlite-message-repository.ts`, `http/routes/message-routes.ts` y política `application/policies/event-visibility.ts`. Revisar además los schemas de mensajes/paginación en `packages/shared/src/`.
+2. Registrar el contrato de lectura histórica antes de implementarlo: entrada/salida validada, cursor **distinto** del cursor inbox, orden determinista con desempate y límites de página. Nombre de ruta, formato del cursor e índices adicionales son propuestas por concretar, no decisiones ya aceptadas. Si hace falta migración, la siguiente versión libre observada es 6; verificarlo de nuevo, hacerla aditiva y probar upgrade/backup.
+3. Autorizar en el servidor por proyecto, token/scope `messages:read` y sesión propia vigente. Derivar agente de esa sesión. Aplicar visibilidad (broadcast, emisor o destinatario) **antes de paginar**, también al buscar y calcular has_more/conteos; owner no obtiene mensajes privados ajenos por administrar el proyecto.
+4. Atención al helper actual: `SqliteMessageRepository.listByProject()` ejecuta LIMIT y después `MessageService.getMessages()` filtra destinatarios. Es un hecho de código, no una nueva API histórica publicada. **No exponer directamente ese helper**: una página de mensajes ocultos puede impedir encontrar mensajes visibles posteriores; un agente opcional omitido tampoco es autorización.
+5. Añadir lectura histórica detrás del puerto/adaptador y la ruta modular; luego cliente en `apps/web/src/lib/api.ts` y UI en `features/messages/MessageFeed.tsx`. Integrar páginas con eventos vivos deduplicando por message_id; usar TanStack Query existente y no crear un segundo responsable del inbox. Revisar `context/HubContext.tsx` y `lib/events.ts` para conservar la recuperación ordenada/ACK actuales.
+6. Consultar historial/cargar páginas/buscar **no** debe modificar last_cursor, confirmar eventos ni ejecutar efectos otra vez. Probar recarga/reconexión con checkpoint adelantado, muchos mensajes privados antes de uno visible, proyectos/usuarios ajenos, paginación con mensajes entrantes, duplicados y cursores inválidos. Usar SQLite real y E2E de producción; nunca DB del usuario para provocar borrado/retención.
+7. Para 10.2, continuar después con búsqueda/filtrado autorizado por texto/canal/emisor/destinatario/fecha antes de paginar; registrar semántica y cubrir inferencia de privados. Mantener el historial independiente del consumo.
+
+**Después: 10.5, renovación explícita de locks en MCP/UI.** Backend y `HubClient.renewLock()` ya existen; revisar `http/routes/lock-routes.ts`, `application/services/lock-service.ts`, `packages/shared/src/schemas/lock.ts`, `packages/mcp-server/src/tools/catalog.ts`/`commands.ts` y `apps/web/src/features/locks/LocksPanel.tsx`. Exponer herramienta/input/output validado y clave estable para retry; añadir acción UI y cuenta regresiva. Propietario u owner del proyecto renueva, ajenos se rechazan, lock vencido debe reclamarse de nuevo. Heartbeat no renueva locks automáticamente. Probar permisos, TTL, idempotencia y flujos MCP/UI. Actualizar capacidades/inventario/guías según corresponda.
+
+### Verificación y evidencia disponible
+
+Última verificación funcional de la sesión de implementación (anterior a esta tarea documental):
+
+- `pnpm check`: PASS, lint + typecheck + **130 tests en 18 suites**.
+- `pnpm -r build`: PASS.
+- `pnpm test:e2e`: **9 PASS** sobre el último cambio de Hub/MCP/UI; cubre dos procesos stdio, colisiones, fencing/rejoin, retry de comando entre generaciones, recuperación/ACK y flujos web. Cambios CLI posteriores tienen pruebas de subprocess/HTTP y preservación de archivos dentro de la suite.
+- `git diff --check` y enlaces Markdown: PASS. No hay evidencia de CI remoto para este worktree ni aceptación humana con dos productos.
+
+Verificación de la última tarea, sólo documental: contenido del relevo/regla revisado, enlaces locales de AGENTS.md/BITACORA.md y `git diff --check` PASS. No se ejecutaron de nuevo tests/build/E2E ni se modificó código de aplicación para este relevo.
+
+Al retomar, comprobar rama/HEAD/status/diff, Node y pnpm. Si faltan dependencias, usar `pnpm install --frozen-lockfile`; no actualizar el lockfile por defecto. Para código nuevo ejecutar:
+
+```powershell
+pnpm check
+pnpm build
+pnpm test:e2e
+git diff --check
+```
+
+Compilar antes de Playwright: sirve el bundle de producción y usa el adaptador `dist`. Si falta Chromium, instalar con `pnpm exec playwright install chromium`. Si aparece `spawn EPERM` o fallo de red del sandbox, repetir el comando afectado mediante la aprobación/escalación de la herramienta; no cambiar el código o quitar pruebas para evitarlo. Autorizaciones de otra sesión no se suponen disponibles. Para cambios exclusivamente documentales basta revisar contenido/enlaces/diff; no presentar las pruebas anteriores como recién ejecutadas.
+
+### Pendientes y límites que no deben perderse
+
+- 7: [piloto humano](docs/acceptance/pilot.md) con dos personas, redes y productos de agente diferentes. [Clientes](docs/compatibility/clients.md) aún no elegidos/versionados por el usuario. Harness stdio no lo sustituye; documentar necesidad de consulta manual del inbox.
+- 8.6: inventario documentado; validación exhaustiva de todas las salidas/payloads aún pendiente.
+- 9: guías de clientes concretos, bundle distribuible con dependencias/checksums/instalación limpia, gestión cómoda de credenciales; sesión web persistente es opcional y requiere ADR. Paquetes actuales privados, sin publicación de registro autorizada por esta tarea.
+- 10: historial/búsqueda, respuestas/destinatarios, presencia comprensible, renovación y accesibilidad; no afirmar que todo 10 está terminado por añadir una herramienta.
+- 11: instalación permanente/dirección estable, backups programados, actualización/rollback, métricas, carga mixta sostenida, gestión de datos y releases; destino/RPO/RTO/perfil real dependen del anfitrión/piloto.
+- 12–14: capacidades de tareas/entregas humanas, Git informativo y contexto/avisos, con las condiciones del roadmap y decisiones de alcance registradas. No convertirlas en orquestación automática.
+- 15: investigación condicionada, no compromiso de añadir infraestructura. Docker, daemon de prompts, orquestación compleja, Redis/PostgreSQL y servicios de pago siguen diferidos. ADR-006 continúa: agente inactivo no se despierta automáticamente.
+- Conservar ADR-018/019/020/021: roles intersectados con scopes, privacidad, ACK explícito, recuperación sin prometer datos borrados, instancia exclusiva y transacciones post-commit. No guardar tokens, DB reales, logs privados ni pensamiento interno en Git/bitácora.
+
+### Mensaje sugerido para el chat nuevo
+
+```text
+Continúa la implementación de las fases nuevas de Agents-Hub en este checkout.
+Lee AGENTS.md y BITACORA.md completas, especialmente el relevo vigente.
+Contrasta rama, commit, cambios locales y código actual; conserva lo no publicado.
+Empieza por 10.1: historial paginado autorizado, independiente del inbox/ACK,
+con pruebas de privacidad, recarga y deduplicación. Sigue los pasos y archivos
+del relevo, conserva ADR-018–021 y los límites del roadmap. Actualiza la bitácora
+y el relevo al terminar cada tarea, con lo hecho, cómo verificarlo y por dónde seguir.
+```
+
+---
+
 ## 🎯 Visión y Misión del Proyecto
 
 ### La Idea
@@ -49,6 +139,8 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-017 | 2026-10-07 | Redacción de secretos en logs/errores y snapshot SQLite vía `VACUUM INTO` | Snapshot consistente; `DatabaseSync` bloquea el hilo durante ejecución, por lo que backups grandes requieren ventana operativa/proceso separado. | Aceptado (Corregido) |
 | ADR-018 | 2026-10-07 | Cierre del MVP con stack efectivo y matriz de roles | TypeScript 5.9/Zod 3.25/MCP v1 y SQLite nativo; reader lee y mantiene presencia propia, collaborator escribe y controla locks propios, maintainer administra collaborator/reader, owner administra roles y puede liberar/renovar locks ajenos. Scopes y rol se intersectan. | Aceptado |
 | ADR-019 | 2026-10-07 | Confirmación explícita MCP y comandos idempotentes | `check_inbox(cursor)` confirma la página previamente entregada antes de leer novedades; join devuelve cursor confirmado; herramienta `ack_inbox` permite confirmar la última página sin nueva lectura. Nunca confirmar antes de entregar. Idempotencia por identidad/proyecto/operación/clave con hash y resultado atómicos. | Aceptado |
+| ADR-020 | 2026-10-08 | Frontera persistente de retención y recuperación explícita | Cursor anterior al prefijo eliminado devuelve 410 `CURSOR_EXPIRED`; snapshot autorizado y aceptación explícita permiten continuar desde la frontera sin afirmar entrega de lo borrado. Retención vigente de 30 días/configuración existente; no se añade borrado manual ni se salta el ACK automáticamente. | Aceptado |
+| ADR-021 | 2026-10-08 | Una instancia activa por agente lógico y generación de sesión nueva al reanudar | Rechazar colisión de nombres evita compartir checkpoint/presencia accidentalmente. `instance_id` opcional identifica reintentos del proceso; desconexión/vencimiento permite rejoin con nuevo session_id y checkpoint conservado, invalidando llamadas/tickets antiguos. No se añaden namespaces múltiples ni takeover de instancia activa. | Aceptado |
 
 ---
 
@@ -85,6 +177,129 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-08] — Inicio de implementación continua en rama nueva
+- El usuario autoriza continuar el roadmap, hacer commits y publicar progresivamente. Se releen AGENTS.md/BITACORA.md y se crea `feat/phase-10-message-history` desde `main`/`13a81d8`, preservando los 33 archivos modificados y 25 sin seguimiento del incremento local 8.1–9.2.
+- Estrategia de entrega: verificar y publicar primero ese punto de partida como commit recuperable; después implementar 10.1 en un commit separado con contrato, backend, web, pruebas y documentación. No se amplía todavía a búsqueda 10.2.
+- Punto de partida verificado en esta sesión: `pnpm check` PASS (lint, typecheck y 130/130 pruebas en 18 suites), `pnpm -r build` PASS, `pnpm test:e2e` PASS (9/9) y `git diff --check` PASS con advertencia preexistente de normalización LF en README. No se observaron fallos que corregir.
+- Siguiente paso inmediato: crear y publicar el commit base antes de modificar el historial de mensajes.
+
+### [2026-10-08] — Revalidación de estado y próximo incremento
+- El usuario solicita analizar la bitácora y explicar el estado y la continuación. Se lee completa y se contrasta el relevo con el checkout actual, sin iniciar implementación funcional.
+- Estado observado: rama `main`, HEAD `13a81d8ef310a3362419654e43fbd23ae9203bb0`, igual a la referencia local `origin/main`; 33 archivos rastreados modificados y 25 sin seguimiento. Todo el incremento 8.1–9.2 permanece local, sin commit, push ni CI remoto.
+- El código confirma que 10.1 sigue pendiente: `message-routes.ts` sólo expone escritura de mensajes y `SqliteMessageRepository.listByProject()` aplica `LIMIT` antes del filtro de visibilidad de `MessageService`, por lo que no constituye un historial paginado autorizable. La recuperación del inbox existente no sustituye la navegación histórica.
+- No se ejecutan tests, build ni E2E en esta tarea de análisis; la evidencia más reciente sigue siendo la registrada de 130 pruebas Vitest, build y nueve E2E aprobados en la sesión de implementación anterior. Node `v24.12.0` y pnpm `12.10.1` coinciden con el stack previsto.
+- No se modifican código, dependencias, base operativa, procesos ni alcance. Próximo incremento: 10.1, historial paginado independiente del inbox/ACK, con autorización y visibilidad antes de paginar, cursor propio, deduplicación con eventos vivos y regresiones de privacidad/recarga; después 10.2 y 10.5 según el relevo.
+
+### [2026-10-08] — Relevo para un nuevo chat y regla permanente de cierre
+- El usuario solicita dejar por dónde continuar, cómo y con qué, y convertir ese relevo en obligación al abrir el proyecto y al terminar cada tarea. Se lee la bitácora completa y se verifica main/HEAD/worktree, conservando todos los cambios previos.
+- AGENTS.md exige leer/revalidar el relevo al abrir/retomar/nuevo chat y actualizarlo junto a una entrada histórica al terminar cualquier tarea, incluyendo documentación, cortes parciales, límites o bloqueos. Se conserva un único relevo vigente y no se borra historia.
+- Se añade el relevo visible al inicio de BITACORA.md: objetivo íntegro, estado local/no publicado, stack existente, decisiones, riesgos, evidencias previas, mapa de archivos, instrucciones/aceptación de 10.1/10.2 y siguiente 10.5, pendientes 7–15 y mensaje listo para el próximo chat.
+- Se confirma por código el límite del helper de mensajes (LIMIT antes del filtrado de visibilidad) para que no se exponga como API histórica sin corregir la paginación autorizada. Nombres de nueva ruta/cursor/índices quedan como propuestas, no arquitectura decidida en una tarea documental.
+- Esta tarea modifica sólo AGENTS.md/BITACORA.md, sin nuevas funcionalidades, dependencias, DB operativa, commit ni publicación. Verificación documental: diff/enlaces locales/contenido y referencia a la sección de relevo PASS; no se repiten ni se atribuyen como nuevas las pruebas funcionales previas de 130 tests/nueve E2E.
+- Siguiente paso de implementación en el nuevo chat: revalidar este mismo checkout y comenzar historial paginado independiente del inbox según el relevo; mantener el objetivo global pendiente.
+
+### [2026-10-08] — Cierre local de 8.5/9.1 y preparación genérica 9.2
+- Contrato de instancias y retry entre generaciones verificado: una instancia vigente por nombre, UUID de proceso para reintentar join, session_id nuevo al reanudar, checkpoint/locks conservados y llamadas/tickets/sockets anteriores invalidados. Retry idempotente de mensaje/estado/claim/renew/release conserva un solo resultado/auditoría; mismo usuario con otro nombre de agente no reutiliza la clave.
+- Doctor terminado como diagnóstico local de sólo lectura, con capacidades públicas mínimas, URL/TLS, Node/build, identidad y membresía. CLI JSON exit 0/1 probado contra Hub real; no modifica DB ni muestra credenciales. Un fallo de red queda como UNREACHABLE, sin afirmar que un Hub no observado sea incompatible.
+- Plantilla MCP genérica implementada con pnpm mcp:config: rutas absolutas de Node/script, nombre/URL/proyecto configurables, token siempre placeholder incluso con entorno real. stdout por defecto; archivo nuevo con flag wx. Pruebas de CLI confirman no sobrescritura y ausencia de secretos en salida/errores. No instala ni cambia configuración de un producto concreto.
+- Verificación final: pnpm check PASS (lint/typecheck + 130 tests en 18 suites) fuera del sandbox; repetición autorizada necesaria tras spawn EPERM. pnpm -r build PASS. Nueve E2E PASS sobre el último cambio de Hub/MCP/UI, incluido retry de comando después de reiniciar proceso; los cambios posteriores son utilidades CLI con pruebas propias. Enlaces Markdown y git diff --check PASS.
+- Docs de sesiones/doctor/configuración, inventario, operaciones, README y roadmap actualizados. No hay nuevas dependencias, commit, push, CI remoto ni modificación de DB operativa. Se conservan cambios previos sobre main 13a81d8.
+- Objetivo global pendiente: 7 aceptación humana; 8.6 validación exhaustiva de salidas/payloads; 9.2 guías de clientes elegidos/9.3 distribución/9.4 gestión de credenciales; 10 historial/búsqueda/renovación/presencia; 11 operación; 12–14 con sus condiciones; 15 investigaciones diferidas. No se declara terminada toda fase 8/9 ni todas las fases nuevas.
+- Siguiente acción segura: historial paginado separado del inbox/ACK (10.1), filtrado autorizado antes de paginar y regresiones de recarga/privacidad; después renovación explícita MCP/UI. Distribución y guías de productos continúan según dependencia del piloto. El objetivo original se conserva íntegro.
+
+### [2026-10-08] — Idempotencia entre generaciones corregida; plantilla genérica MCP (9.2)
+- Regresión demuestra 409 en retry del mismo mensaje después de rejoin antes del ajuste. command() ahora excluye sesión temporal y deriva actor_agent_id de una sesión autorizada; no puede suplantarse desde body. Todas las claves mantienen aislamiento por usuario/proyecto/operación.
+- Regresiones de mensajes/estado/claim/renew/release después de rotar generación pasan sin duplicar entidad/evento/auditoría; otro agente con la misma clave devuelve IDEMPOTENCY_CONFLICT y session_id viejo devuelve 401. La compatibilidad de registros antiguos queda explícita en sesiones/inventario.
+- Suite actual: 126 tests, lint/typecheck/build PASS; E2E de retry tras reiniciar proceso se está comprobando contra stdio real. Doctor CLI/lecturas/exit codes probados, sin secretos ni mutaciones en DB.
+- Se inicia preparación genérica 9.2: generador de plantilla JSON mcpServers con Node/script absolutos, nombre configurable y token placeholder; stdout por defecto, archivo nuevo opcional con creación exclusiva para evitar sobrescritura. No lee token real del entorno ni cambia configuración de productos instalados.
+- Se comparte validación de URL entre utilidades de diagnóstico/configuración con Node nativo, sin dependencia ni servicio nuevo. Guías/compatibilidad de dos productos reales continúan pendientes de elección del equipo; plantilla genérica no sustituye 7.1 ni certifica clientes concretos.
+- Siguiente paso: probar rutas/plantilla sin credenciales y preservación de fichero existente, actualizar guía y gates. Fases nuevas completas todavía pendientes; no hay publicación ni commit.
+
+### [2026-10-08] — Revisión de idempotencia entre generaciones
+- Doctor pasa pruebas reales de sólo lectura/errores/redacción y ejecución CLI JSON (exit 0/1); suite general 121/121, build/lint/typecheck y nueve E2E PASS antes de la revisión siguiente.
+- Al auditar fidelidad de ADR-019/021 se identifica por código que command() incluye session_id en la huella. Rotar sesión puede convertir el retry de un mismo comando lógico en IDEMPOTENCY_CONFLICT, pese a conservar identidad/proyecto/operación/clave. Se añade regresión a reproducir antes de corregir.
+- Ajuste necesario del contrato: huella del payload de dominio + agente lógico derivado de sesión validada; nunca confiar en el actor enviado por cliente. Se conserva fencing: las llamadas con session_id obsoleto fallan antes del lookup. Una clave usada por otro nombre de agente o payload distinto sigue en conflicto.
+- Registros de idempotencia creados por contratos antiguos no se reinterpretan sin evidencia del payload original: pueden devolver conflicto hasta su TTL de 24 h; no se genera otra clave automáticamente. Registrar este límite de upgrade y verificar el comando aceptado antes de reemitirlo.
+- Siguiente paso: demostrar el fallo al rejoin, corregir huella y comprobar retry de mensaje/estado/claim/renew/release entre generaciones; volver a ejecutar gates por este cambio funcional.
+
+### [2026-10-08] — 8.5 verificada e inicio de diagnóstico local (9.1)
+- Lint/typecheck/build y suite general 118/118 en 16 suites PASS; E2E 9/9 PASS con colisión entre procesos MCP, repetición del ganador, fencing de desconexión vieja, dos pestañas y recarga. Migración 5 y backup/reopen comprobados, sin modificar DB operativa ni añadir dependencias.
+- docs/SESSIONS.md establece generación/instance_id/lease y compatibilidad; recuperación, inventario, aceptación, operación, README y arquitectura reflejan el nuevo contrato. La aceptación con dos personas/productos/redes permanece pendiente.
+- Se inicia 9.1 dentro de lo autorizado: comando doctor de sólo lectura para Node/build/URL/HTTPS/readiness/identidad/membresía/compatibilidad. Usará APIs existentes y una ruta pública mínima de capacidades/versionado de contrato, necesaria para detectar un Hub anterior que no entiende instance_id/recuperación; no revela usuarios ni datos de proyectos.
+- Implementación con Node nativo y dependencias actuales. No genera sesiones, tokens ni mensajes; no sigue redirects al enviar Authorization ni muestra URL con credenciales, tokens, errores remotos arbitrarios o datos del listado de tokens.
+- Siguiente paso: pruebas reales de no mutación, errores de acceso/URL y redacción, guía de uso y gates. Instalación de clientes específicos y publicación de adaptador siguen sujetos a elección/evidencia del piloto.
+
+### [2026-10-08] — Instancias exclusivas implementadas; pruebas de protocolo en curso
+- Las dos regresiones iniciales fallaron antes de corregir (dos joins 201 y mismo ID al rejoin). Ahora un join con otra instancia/cliente legacy devuelve 409 sin afectar al ganador; repetición con instance_id estable devuelve la misma sesión sin nuevo agent.joined.
+- Migración 5/puertos y adaptador preservan checkpoint y locks al rotar session_id; tickets antiguos se eliminan en la misma transacción. Validación de sesión exige lease vigente incluso antes del mantenimiento y WS antiguo cierra 1008 al reemplazar instancia vencida.
+- Join HTTP y auditoría son atómicos. Fallo inducido de auditoría conserva ID/ticket/estado previo y no publica eventos. MCP genera instancia por proceso, reintenta join con identificador estable y limpia una sesión recibida después de cancelar/cerrar; UI usa identificador en memoria y pagehide desconecta con keepalive para permitir recarga.
+- Pasan siete regresiones específicas: HTTP concurrente, checkpoint y rechazo de llamadas antiguas, lease configurado, respuesta perdida real de red, rollback, socket real y upgrade de backup v4/reapertura. Se reutiliza cliente WebSocket global de las suites existentes al detectar que ws no es dependencia directa; no se añade paquete. Un spawn EPERM se resuelve con repetición autorizada.
+- La suite general previa pasó 113 pruebas antes de ampliar estas regresiones. Siguiente paso: suite completa/build/E2E sobre cambios actuales y documentación de compatibilidad; no se declara aceptación de fase 7 ni del objetivo completo.
+
+### [2026-10-08] — Reanudación y contrato de instancias (8.5)
+- El usuario solicita continuar; bitácora completa y worktree inspeccionados, conservando todos los incrementos previos. La lectura de get_goal todavía devuelve usageLimited, pero la solicitud de continuación y herramientas permiten avanzar; no se cambia manualmente ese estado ni se crea otro objetivo.
+- ADR-021 concreta la alternativa de rechazo prevista en roadmap: sólo una instancia activa/idle no vencida por proyecto/nombre. Un instance_id UUID estable por proceso permite repetir join tras respuesta perdida sin duplicar sesión/evento; clientes sin campo pueden conectar pero no reutilizar una sesión activa accidentalmente.
+- Rejoin tras disconnect o lease vencido rota session_id, conserva identidad lógica/cursor y locks según TTL; retira tickets efímeros de la sesión anterior antes de cambiar la clave. Toda ruta que usa sesión antigua debe rechazarla y sockets antiguos deben cerrarse al revalidar. No hay takeover de una instancia con heartbeat vigente: usar otro nombre o esperar expiración configurable.
+- Migración aditiva 5 sólo almacena instance_id interno, sin exponerlo en snapshots ni considerarlo credencial. MCP y formulario web generan UUID en memoria; ningún token/ID de instancia se persiste en almacenamiento web ni se añade dependencia externa. El join y su auditoría comparten transacción.
+- Siguiente paso: regresiones de colisión, reintento, fencing, upgrade y dos procesos MCP; después implementar y verificar, y actualizar el inventario/guía antes de continuar a diagnóstico y renovación.
+
+### [2026-10-08] — Incrementos 8.1–8.4 verificados localmente; objetivo completo sigue activo
+- Todos los servicios de aplicación dependen de puertos; nueve adaptadores SQLite separan proyectos, membresías, sesiones, mensajes, estados, locks, auditoría, tickets e idempotencia. La unidad de trabajo comparte conexión/savepoints y notifica después de commit. Búsqueda de imports en servicios (excluyendo tests) no encuentra node:sqlite, infraestructura ni HTTP.
+- Rutas HTTP extraídas por proyectos/sesiones, mensajes/estado, locks, inbox y eventos WS; app.ts conserva composición, autenticación/hooks y health. MCP separa catálogo, inbox/ACK/espera/recuperación y comandos; server.ts conserva lifecycle/join/stdio y checkpoint. Se conserva comportamiento público e idempotencia.
+- Corrección transaccional de locks verificada: fallo de auditoría revierte claim/renew/release y clave idempotente; retry confirmado no duplica auditoría/evento. Creación de proyecto revierte usuario implícito; invitación auditada revierte consumo/membresía ante fallo.
+- Checks finales sobre composición actual: pnpm lint, pnpm typecheck, pnpm test (111/111 en 15 suites), pnpm -r build y pnpm test:e2e (8/8) PASS. E2E usa bundle productivo y procesos MCP reales; incluye recuperación explícita tras retención, ACK perdido, cancelación, revocación, replay y conflictos. git diff --check y revisión de enlaces Markdown PASS.
+- No se añaden dependencias, se modifica base operativa, se publica, se hace commit ni se integra CI remoto. Cambios locales sobre main 13a81d8, conservando documentación previa del usuario. Estas pruebas no equivalen a aceptación humana ni cierre de todas las fases nuevas.
+- Pendientes concretos: 8.5 contrato/solución de instancias simultáneas; cobertura exhaustiva de salidas/payloads; 7 aceptación con dos productos/personas/redes (clientes solicitados, sin respuesta aún); 9 instalación/doctor; 10 historial/renovación/presencia; 11 operación; 12–14 capacidades con sus condiciones; 15 investigaciones aún diferidas.
+- Siguiente acción segura: resolver 8.5 en un incremento separado del refactor (lease/rechazo o identidad de instancia, fencing de sesiones antiguas, preservación de checkpoints y tests con dos procesos). Después diagnóstico local y renovación explícita. El objetivo permanece activo: no se declara terminado ni se reduce a lo ya implementado.
+
+### [2026-10-08] — Consolidación de todos los servicios de aplicación (8.1)
+- Proyectos, membresías/invitaciones y tickets también pasan a repositorios. MembershipService depende de un puerto de autorización, no del adaptador HTTP; todos los servicios de aplicación quedan sin imports de node:sqlite ni infraestructura concreta. SQL conserva consumo atómico por TTL/uso único, revocación, scopes/roles y ownership.
+- Provisionamiento implícito al crear proyecto entra en la misma transacción que proyecto/owner/evento; un fallo no debe dejar usuario parcial. Se añaden contratos de rollback para esta frontera y para consumo de invitaciones auditado antes de cerrar verificación.
+- Inventario docs/API_CONTRACT.md contrastado con rutas, schemas y catálogo de herramientas; identifica claramente validación de salidas/payloads aún incompleta. Arquitectura actualiza recuperación, herramientas reales y token web en memoria; cookies persistentes siguen futuras.
+- Verificación previa al último refactor: 109 pruebas y ocho E2E, lint/typecheck/build aprobados. Typecheck del nuevo refactor completo pasa; tests/build/E2E se repetirán sobre esta composición.
+- Siguiente paso: verificar nuevos repositorios y frontera síncrona, finalizar consolidación; continuar extracción de rutas/herramientas, identidad concurrente y renovación explícita de locks según el roadmap. Sin dependencia externa nueva.
+
+### [2026-10-08] — Sesiones/locks desacoplados y fallo transaccional de auditoría reproducido
+- SessionService y LockService pasan a interfaces y adaptadores SQLite: presencia, cursores monotónicos, expiración, conflictos y ownership se conservan; 105 pruebas pasan tras el refactor.
+- Al extender 8.2 a locks, una regresión con trigger SQLite de fallo en auditoría demuestra que claim devuelve 500 pero conserva un lock confirmado. Causa: auditoría de locks se ejecutaba después de la transacción/idempotencia, a diferencia de mensajes/estado.
+- Corrección en curso: mover auditoría de claim/renew/release al mismo comando transaccional e idempotente; registrar actor autenticado y evitar nuevas auditorías al repetir una clave ya confirmada. Eliminar escrituras de auditoría duplicadas fuera del comando. No se cambia alcance ni se añade dependencia.
+- Siguiente paso: verificar rollback y respuesta perdida también en renew/release, continuar repositorios de proyectos/idempotencia y repetir aceptación.
+
+### [2026-10-08] — Primeros repositorios verificados (8.1/8.2)
+- Auditoría, estados y mensajes dependen ahora de puertos propios, sin imports SQLite ni adaptadores concretos. SQL/serialización se concentran en tres adaptadores; app y CLI administrativa componen conexión compartida. SqliteEventBus implementa el puerto de eventos/unidad de trabajo síncrona.
+- Pruebas de contrato con SQLite real verifican roundtrip, aislamiento y último estado; fallos inducidos en auditoría revierten entidad, evento, secuencia e idempotencia y no notifican listeners. Reintentar tras retirar el fallo produce una sola entidad/auditoría/notificación.
+- Lint/typecheck y 105 pruebas Vitest pasan; los ocho E2E del incremento de recuperación pasaron antes del refactor. Preparación de piloto/compatibilidad y contrato de recuperación enlazados desde README/roadmap; aceptación humana/CI remoto siguen pendientes.
+- Siguiente paso: migrar sesiones y locks a repositorios preservando comportamiento, luego repetir build/E2E sobre la composición final. Sin nuevas tablas ni dependencias en este refactor.
+
+### [2026-10-08] — Recuperación implementada y consolidación de repositorios en curso
+- 8.4: migración 4 conserva frontera por proyecto e infiere huecos de esquema 3; mantenimiento retira prefijos atómicos. Inbox devuelve 410, snapshot respeta scopes y ACK sólo acepta pérdida explícita; ACK perdido/repetido sigue siendo inocuo y nunca retrocede. Rutas inbox extraídas de app.ts (parte de 8.3).
+- MCP incorpora get_inbox_recovery/resync_inbox con validación compartida; dashboard exige revisar estado y aceptar historial perdido, detiene retries inútiles y después recupera páginas retenidas. No se confirma automáticamente la página devuelta por MCP.
+- Verificación intermedia: lint/typecheck/build aprobados y 102 tests Vitest. pnpm check encuentra spawn EPERM sólo al crear procesos de Vitest dentro del sandbox; repetición autorizada de pnpm test pasa. E2E nuevo HTTP/UI y stdio pasan; primera corrida completa detecta que el fixture de retención borraba eventos de otros tests, se acota por fecha/proyecto antes de repetir.
+- Preparados docs/acceptance/pilot.md y docs/compatibility/clients.md, sin inventar ejecución humana ni productos/versiones. Se solicita elección de clientes mientras continúa trabajo independiente. docs/RECOVERY.md documenta upgrade, ACK, autorización y límites.
+- Siguiente incremento 8.1: interfaces de repositorios y unidad de trabajo, empezando por auditoría/estado/mensajes. Adaptadores SQLite usan la misma conexión/transacción existente; no hay nuevo servicio externo, dependencia ni cambio de tablas en este refactor. Sesiones y locks seguirán después; no se declara cerrada fase 8.
+
+### [2026-10-08] — Inicio autorizado de evolución 7–15
+- El usuario solicita analizar e implementar las fases nuevas. Se lee la bitácora completa y se contrasta el roadmap con código actual; se conservan los cuatro cambios documentales previos sobre main.
+- Se inicia el primer lote del roadmap: protocolo de aceptación humana (7), regresiones de retención/sesiones y contrato de recuperación (8). La sesión con dos personas/productos no puede sustituirse por pruebas automáticas; queda pendiente de evidencia humana.
+- No se añaden dependencias. Las investigaciones de fase 15 mantienen sus condiciones; Docker, daemon y orquestación compleja siguen diferidos. La autorización de implementación no elimina los criterios de aceptación del roadmap.
+- Siguiente paso: reproducir cursor tras mantenimiento y sesiones simultáneas antes de fijar el contrato; implementar incrementos verificables y registrar su estado.
+
+### [2026-10-08] — Reproducción y contrato de recuperación (8.4/8.5)
+- Prueba nueva contra SQLite/HTTP reproduce inbox 200 vacío después de borrar todos los eventos, cuando debería indicar historia no disponible; la regresión falla antes de corregir. Otra prueba confirma que dos joins del mismo usuario/nombre devuelven la misma sesión y desconectar uno invalida el otro.
+- ADR-020 concreta 8.4: frontera de secuencia persistente por proyecto; mantenimiento elimina prefijos en orden de secuencia, no huecos; error 410 con cursor de reanudación, snapshot autorizado y aceptación explícita de pérdida antes de avanzar checkpoint. Se conserva duración configurable existente y los mensajes retenidos posteriores se leen normalmente.
+- Upgrade reconstruye el prefijo ausente a partir de secuencias y eventos retenidos; no puede reconstruir eventos borrados. Se separan rutas inbox/recovery de composición HTTP. No hay dependencias nuevas.
+- 8.5 permanece abierto: el comportamiento concurrente ya tiene evidencia, pero cambiar identidad/checkpoints requiere un incremento propio. Mientras tanto cada proceso debe elegir nombre diferente.
+- Siguiente paso: implementación HTTP/MCP/UI, upgrade y pruebas de no ACK automático, aislamiento y recuperación.
+
+### [2026-10-08] — Plan de evolución posterior al piloto
+- El usuario solicita un plan elaborado de próximas implementaciones. Se revisan bitácora completa, arquitectura, plan 0–6, cierre verificado y código de sesiones/inbox/MCP; base de trabajo main 13a81d8, inicialmente limpia.
+- Se crea docs/ROADMAP.md con fases propuestas 7–15, prioridades, dependencias, tareas identificadas, áreas de código, aceptación, migraciones, riesgos, hitos, responsables por función y primer lote ejecutable. README y plan inicial enlazan la continuación.
+- Prioridad propuesta: aceptación humana con dos clientes, repositorios/interfaces y contrato de recuperación, instalación/diagnóstico, historial/locks y operación. Tareas/entregas, Git informativo y contexto/avisos se proponen como ampliaciones posteriores; no se consideran decisiones de alcance ya aceptadas.
+- Inspección para orientar pruebas: mantenimiento elimina eventos antiguos sin frontera de retención expuesta por la ruta de inbox revisada; rejoin reutiliza sesión por proyecto/nombre/usuario. Se proponen pruebas de cursor antiguo y procesos simultáneos antes de declarar defectos o decidir el nuevo contrato.
+- No se añaden dependencias ni se implementan funcionalidades. Docker, orquestación, daemon y distribución de infraestructura siguen diferidos hasta evidencia y ADR explícita; ADR-006 continúa vigente. No se prometen fechas sin datos del piloto.
+- Siguiente paso: revisar consistencia documental y entregar el roadmap; primer trabajo recomendado es protocolo de aceptación con el anfitrión y su amigo. La ejecución funcional de las fases no comienza con esta solicitud de planificación.
+- Verificación: enlaces relativos de roadmap/README/plan existentes y git diff --check sin errores. Entrega exclusivamente documental, guardada localmente para revisión; sin ejecución de pruebas funcionales, commit ni publicación en esta solicitud.
 
 ### [2026-10-07] — Actualización documental y limpieza de ramas integradas
 - El usuario solicita actualizar el repositorio desde el README hasta las ramas sobrantes. Tras fetch, main está limpio y sincronizado; ocho ramas locales y seis remotas son ancestros de main, sin trabajo exclusivo ni otros worktrees.

@@ -1,4 +1,3 @@
-import type { DatabaseSync } from "node:sqlite";
 import {
   AppError,
   type ClaimLockInput,
@@ -11,114 +10,65 @@ import {
   generateId,
   nowUtc,
 } from "@agents-hub/shared";
-import type { SqliteEventBus } from "../../infrastructure/event-bus/event-bus.js";
+import type { DomainEvents, LockRepository } from "../ports/persistence.js";
 
 function arePathsConflicting(rawA: string, rawB: string): boolean {
-  const pathA = NormalizedWorkspacePathSchema.parse(rawA);
-  const pathB = NormalizedWorkspacePathSchema.parse(rawB);
-  if (pathA === pathB) return true;
-  // Conflict if one is parent directory/prefix of the other
-  if (pathA.startsWith(`${pathB}/`) || pathB.startsWith(`${pathA}/`)) return true;
-  return false;
+  const a = NormalizedWorkspacePathSchema.parse(rawA);
+  const b = NormalizedWorkspacePathSchema.parse(rawB);
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
 export class LockService {
   constructor(
-    private readonly db: DatabaseSync,
-    private readonly eventBus: SqliteEventBus,
+    private readonly repository: LockRepository,
+    private readonly eventBus: DomainEvents,
   ) {}
 
   public claimLock(projectId: string, agentId: string, rawInput: ClaimLockInput): WorkspaceLock {
     const parsed = ClaimLockInputSchema.safeParse(rawInput);
-    if (!parsed.success) {
-      const err = parsed.error.errors[0]?.message ?? "Invalid lock input";
-      throw new AppError("INVALID_INPUT", err);
-    }
+    if (!parsed.success)
+      throw new AppError("INVALID_INPUT", parsed.error.errors[0]?.message ?? "Invalid lock input");
     const input = parsed.data;
     if (containsObviousSecret(input.reason))
       throw new AppError("INVALID_INPUT", "Remove credentials from lock reasons");
-
-    const lockId = generateId();
     const now = nowUtc();
-    const ttlSeconds = input.ttl_seconds ?? 300;
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
-
+    const ttl = input.ttl_seconds ?? 300;
+    const lock: WorkspaceLock = {
+      lock_id: generateId(),
+      project_id: projectId,
+      owner_agent_id: agentId,
+      paths: input.paths,
+      reason: input.reason,
+      ttl_seconds: ttl,
+      expires_at: new Date(Date.now() + ttl * 1000).toISOString(),
+      created_at: now,
+    };
     return this.eventBus.transaction(() => {
-      // 1. Get all currently unexpired locks in this project
-      const activeStmt = this.db.prepare(`
-        SELECT * FROM workspace_locks
-        WHERE project_id = ? AND expires_at > ?
-      `);
-      const activeLocks = activeStmt.all(projectId, now) as Array<{
-        lock_id: string;
-        project_id: string;
-        owner_agent_id: string;
-        paths: string;
-        reason: string;
-        expires_at: string;
-      }>;
-
-      // 2. Check path conflicts
-      for (const active of activeLocks) {
-        if (active.owner_agent_id === agentId) {
-          // If owned by same agent, let it proceed or update, but check other agents
-          continue;
-        }
-
-        const activePaths = JSON.parse(active.paths) as string[];
-        for (const reqPath of input.paths) {
-          for (const actPath of activePaths) {
-            if (arePathsConflicting(reqPath, actPath)) {
+      for (const active of this.repository.activeByProject(projectId, now)) {
+        if (active.owner_agent_id === agentId) continue;
+        for (const requested of input.paths)
+          for (const held of active.paths)
+            if (arePathsConflicting(requested, held))
               throw new AppError(
                 "LOCK_CONFLICT",
-                `Path '${reqPath}' conflicts with existing lock held by '${active.owner_agent_id}' on '${actPath}'`,
+                `Path '${requested}' conflicts with existing lock held by '${active.owner_agent_id}' on '${held}'`,
                 crypto.randomUUID(),
                 {
-                  conflicting_path: reqPath,
+                  conflicting_path: requested,
                   held_by: active.owner_agent_id,
-                  held_path: actPath,
+                  held_path: held,
                   expires_at: active.expires_at,
                 },
               );
-            }
-          }
-        }
       }
-
-      // 3. Insert new lock
-      this.db
-        .prepare(`
-        INSERT INTO workspace_locks (lock_id, project_id, owner_agent_id, paths, reason, ttl_seconds, expires_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-        .run(
-          lockId,
-          projectId,
-          agentId,
-          JSON.stringify(input.paths),
-          input.reason,
-          ttlSeconds,
-          expiresAt,
-          now,
-        );
-
+      this.repository.insert(lock);
       this.eventBus.recordEvent(projectId, agentId, "lock.acquired", {
-        lock_id: lockId,
-        paths: input.paths,
-        reason: input.reason,
-        expires_at: expiresAt,
+        lock_id: lock.lock_id,
+        paths: lock.paths,
+        reason: lock.reason,
+        expires_at: lock.expires_at,
       });
-
-      return {
-        lock_id: lockId,
-        project_id: projectId,
-        owner_agent_id: agentId,
-        paths: input.paths,
-        reason: input.reason,
-        ttl_seconds: ttlSeconds,
-        expires_at: expiresAt,
-        created_at: now,
-      };
+      return lock;
     });
   }
 
@@ -130,56 +80,24 @@ export class LockService {
   ): string[] {
     const parsed = ReleaseLockInputSchema.safeParse({ paths: rawPaths });
     if (!parsed.success) throw new AppError("INVALID_INPUT", "Invalid paths to release");
-    const pathsToRelease = parsed.data.paths;
-    const now = nowUtc();
     return this.eventBus.transaction(() => {
-      const activeStmt = this.db.prepare(`
-        SELECT * FROM workspace_locks
-        WHERE project_id = ? AND expires_at > ?
-      `);
-      const activeLocks = activeStmt.all(projectId, now) as Array<{
-        lock_id: string;
-        owner_agent_id: string;
-        paths: string;
-      }>;
-
       const released: string[] = [];
-
-      for (const lock of activeLocks) {
-        const paths = (JSON.parse(lock.paths) as string[]).map((path) =>
-          NormalizedWorkspacePathSchema.parse(path),
-        );
-        const remaining = paths.filter((p) => !pathsToRelease.includes(p));
-        const matched = paths.filter((p) => pathsToRelease.includes(p));
-
-        if (matched.length > 0) {
-          if (lock.owner_agent_id !== agentId && !isProjectOwner) {
-            throw new AppError(
-              "LOCK_NOT_OWNER",
-              `Cannot release lock owned by agent '${lock.owner_agent_id}'`,
-            );
-          }
-
-          if (remaining.length === 0) {
-            // Remove entire lock
-            this.db.prepare("DELETE FROM workspace_locks WHERE lock_id = ?").run(lock.lock_id);
-          } else {
-            // Update lock with remaining paths
-            this.db
-              .prepare("UPDATE workspace_locks SET paths = ? WHERE lock_id = ?")
-              .run(JSON.stringify(remaining), lock.lock_id);
-          }
-
-          released.push(...matched);
-        }
+      for (const lock of this.repository.activeByProject(projectId, nowUtc())) {
+        const paths = lock.paths.map((path) => NormalizedWorkspacePathSchema.parse(path));
+        const matched = paths.filter((path) => parsed.data.paths.includes(path));
+        if (!matched.length) continue;
+        if (lock.owner_agent_id !== agentId && !isProjectOwner)
+          throw new AppError(
+            "LOCK_NOT_OWNER",
+            `Cannot release lock owned by agent '${lock.owner_agent_id}'`,
+          );
+        const remaining = paths.filter((path) => !parsed.data.paths.includes(path));
+        if (!remaining.length) this.repository.remove(lock.lock_id);
+        else this.repository.updatePaths(lock.lock_id, remaining);
+        released.push(...matched);
       }
-
-      if (released.length > 0) {
-        this.eventBus.recordEvent(projectId, agentId, "lock.released", {
-          paths: released,
-        });
-      }
-
+      if (released.length)
+        this.eventBus.recordEvent(projectId, agentId, "lock.released", { paths: released });
       return released;
     });
   }
@@ -191,62 +109,25 @@ export class LockService {
     ttlSeconds = 300,
     isProjectOwner = false,
   ): WorkspaceLock {
-    const parsed = RenewLockInputSchema.safeParse({ ttl_seconds: ttlSeconds });
-    if (!parsed.success)
+    if (!RenewLockInputSchema.safeParse({ ttl_seconds: ttlSeconds }).success)
       throw new AppError("INVALID_INPUT", "TTL must be an integer between 1 and 3600");
-    const now = nowUtc();
     return this.eventBus.transaction(() => {
-      const stmt = this.db.prepare(
-        "SELECT * FROM workspace_locks WHERE lock_id = ? AND project_id = ?",
-      );
-      const lock = stmt.get(lockId, projectId) as
-        | {
-            lock_id: string;
-            project_id: string;
-            owner_agent_id: string;
-            paths: string;
-            reason: string;
-            ttl_seconds: number;
-            expires_at: string;
-            created_at: string;
-          }
-        | undefined;
-
-      if (!lock) {
+      const lock = this.repository.findById(projectId, lockId);
+      if (!lock)
         throw new AppError("PROJECT_NOT_FOUND", `Lock ${lockId} not found in project ${projectId}`);
-      }
-
-      if (lock.owner_agent_id !== agentId && !isProjectOwner) {
+      if (lock.owner_agent_id !== agentId && !isProjectOwner)
         throw new AppError("LOCK_NOT_OWNER", `Cannot renew lock owned by '${lock.owner_agent_id}'`);
-      }
-
-      if (lock.expires_at <= now) {
+      if (lock.expires_at <= nowUtc())
         throw new AppError("LOCK_CONFLICT", `Lock ${lockId} has already expired`);
-      }
-
-      const newExpiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
-      this.db
-        .prepare("UPDATE workspace_locks SET expires_at = ?, ttl_seconds = ? WHERE lock_id = ?")
-        .run(newExpiresAt, ttlSeconds, lockId);
-
-      const paths = JSON.parse(lock.paths) as string[];
+      const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+      this.repository.renew(lockId, expiresAt, ttlSeconds);
       this.eventBus.recordEvent(projectId, agentId, "lock.acquired", {
         lock_id: lockId,
-        paths,
+        paths: lock.paths,
         reason: "renewed",
-        expires_at: newExpiresAt,
+        expires_at: expiresAt,
       });
-
-      return {
-        lock_id: lock.lock_id,
-        project_id: lock.project_id,
-        owner_agent_id: lock.owner_agent_id,
-        paths,
-        reason: lock.reason,
-        ttl_seconds: ttlSeconds,
-        expires_at: newExpiresAt,
-        created_at: lock.created_at,
-      };
+      return { ...lock, expires_at: expiresAt, ttl_seconds: ttlSeconds };
     });
   }
 
@@ -257,89 +138,37 @@ export class LockService {
     isProjectOwner = false,
   ): void {
     this.eventBus.transaction(() => {
-      const stmt = this.db.prepare(
-        "SELECT * FROM workspace_locks WHERE lock_id = ? AND project_id = ?",
-      );
-      const lock = stmt.get(lockId, projectId) as
-        | {
-            lock_id: string;
-            owner_agent_id: string;
-            paths: string;
-          }
-        | undefined;
-
-      if (!lock) {
-        throw new AppError("PROJECT_NOT_FOUND", `Lock ${lockId} not found`);
-      }
-
-      if (lock.owner_agent_id !== agentId && !isProjectOwner) {
+      const lock = this.repository.findById(projectId, lockId);
+      if (!lock) throw new AppError("PROJECT_NOT_FOUND", `Lock ${lockId} not found`);
+      if (lock.owner_agent_id !== agentId && !isProjectOwner)
         throw new AppError(
           "LOCK_NOT_OWNER",
           `Cannot release lock owned by '${lock.owner_agent_id}'`,
         );
-      }
-
-      this.db.prepare("DELETE FROM workspace_locks WHERE lock_id = ?").run(lockId);
-
-      const paths = JSON.parse(lock.paths) as string[];
+      this.repository.remove(lockId);
       this.eventBus.recordEvent(projectId, agentId, "lock.released", {
         lock_id: lockId,
-        paths,
+        paths: lock.paths,
       });
     });
   }
 
   public getActiveLocks(projectId: string): WorkspaceLock[] {
     this.expireLocks(projectId);
-    const now = nowUtc();
-    const stmt = this.db.prepare(`
-      SELECT * FROM workspace_locks
-      WHERE project_id = ? AND expires_at > ?
-      ORDER BY expires_at ASC
-    `);
-
-    const rows = stmt.all(projectId, now) as Array<{
-      lock_id: string;
-      project_id: string;
-      owner_agent_id: string;
-      paths: string;
-      reason: string;
-      ttl_seconds: number;
-      expires_at: string;
-      created_at: string;
-    }>;
-
-    return rows.map((r) => ({
-      lock_id: r.lock_id,
-      project_id: r.project_id,
-      owner_agent_id: r.owner_agent_id,
-      paths: JSON.parse(r.paths) as string[],
-      reason: r.reason,
-      ttl_seconds: r.ttl_seconds,
-      expires_at: r.expires_at,
-      created_at: r.created_at,
-    }));
+    return this.repository.activeByProject(projectId, nowUtc());
   }
 
   public expireLocks(projectId?: string): number {
     return this.eventBus.transaction(() => {
-      const rows = this.db
-        .prepare(`SELECT lock_id, project_id, owner_agent_id, paths
-        FROM workspace_locks WHERE expires_at <= ? ${projectId ? "AND project_id = ?" : ""}`)
-        .all(nowUtc(), ...(projectId ? [projectId] : [])) as Array<{
-        lock_id: string;
-        project_id: string;
-        owner_agent_id: string;
-        paths: string;
-      }>;
-      for (const row of rows) {
-        this.db.prepare("DELETE FROM workspace_locks WHERE lock_id = ?").run(row.lock_id);
-        this.eventBus.recordEvent(row.project_id, row.owner_agent_id, "lock.expired", {
-          lock_id: row.lock_id,
-          paths: JSON.parse(row.paths),
+      const expired = this.repository.expired(nowUtc(), projectId);
+      for (const lock of expired) {
+        this.repository.remove(lock.lock_id);
+        this.eventBus.recordEvent(lock.project_id, lock.owner_agent_id, "lock.expired", {
+          lock_id: lock.lock_id,
+          paths: lock.paths,
         });
       }
-      return rows.length;
+      return expired.length;
     });
   }
 }

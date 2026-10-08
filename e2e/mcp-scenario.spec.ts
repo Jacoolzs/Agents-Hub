@@ -69,6 +69,22 @@ test("dos procesos MCP: estado, conflicto, mensaje dirigido, replay y expiració
     const bob = await spawnAgent("bob-client", teammateToken);
     const join = { project_id: project.project_id };
     const a = await call(alice, "join_project", { ...join, agent_name: "alice" });
+    const competing = await spawnAgent("competing-alice");
+    const duplicate = await competing.callTool({
+      name: "join_project",
+      arguments: { ...join, agent_name: "alice" },
+    });
+    expect(duplicate.isError).toBe(true);
+    expect(duplicate.content[0].text).toContain("STATE_CONFLICT");
+    await competing.close();
+    expect((await call(alice, "join_project", { ...join, agent_name: "alice" })).session_id).toBe(
+      a.session_id,
+    );
+    expect(
+      hub.ctx.eventBus
+        .getEventsAfter(project.project_id)
+        .filter((event) => event.type === "agent.joined"),
+    ).toHaveLength(1);
     await call(alice, "report_status", { objective: "Implementar auth", progress: "started" });
     await call(bob, "join_project", { ...join, agent_name: "bob" });
     const status = await call(bob, "get_team_status");
@@ -91,6 +107,10 @@ test("dos procesos MCP: estado, conflicto, mensaje dirigido, replay y expiració
       body: "Contrato recibido",
       recipient_agent_ids: ["alice"],
     });
+    const beforeRestart = await call(alice, "send_team_message", {
+      body: "Comando antes de reiniciar",
+      idempotency_key: "across-generation",
+    });
     const checkpoint = await call(alice, "check_inbox");
     await call(alice, "ack_inbox", { cursor: checkpoint.next_cursor });
     await alice.close();
@@ -103,7 +123,21 @@ test("dos procesos MCP: estado, conflicto, mensaje dirigido, replay y expiració
     });
     alice = await spawnAgent("alice-reconnected");
     const resumed = await call(alice, "join_project", { ...join, agent_name: "alice" });
+    expect(resumed.session_id).not.toBe(a.session_id);
+    const staleDisconnect = await hub.inject({
+      method: "DELETE",
+      url: `/v1/sessions/${a.session_id}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { project_id: project.project_id, agent_id: "alice" },
+    });
+    expect(staleDisconnect.statusCode).toBe(401);
     expect(resumed.cursor).toBe(checkpoint.next_cursor);
+    expect(
+      await call(alice, "send_team_message", {
+        body: "Comando antes de reiniciar",
+        idempotency_key: "across-generation",
+      }),
+    ).toEqual(beforeRestart);
     const replay = await call(alice, "check_inbox");
     expect(JSON.stringify(replay)).toContain("Mensaje durante desconexión");
     expect(JSON.stringify(replay)).not.toContain("Contrato recibido");
@@ -133,6 +167,33 @@ test("dos procesos MCP: estado, conflicto, mensaje dirigido, replay y expiració
     expect(bounded.waited_ms).toBeLessThan(2500);
     await expect.poll(() => hub.ctx.lockService.getActiveLocks(project.project_id).length).toBe(0);
     await call(bob, "claim_module_lock", { paths: ["src/auth"], reason: "TTL expired" });
+    const beforeGap = hub.ctx.sessionService.getSessionById(resumed.session_id).last_cursor;
+    hub.ctx.eventBus.pruneEventsBefore("9999-01-01T00:00:00.000Z");
+    const expired = await alice.callTool({ name: "check_inbox", arguments: {} });
+    expect(expired.isError).toBe(true);
+    expect(JSON.parse(expired.content[0].text).code).toBe("CURSOR_EXPIRED");
+    const recovery = await call(alice, "get_inbox_recovery");
+    expect(recovery.snapshot.locks[0].owner_agent_id).toBe("bob");
+    expect(hub.ctx.sessionService.getSessionById(resumed.session_id).last_cursor).toBe(beforeGap);
+    await call(bob, "send_team_message", {
+      body: "Conservado tras retención",
+      recipient_agent_ids: ["alice"],
+    });
+    const rejectedAcceptance = await alice.callTool({
+      name: "resync_inbox",
+      arguments: { cursor: recovery.resume_cursor, accept_history_gap: false },
+    });
+    expect(rejectedAcceptance.isError).toBe(true);
+    expect(hub.ctx.sessionService.getSessionById(resumed.session_id).last_cursor).toBe(beforeGap);
+    const retained = await call(alice, "resync_inbox", {
+      cursor: recovery.resume_cursor,
+      accept_history_gap: true,
+    });
+    expect(JSON.stringify(retained.events)).toContain("Conservado tras retención");
+    expect(hub.ctx.sessionService.getSessionById(resumed.session_id).last_cursor).toBe(
+      recovery.resume_cursor,
+    );
+    await call(alice, "ack_inbox", { cursor: retained.next_cursor });
     const outsiderToken = hub.ctx.authService.createToken("outsider", "agents-hub");
     const denied = await hub.inject({
       method: "GET",

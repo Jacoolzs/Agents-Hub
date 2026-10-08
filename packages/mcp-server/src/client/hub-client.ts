@@ -55,12 +55,16 @@ export class HubClient {
 
         const res = await fetch(url, fetchOptions);
 
-        const json = (await res.json()) as { data?: T; error?: { code: string; message: string } };
+        const json = (await res.json()) as {
+          data?: T;
+          error?: { code: string; message: string; details?: Record<string, unknown> };
+        };
 
         if (!res.ok) {
           const err = new Error(json.error?.message ?? `HTTP ${res.status}: ${res.statusText}`);
           (err as { status?: number }).status = res.status;
           (err as { code?: string }).code = json.error?.code ?? "API_ERROR";
+          (err as { details?: Record<string, unknown> | undefined }).details = json.error?.details;
           throw err;
         }
 
@@ -74,7 +78,7 @@ export class HubClient {
       : execute();
   }
 
-  public async createSession(projectId: string, agentId: string) {
+  public async createSession(projectId: string, agentId: string, instanceId = crypto.randomUUID()) {
     return this.request<{
       session_id: string;
       project_id: string;
@@ -82,7 +86,8 @@ export class HubClient {
       last_cursor?: string;
     }>(`/v1/projects/${projectId}/sessions`, {
       method: "POST",
-      body: { agent_id: agentId },
+      idempotencyKey: instanceId,
+      body: { agent_id: agentId, instance_id: instanceId },
     });
   }
 
@@ -118,10 +123,25 @@ export class HubClient {
     }>(`/v1/projects/${projectId}/inbox${qs}`, { signal });
   }
 
-  public async ackInbox(projectId: string, sessionId: string, cursor: string) {
+  public async getInboxRecovery(projectId: string, sessionId: string) {
+    return this.request<unknown>(
+      `/v1/projects/${projectId}/inbox/recovery?session_id=${encodeURIComponent(sessionId)}`,
+    );
+  }
+
+  public async ackInbox(
+    projectId: string,
+    sessionId: string,
+    cursor: string,
+    acceptHistoryGap = false,
+  ) {
     return this.request<{ status: string; cursor: string }>(`/v1/projects/${projectId}/inbox/ack`, {
       method: "POST",
-      body: { session_id: sessionId, cursor },
+      body: {
+        session_id: sessionId,
+        cursor,
+        ...(acceptHistoryGap ? { accept_history_gap: true } : {}),
+      },
     });
   }
 

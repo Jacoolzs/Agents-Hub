@@ -1,16 +1,11 @@
 import crypto from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import { AppError } from "@agents-hub/shared";
+import type { TicketIdentity, TicketRepository } from "../ports/persistence.js";
 
-export interface WsTicketPayload {
-  userId: string;
-  projectId: string;
-  sessionId: string;
-  tokenId?: string;
-}
+export type WsTicketPayload = TicketIdentity;
 
 export class WsTicketService {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly repository: TicketRepository) {}
 
   public static hashTicket(ticket: string): string {
     return crypto.createHash("sha256").update(ticket).digest("hex");
@@ -23,29 +18,16 @@ export class WsTicketService {
     ttlSeconds = 30,
     tokenId?: string,
   ): string {
-    const rawTicket = `wst_${crypto.randomBytes(24).toString("base64url")}`;
-    const ticketHash = WsTicketService.hashTicket(rawTicket);
-    const ticketId = crypto.randomUUID();
+    const raw = `wst_${crypto.randomBytes(24).toString("base64url")}`;
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
-
-    this.db
-      .prepare(`
-      INSERT INTO ws_tickets (ticket_id, ticket_hash, user_id, project_id, session_id, expires_at, created_at, auth_token_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-      .run(
-        ticketId,
-        ticketHash,
-        userId,
-        projectId,
-        sessionId,
-        expiresAt,
-        now.toISOString(),
-        tokenId ?? null,
-      );
-
-    return rawTicket;
+    this.repository.insert(
+      { userId, projectId, sessionId, ...(tokenId ? { tokenId } : {}) },
+      crypto.randomUUID(),
+      WsTicketService.hashTicket(raw),
+      now.toISOString(),
+      new Date(now.getTime() + ttlSeconds * 1000).toISOString(),
+    );
+    return raw;
   }
 
   public consumeTicket(
@@ -53,46 +35,18 @@ export class WsTicketService {
     expectedProjectId: string,
     expectedSessionId: string,
   ): WsTicketPayload {
-    const ticketHash = WsTicketService.hashTicket(rawTicket);
-    const now = new Date().toISOString();
-
-    const stmt = this.db.prepare(`
-      UPDATE ws_tickets
-      SET used_at = ?
-      WHERE ticket_hash = ?
-        AND used_at IS NULL
-        AND expires_at > ?
-      RETURNING user_id, project_id, session_id, auth_token_id
-    `);
-
-    const row = stmt.get(now, ticketHash, now) as
-      | {
-          user_id: string;
-          project_id: string;
-          session_id: string;
-          auth_token_id: string | null;
-        }
-      | undefined;
-
-    if (!row) {
+    const identity = this.repository.consume(
+      WsTicketService.hashTicket(rawTicket),
+      new Date().toISOString(),
+    );
+    if (!identity)
       throw new AppError("UNAUTHENTICATED", "Invalid, expired, or already used WebSocket ticket");
-    }
-
-    if (row.project_id !== expectedProjectId || row.session_id !== expectedSessionId) {
+    if (identity.projectId !== expectedProjectId || identity.sessionId !== expectedSessionId)
       throw new AppError("FORBIDDEN", "WebSocket ticket does not match project or session");
-    }
-
-    return {
-      userId: row.user_id,
-      projectId: row.project_id,
-      sessionId: row.session_id,
-      ...(row.auth_token_id ? { tokenId: row.auth_token_id } : {}),
-    };
+    return identity;
   }
 
   public cleanup(): void {
-    this.db
-      .prepare("DELETE FROM ws_tickets WHERE expires_at <= ? OR used_at IS NOT NULL")
-      .run(new Date().toISOString());
+    this.repository.cleanup(new Date().toISOString());
   }
 }
