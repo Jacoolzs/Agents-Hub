@@ -15,6 +15,7 @@ Parámetros de query:
 - `channel`, `sender`, `recipient`: coincidencia exacta opcional, 1–100 caracteres. `recipient` sólo coincide con destinatarios explícitos, no con broadcast.
 - `from`: instante UTC inclusivo opcional.
 - `to`: instante UTC exclusivo opcional y posterior a `from` cuando ambos existen.
+- `thread`: UUID opcional del mensaje raíz; devuelve raíz/respuestas visibles. No usa correlation_id legacy como autorización o filtro. Ver [respuestas](MESSAGE_REPLIES.md).
 
 La respuesta `data` sigue `MessageHistoryPageSchema`:
 

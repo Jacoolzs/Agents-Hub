@@ -27,6 +27,8 @@ export const MessageSchema = z
       }, `Message body cannot exceed ${MAX_MESSAGE_BODY_BYTES} bytes (16 KiB)`),
     priority: MessagePrioritySchema.default("normal"),
     correlation_id: z.string().trim().min(1).max(100).optional(),
+    reply_to_message_id: UuidSchema.optional(),
+    thread_id: UuidSchema.optional(),
     created_at: UtcIsoDateSchema,
   })
   .strict();
@@ -49,6 +51,7 @@ export const SendMessageInputSchema = z
       }, `Message body cannot exceed ${MAX_MESSAGE_BODY_BYTES} bytes (16 KiB)`),
     priority: MessagePrioritySchema.optional(),
     correlation_id: z.string().trim().min(1).max(100).optional(),
+    reply_to_message_id: UuidSchema.optional(),
   })
   .strict();
 
@@ -74,6 +77,7 @@ export const MessageHistoryFiltersSchema = z
     recipient: HistoryAgentFilterSchema.optional(),
     from: UtcIsoDateSchema.optional(),
     to: UtcIsoDateSchema.optional(),
+    thread: UuidSchema.optional(),
   })
   .strict()
   .refine((filters) => !filters.from || !filters.to || filters.from < filters.to, {
@@ -92,6 +96,8 @@ export function createMessageHistoryFilterKey(rawFilters: MessageHistoryFilters)
     filters.from ?? "",
     filters.to ?? "",
   ];
+  // Preserve fingerprints of existing 10.2 cursors when no thread is requested.
+  if (filters.thread) values.push(filters.thread);
   if (values.every((value) => value === "")) return "";
   let hash = 0xcbf29ce484222325n;
   for (const byte of new TextEncoder().encode(JSON.stringify(values))) {
@@ -166,6 +172,7 @@ export const MessageHistoryQuerySchema = z
     recipient: HistoryAgentFilterSchema.optional(),
     from: UtcIsoDateSchema.optional(),
     to: UtcIsoDateSchema.optional(),
+    thread: UuidSchema.optional(),
   })
   .strict()
   .refine((query) => !query.from || !query.to || query.from < query.to, {

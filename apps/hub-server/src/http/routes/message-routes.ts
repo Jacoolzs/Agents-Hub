@@ -4,8 +4,10 @@ import {
   MessageHistoryCursorSchema,
   MessageHistoryPageSchema,
   MessageHistoryQuerySchema,
+  MessageSchema,
   ReportStatusInputSchema,
   SendMessageInputSchema,
+  UuidSchema,
 } from "@agents-hub/shared";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
@@ -50,11 +52,29 @@ export function registerMessageRoutes(
       ...(parsed.data.recipient ? { recipient: parsed.data.recipient } : {}),
       ...(parsed.data.from ? { from: parsed.data.from } : {}),
       ...(parsed.data.to ? { to: parsed.data.to } : {}),
+      ...(parsed.data.thread ? { thread: parsed.data.thread } : {}),
     };
     const page = MessageHistoryPageSchema.parse(
       messageService.getHistory(projectId, session.agent_id, before, filters, limit),
     );
     return { data: page, request_id: reply.getHeader("x-request-id") };
+  });
+
+  app.get("/v1/projects/:projectId/messages/:messageId", async (req, reply) => {
+    const userId = getAuthenticatedUserId(req, "messages:read");
+    const { projectId, messageId } = req.params as { projectId: string; messageId: string };
+    authService.checkProjectPermission(userId, projectId);
+    const query = req.query as { session_id?: string };
+    const sessionId = UuidSchema.safeParse(query.session_id);
+    if (!sessionId.success || !UuidSchema.safeParse(messageId).success)
+      throw new AppError("INVALID_INPUT", "Invalid message reference or session");
+    const session = sessionService.validateSessionForUser(sessionId.data, userId, projectId);
+    return {
+      data: MessageSchema.parse(
+        messageService.getVisibleMessage(projectId, session.agent_id, messageId),
+      ),
+      request_id: reply.getHeader("x-request-id"),
+    };
   });
 
   // Messages (Identity strictly derived from validated session_id)
@@ -81,6 +101,8 @@ export function registerMessageRoutes(
       throw new AppError("INVALID_INPUT", parsed.error.errors[0]?.message ?? "Invalid message");
     }
 
+    // A reply reads the original's audience and correlation as well as writing.
+    if (parsed.data.reply_to_message_id) getAuthenticatedUserId(req, "messages:read");
     const message = command(
       req,
       userId,
@@ -90,7 +112,9 @@ export function registerMessageRoutes(
       () => messageService.sendMessage(projectId, session.agent_id, parsed.data),
       idempotency_key,
     );
-    return reply.status(201).send({ data: message, request_id: reply.getHeader("x-request-id") });
+    return reply
+      .status(201)
+      .send({ data: MessageSchema.parse(message), request_id: reply.getHeader("x-request-id") });
   });
 
   // Status Reports (Identity strictly derived from validated session_id)

@@ -45,6 +45,7 @@ export interface StatusRepository {
   latestByProject(projectId: string): StatusReport[];
 }
 export interface MessageRepository {
+  findVisibleById(projectId: string, agentId: string, messageId: string): Message | undefined;
   recipientExists(projectId: string, agentId: string): boolean;
   insert(message: Message): void;
   listByProject(projectId: string, channel: string | undefined, limit: number): Message[];
@@ -58,6 +59,7 @@ export interface MessageRepository {
 }
 
 export interface SessionRepository {
+  knownByProject(projectId: string): Array<{ agent_id: string; status: AgentSessionStatus }>;
   findByAgent(projectId: string, agentId: string): AgentSession | undefined;
   findById(sessionId: string): AgentSession | undefined;
   insert(session: AgentSession, instanceId?: string): void;

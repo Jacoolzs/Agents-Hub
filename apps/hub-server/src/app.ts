@@ -424,6 +424,7 @@ export function buildApp(
         "explicit_ack",
         "idempotent_commands",
         "message_history",
+        "message_replies",
         "explicit_lock_renewal",
       ],
     }),

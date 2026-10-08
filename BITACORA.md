@@ -16,100 +16,57 @@ Cada avance, idea, decisión de diseño, bloqueo y solución debe registrarse aq
 
 ## Relevo vigente para el siguiente chat
 
-Actualizado: 2026-10-08. Esta sección se actualiza al finalizar **cada tarea** según [AGENTS.md](AGENTS.md); las entradas cronológicas conservan la evidencia histórica. Leer igualmente toda la bitácora antes de decidir/modificar y verificar el worktree actual: este relevo no reemplaza esa comprobación.
+Actualizado: 2026-10-08. Leer AGENTS.md y toda la bitácora al retomar; comprobar rama/HEAD/status, remoto y evidencia antes de actuar.
 
-### Objetivo y punto de corte
+### Objetivo completo y estado
 
-Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](docs/ROADMAP.md), preservando alcance y aceptación, con commits y publicación progresivos desde una rama nueva. El objetivo completo sigue pendiente; 10.1/10.2/10.5 están publicadas y el CI del acumulado está aprobado. Por instrucción del usuario, detenerse tras cerrar 10.5 y **no iniciar 10.3** hasta nueva autorización.
+Implementar el roadmap 7–15 mediante incrementos verificables, commits y publicación progresivos, conservando comunicación, estado y locks como foco. El objetivo global sigue pendiente; no equivaler entrega de 10.3 a cierre de todo el roadmap.
 
-Solicitud más reciente completada localmente: el usuario eligió instalar ambas skills y renovar UI/UX antes de 10.3. `frontend-design` y `ui-ux-pro-max` están instaladas bajo `C:/Users/orlan/.codex/skills`, con sus recursos completos y búsquedas locales ejecutadas. Se utilizaron las dos para la renovación de conexión, navegación, mensajes, equipo, archivos, miembros y avisos; dirección vigente en [UI_DESIGN](docs/UI_DESIGN.md). No se inicia 10.3 ni se declara terminado el roadmap.
+El usuario aceptó la renovación UI/UX, pidió aplicarla y autorizó 10.3. La pausa anterior de 10.3 queda revocada. Rediseño publicado en a99b634 sobre feat/phase-10-message-history, sin merge a main: [CI Windows/Ubuntu aprobado](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37838420802). 10.3 implementado y probado localmente; publicación y CI de ese incremento se están cerrando. No iniciar 10.4 en esta tarea.
 
-Estado al cierre de renovación: rama `feat/phase-10-message-history`, HEAD `7780d6d` (cierre documental), igual a la referencia local de seguimiento; se preserva el registro previo de comparación. Renovación y bitácora quedan sin commit/push: 13 archivos rastreados modificados y dos nuevos (`Icon.tsx`, `docs/UI_DESIGN.md`). No se consultó CI remoto ni se hizo fetch en esta tarea. Pruebas de esta sesión: pnpm check PASS (135 tests/19 suites), build monorepo PASS; tras corregir navegación se repiten lint y build web PASS, y E2E final 11/11 PASS. git diff --check PASS. Las ejecuciones de prueba terminaron; no se intervino el Hub/túnel personal.
+- Checkout: C:/Users/orlan/Documents/GitHub/Agents-Hub.
+- Rama: feat/phase-10-message-history, desde main/13a81d8. Referencia actual publicada a99b634; comprobar el SHA posterior del cierre de 10.3.
+- Antecedentes publicados: 4c5feba (8.1–9.2), 28f9638 (10.1), 9c33fa2 (10.2), 3c0ba1b (10.5), 7780d6d (registro de detención) y a99b634 (UI/UX).
+- Cambios locales de 10.3: shared/Hub/MCP/web, pruebas y documentación. No hay dependencias/lockfile nuevos; preservar todo lo no publicado y verificar status.
+- No se inspeccionó ni reinició el Hub/túnel personal ni se modificó su DB. Las pruebas locales usaron datos efímeros y finalizaron. No inventar procesos operativos activos/apagados.
 
-Los borradores/filtros se conservan entre secciones, las consultas y contador se pausan al ocultarlas, los filtros secundarios se despliegan y los mensajes muestran fecha/privacidad. Tokens permanecen en memoria y se enmascaran hasta una acción explícita. Se mantienen los contratos y ADR vigentes; sin dependencias ni servicios nuevos. Capturas reproducibles en test-results mediante el E2E de renovación (datos efímeros, sin secretos). Se revisaron conexión/mensajes/equipo/archivos/miembros en escritorio y móvil. No se afirma certificación completa WCAG ni aceptación humana del piloto.
+### Entregables y contratos vigentes
 
-- Directorio: `C:\Users\orlan\Documents\GitHub\Agents-Hub`. Retomar en este checkout y comprobar HEAD/status contra la rama remota.
-- Rama de trabajo: `feat/phase-10-message-history`, creada desde `main` en `13a81d8`; commits `4c5feba` (base 8.1–9.2), `28f9638` (10.1) y `9c33fa2` (10.2) publicados en `origin/feat/phase-10-message-history`.
-- Incremento 10.5 publicado en `3c0ba1b` (`feat: expose explicit lock renewal in MCP and dashboard`). Revalidar HEAD y `git status` antes de continuar; rama remota actualizada sin merge a main. No hay cambios ajenos detectados ni artefactos operativos añadidos.
-- Se preservaron y publicaron los cambios documentales previos. CI de `3c0ba1b` aprobado en Windows/Ubuntu: [Quality 37832515313](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37832515313). El último cierre añade sólo documentación; distinguir su commit posterior de la evidencia funcional del SHA citado.
-- Las ejecuciones de verificación registradas terminaron; no hay un test pendiente que este relevo pida esperar. El estado del Hub/túnel operativo personal no se ha inspeccionado en esta tarea: no asumir que está apagado ni reiniciarlo para retomar código.
+- 8.1–8.3: servicios usan puertos/nueve adaptadores SQLite; unidad de trabajo síncrona/savepoints y eventos post-commit. HTTP en http/routes y MCP en tools.
+- 8.4/8.5: [recuperación](docs/RECOVERY.md) y [sesiones](docs/SESSIONS.md), ADR-020/021; instancia exclusiva, generación nueva y checkpoint conservado. Idempotencia por payload de dominio/agente lógico, no session_id temporal.
+- 9.1/9.2: [doctor](docs/DOCTOR.md) y [plantilla genérica](docs/MCP_SETUP.md), sólo lectura/archivo nuevo/token placeholder; clientes concretos y distribución pendientes.
+- 10.1/10.2: [historial](docs/MESSAGE_HISTORY.md) autorizado antes de paginar, keyset independiente de inbox/ACK, búsqueda literal y cursor ligado a filtros.
+- 10.3: [respuestas](docs/MESSAGE_REPLIES.md). reply_to_message_id UUID explícito; thread_id derivado por servidor; correlation_id legacy permanece libre y no autoriza ni determina hilo. Privado no se vuelve broadcast ni incorpora terceros; se restringe por padre inmediato. Padre ausente/ajeno/cruzado produce igual INVALID_INPUT sin detalles.
+- Migración 7 aditiva: columnas nullable de referencia/hilo e índice; sin FK al padre para conservar respuestas retenidas al borrar originales. No reinterpretar correlaciones anteriores. Clientes con esquemas de salida estrictos deben actualizarse para leer respuestas.
+- Historial thread y GET de referencia exigen sesión propia/messages:read y no hacen ACK. Responder requiere messages:write + messages:read y membresía/rol. known_agents del team-status incluye registrados con membresía vigente, incluso desconectados; el servidor revalida destinatarios al enviar.
+- UI: Responder/cancelar, contexto, Ver conversación, selección múltiple sin copiar IDs y público/privado explícito. Original fuera de página se consulta al expandirlo; no se promete reconstruir contenido eliminado.
+- 10.5: renovación explícita MCP/UI, UUID/TTL/claves/salidas validados, retry estable, cuenta regresiva y permisos del servidor. Heartbeat no renueva.
+- [UI_DESIGN](docs/UI_DESIGN.md): navegación marina/superficies claras, controles responsive/foco/reduced-motion, borradores/filtros conservados; consultas de secciones ocultas pausadas. frontend-design y ui-ux-pro-max instaladas bajo C:/Users/orlan/.codex/skills.
 
-### Lo implementado y con qué
+Stack existente: Node 24 LTS/pnpm/TypeScript estricto/Zod 3/Fastify/node:sqlite WAL/MCP SDK v1/React-Vite-Tailwind-TanStack Query/Vitest/Playwright/Biome. Usar [API_CONTRACT](docs/API_CONTRACT.md), ARCHITECTURE.md y docs/OPERATIONS.md. No introducir SDK, ORM, servicios o dependencias sin necesidad registrada.
 
-| Trabajo | Estado local / referencias |
-|---|---|
-| 8.1–8.3: repositorios, transacciones y separación | Servicios de aplicación usan puertos y nueve adaptadores SQLite. HTTP separado en `apps/hub-server/src/http/routes/`; MCP en `packages/mcp-server/src/tools/`. Auditoría/entidad/evento/idempotencia de mensajes/estado/locks comparten commit y rollback |
-| 8.4: retención y recuperación | Migración 4, frontera `retained_after`, 410 CURSOR_EXPIRED, snapshot autorizado y aceptación explícita; [RECOVERY](docs/RECOVERY.md), `recovery.test.ts` |
-| 8.5: instancias y reintentos | Migración 5, una instancia vigente por nombre, UUID de proceso, session_id nuevo al reanudar y checkpoint conservado; fencing de llamadas/tickets/sockets viejos; [SESSIONS](docs/SESSIONS.md), `session-instances.test.ts` |
-| Idempotencia tras reanudar | Huella usa payload de dominio + agente lógico validado, no session_id temporal. Registros antiguos pueden dar conflicto hasta TTL 24 h; no reemitir automáticamente con otra clave |
-| 9.1: diagnóstico | `pnpm doctor` / `--json`, sólo GET, sin datos sensibles ni mutaciones; capacidades en `/v1/capabilities`; [DOCTOR](docs/DOCTOR.md) |
-| 9.2: plantilla genérica | `pnpm mcp:config`, rutas absolutas, token placeholder, creación exclusiva `--output`; [MCP_SETUP](docs/MCP_SETUP.md). Guías y aceptación de productos concretos siguen pendientes |
-| 10.1: historial independiente | GET autorizado con cursor keyset propio, privacidad previa a paginación, migración 6, capacidad `message_history` y UI Infinite Query deduplicada; [MESSAGE_HISTORY](docs/MESSAGE_HISTORY.md), `message-history.test.ts` y E2E de recarga |
-| 10.2: búsqueda/filtros | Texto literal, canal/remitente/destinatario/rango UTC antes de paginar, cursor ligado a huella normalizada y controles web; mismo contrato de [historial](docs/MESSAGE_HISTORY.md) |
-| 10.5: renovación de locks | `renew_module_lock`, TTL/UUID/clave/salida validados, UI con contador por segundo, retry estable y autorización del servidor; sin renovación por heartbeat |
+### Evidencia de esta tarea
 
-Usar el stack existente: Node 24 LTS (última versión observada 24.12.0), pnpm/workspaces/lockfile, TypeScript estricto, Zod, Fastify, `node:sqlite`/WAL, MCP SDK v1, React/Vite/Tailwind/TanStack Query, Vitest, Playwright y Biome. No se añadieron dependencias en estos incrementos. No introducir otro SDK, ORM, base de datos, servicio o virtualización sin necesidad comprobada y decisión registrada.
+- pnpm check PASS: lint/typecheck + 141 pruebas en 20 suites.
+- pnpm build PASS. Tras ajuste visual móvil y lookup de contexto con Map, build monorepo repetido PASS y E2E dirigido de respuestas/renovación 2/2 PASS.
+- Suite pnpm test:e2e: 12/12 PASS antes de ese ajuste visual, incluye stdio real, privacidad, múltiples destinatarios, original fuera de página, navegación, historial/recovery/ACK/locks y respuestas.
+- Capturas reply-mobile.png/thread-desktop.png reproducibles bajo test-results mediante E2E de respuestas; revisadas. Datos ficticios sin secretos. Desktop captura desde scroll inicial para evitar artefactos de elementos sticky en fullPage.
+- git diff --check PASS; verificar de nuevo antes de commit. CI a99b634 PASS; no atribuirlo a 10.3 hasta observar su propio run.
+- Correcciones encontradas por pruebas: enum de capability omitido (doctor fallaba) y fixture de inbox vacío que impedía entrega viva; ambas corregidas manteniendo aserciones y contratos.
 
-Documentos de apoyo: [inventario de contratos](docs/API_CONTRACT.md), [arquitectura](ARCHITECTURE.md), [plan inicial](DEVELOPMENT_PLAN.md), [operación](docs/OPERATIONS.md). El plan original 0–6 y los informes antiguos son historia; no rehacer defectos ya corregidos basándose en una entrada anterior al estado vigente.
+Comandos de aceptación: pnpm check, pnpm build, pnpm test:e2e, git diff --check. Compilar antes de Playwright (bundle productivo/dist MCP); frozen install si faltan dependencias. No actualizar lockfile por defecto. Cambios documentales se revisan por contenido/enlaces/diff; no afirmar pruebas históricas como nuevas.
 
-### Por dónde seguir y cómo: próximo incremento
+### Próximo paso concreto
 
-**Renovación UI/UX terminada localmente; 10.3 sigue pendiente de autorización.** Próxima tarea concreta: revisar los cambios locales/capturas con el usuario, conservar el rediseño y registrar cualquier ajuste solicitado antes de publicar o ampliar funcionalidad. Para retomarlo, usar docs/UI_DESIGN.md, Shell/Icon/index.css y los paneles de apps/web/src; pnpm build y pnpm test:e2e regeneran las capturas. Aceptación técnica observada: flujos previos pasan, navegación/Volver/teclado conservan borrador/filtros y no hay overflow en 375/768/1024/1440 ni landscape. La interfaz se adapta al stack existente, sin imágenes o fuentes remotas. Si se autoriza 10.3, los pasos siguientes concretan respuestas correlacionadas y selección de destinatarios. Registrar contrato antes de implementar. `correlation_id` ya existe como campo libre; decidir compatibilidad de clientes anteriores y referencia canónica sin tratar cualquier string previo como UUID de mensaje.
+Cerrar publicación y comprobar CI de 10.3 en esta rama, registrando SHA/run/Windows/Ubuntu y estado limpio. Si un check falla, reproducir y corregir sin quitar aserciones; después actualizar este relevo y entrada histórica.
 
-1. Revisar `MessageFeed`, `SendMessageInputSchema`/`MessageSchema`, `MessageService`, puerto/adaptador de mensajes y rutas. Añadir selección por lista de agentes existentes (team-status), conservando destinatarios válidos aunque estén desconectados; no depender exclusivamente de presencia activa.
-2. Definir regla de respuesta que nunca amplíe la visibilidad original. Una referencia al mensaje padre sólo puede comprobarse después de autorizar proyecto/sesión y visibilidad; rechazar privado ajeno sin inferir existencia ni contenido. No confiar en correlation_id enviado como prueba de autorización.
-3. Añadir acción Responder, contexto visible y destinatarios elegidos sin copiar IDs. Mantener historial/ACK independientes y deduplicación por message_id; probar privado→broadcast, terceros, referencias inexistentes, múltiples destinatarios y paginación de conversaciones.
-4. La aceptación exige seguir una conversación y contestarla desde UI/MCP sin fuga privada. Migración/API nueva sólo si lo requiere el contrato registrado; sin dependencias por defecto.
+Después de cerrar 10.3, la siguiente propuesta es 10.4, todavía sin implementar: distinguir conexión del adaptador, heartbeat y actividad reportada, sin prometer despertar agentes ni inferir trabajo por conectividad. Empezar por docs/ROADMAP.md, AgentsPanel, SessionService y reportes existentes; documentar semántica antes de código y probar activo/idle/desconectado/reconexión. No añadir daemon ni nuevas señales sin decisión. 10.6 accesibilidad y 8.6 validación exhaustiva siguen pendientes.
 
-Después: 10.4 distingue conexión de adaptador, heartbeat y actividad reportada; ADR-006 sigue. 10.6 accesibilidad y 8.6 validación completa aún pendientes.
+### Límites y pendientes globales
 
-### Verificación y evidencia disponible
+Piloto humano 7 con dos personas/productos/redes sigue sin evidencia; [clientes](docs/compatibility/clients.md) aún no elegidos/versionados. Harness stdio no lo sustituye. 8.6 validación completa de salidas/payloads pendiente. 9: guías concretas/distribución/credenciales y eventual sesión web persistente (ADR necesaria). 11: operación permanente, RPO/RTO/backups/releases/carga mixta según anfitrión. 12–14: tareas/entregas humanas, Git informativo y contexto/avisos sujetos a aceptación. 15 sólo investigaciones condicionadas.
 
-Verificación actual de 10.1/10.2/10.5 y del acumulado de la rama:
-
-- `pnpm check`: PASS, lint + typecheck + **135 tests en 19 suites**.
-- `pnpm -r build`: PASS, incluido bundle productivo web.
-- `pnpm test:e2e`: **10 PASS**; renovación MCP stdio y respuesta perdida UI con misma clave añadidas, conservando historial/filtros/recovery/ACK.
-- `git diff --check`: PASS. CI `3c0ba1b` PASS Windows/Ubuntu (run 37832515313), incluidos instalación frozen, check, build, auditoría producción y 10 E2E. El fallo anterior de `9c33fa2` por timeout de backup Windows quedó corregido con presupuesto acotado 15 s, conservando aserciones. Piloto humano aún pendiente.
-
-Al retomar, comprobar rama/HEAD/status/diff, Node y pnpm. Si faltan dependencias, usar `pnpm install --frozen-lockfile`; no actualizar el lockfile por defecto. Para código nuevo ejecutar:
-
-```powershell
-pnpm check
-pnpm build
-pnpm test:e2e
-git diff --check
-```
-
-Compilar antes de Playwright: sirve el bundle de producción y usa el adaptador `dist`. Si falta Chromium, instalar con `pnpm exec playwright install chromium`. Si aparece `spawn EPERM` o fallo de red del sandbox, repetir el comando afectado mediante la aprobación/escalación de la herramienta; no cambiar el código o quitar pruebas para evitarlo. Autorizaciones de otra sesión no se suponen disponibles. Para cambios exclusivamente documentales basta revisar contenido/enlaces/diff; no presentar las pruebas anteriores como recién ejecutadas.
-
-### Pendientes y límites que no deben perderse
-
-- 7: [piloto humano](docs/acceptance/pilot.md) con dos personas, redes y productos de agente diferentes. [Clientes](docs/compatibility/clients.md) aún no elegidos/versionados por el usuario. Harness stdio no lo sustituye; documentar necesidad de consulta manual del inbox.
-- 8.6: inventario documentado; validación exhaustiva de todas las salidas/payloads aún pendiente.
-- 9: guías de clientes concretos, bundle distribuible con dependencias/checksums/instalación limpia, gestión cómoda de credenciales; sesión web persistente es opcional y requiere ADR. Paquetes actuales privados, sin publicación de registro autorizada por esta tarea.
-- 10: historial/búsqueda, respuestas/destinatarios, presencia comprensible, renovación y accesibilidad; no afirmar que todo 10 está terminado por añadir una herramienta.
-- 11: instalación permanente/dirección estable, backups programados, actualización/rollback, métricas, carga mixta sostenida, gestión de datos y releases; destino/RPO/RTO/perfil real dependen del anfitrión/piloto.
-- 12–14: capacidades de tareas/entregas humanas, Git informativo y contexto/avisos, con las condiciones del roadmap y decisiones de alcance registradas. No convertirlas en orquestación automática.
-- 15: investigación condicionada, no compromiso de añadir infraestructura. Docker, daemon de prompts, orquestación compleja, Redis/PostgreSQL y servicios de pago siguen diferidos. ADR-006 continúa: agente inactivo no se despierta automáticamente.
-- Conservar ADR-018/019/020/021: roles intersectados con scopes, privacidad, ACK explícito, recuperación sin prometer datos borrados, instancia exclusiva y transacciones post-commit. No guardar tokens, DB reales, logs privados ni pensamiento interno en Git/bitácora.
-
-### Mensaje sugerido para el chat nuevo
-
-```text
-La renovación UI/UX fue autorizada y terminó localmente antes de 10.3.
-Hay cambios sin commit/push sobre feat/phase-10-message-history/7780d6d.
-No iniciar 10.3 hasta nueva autorización. Para revisar la renovación:
-Lee AGENTS.md y BITACORA.md completas, especialmente el relevo vigente.
-Contrasta rama, commit, cambios locales y código actual; conserva lo no publicado.
-Lee docs/UI_DESIGN.md y usa ambas skills instaladas en el directorio personal.
-Check (135), build y E2E (11) pasaron; las capturas se regeneran con E2E.
-Si se autoriza 10.3, continúa con respuestas correlacionadas y selector de destinatarios,
-registrando privacidad de respuestas y compatibilidad de correlation_id. Sigue los pasos y archivos
-del relevo, conserva ADR-018–021 y los límites del roadmap. Actualiza la bitácora
-y el relevo al terminar cada tarea, con lo hecho, cómo verificarlo y por dónde seguir.
-```
-
+Conservar ADR-018–021, scopes intersectados con roles, privacidad, ACK explícito, retención y transacciones. Docker, daemon de prompts, orquestación compleja, Redis/PostgreSQL y servicios de pago siguen diferidos; ADR-006 permanece. No guardar credenciales, DB reales, logs privados ni razonamiento interno.
 ---
 
 ## 🎯 Visión y Misión del Proyecto
@@ -185,6 +142,15 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-08] — Rediseño aplicado y comienzo autorizado de 10.3
+- El usuario acepta la renovación, solicita aplicarla y comenzar 10.3; queda revocada la pausa de ese incremento. Se conserva el checkout y se verifica fetch: HEAD/origin coinciden antes del cambio, sólo están los archivos del rediseño ya probados. Commit a99b634 creado y push confirmado en feat/phase-10-message-history; sin merge a main ni intervención del servicio personal. CI de ese SHA aún no observado.
+- Se registra docs/MESSAGE_REPLIES.md antes de implementar: reply_to_message_id canónico, thread_id derivado, correlation_id legacy libre, audiencia privada limitada por padre inmediato y error indistinguible para referencias ausentes/ajenas. Historial de hilo reutiliza filtros/keyset sin ACK. Migración 7 aditiva y known_agents de miembros vigentes para selección incluyendo desconectados; sin dependencias nuevas.
+- Se mantienen frontend-design/ui-ux-pro-max y UI_DESIGN para los nuevos controles: etiquetas y audiencia visible, contexto de respuesta compacto y responsive. Siguiente paso: implementar backend/MCP/UI, regresiones de privacidad/migración/idempotencia y aceptación completa; no se inicia 10.4.
+- Implementación inicial terminada: migración/puertos/SQLite y servicio de respuestas, filtro thread con compatibilidad de huella 10.2, referencia GET autorizada, capability y entrada MCP; known_agents con membresía vigente. UI permite responder/cancelar, seleccionar varios destinatarios y consultar hilos/original bajo demanda. Typecheck/build pasan y seis regresiones nuevas HTTP/datos pasan: aislamiento, expansión de audiencia, rollback/retry tras retención, permisos, desconectados/revocados y upgrade 6→7. CI del rediseño a99b634 aprobado (run 37838420802).
+- Se exige messages:read además de messages:write al responder para no usar la audiencia/correlación del padre sin scope de lectura. Se amplía el escenario MCP stdio y E2E UI con original fuera de página, selección offline y hilo privado; gates completos de 10.3 todavía pendientes.
+- Primera aceptación completa: 140/141 pruebas pasan; doctor detecta /capabilities inválido porque faltaba message_replies en el enum compartido. Se añade la capacidad al esquema, sin cambiar los requisitos básicos del doctor. E2E conserva 11 flujos aprobados (incluido stdio); el nuevo test UI no recibe su respuesta porque su fixture vaciaba permanentemente inbox. Se restaura el inbox real después de probar la consulta del original, manteniendo verificación de entrega/ACK. Se repiten check/build/E2E antes de publicar.
+- Aceptación local final: check PASS (141/141, 20 suites), build PASS y E2E 12/12 PASS. Revisión visual real de respuesta móvil/hilo desktop; se mejora el contexto en columna móvil y lookup de originales por Map, y se repiten build monorepo y dos E2E UI dirigidos (2/2 PASS). Docs de contratos/historial/UI/README/roadmap actualizadas. Sin dependencias ni procesos personales intervenidos. Siguiente paso: diff/commit/push y CI del incremento 10.3; no comenzar 10.4.
 
 ### [2026-10-08] — Renovación UI/UX autorizada e instalación de skills
 - El usuario autoriza instalar ambas skills y realizar la renovación antes de 10.3. Se conserva el cambio documental previo en BITACORA.md sobre `feat/phase-10-message-history`/`7780d6d`; no se inicia 10.3.

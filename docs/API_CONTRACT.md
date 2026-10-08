@@ -20,8 +20,9 @@ Revisión de fase 8.6: contrastado con `app.ts`, `http/routes`, catálogo MCP y 
 | GET `P/inbox/recovery` | `messages:read` | Snapshot autorizado y cursor de frontera; no confirma historia |
 | POST `P/inbox/ack` | `messages:read` | `session_id`, `cursor`; `accept_history_gap: true` sólo para recuperación explícita |
 | GET `P/events` (WS) | `messages:read` | Origin, sesión y token/ticket autorizado; token query prohibido en producción |
-| POST `P/messages` | `messages:write` | `SendMessageInputSchema` + sesión; destino del mismo proyecto; máx. 16 KiB |
-| GET `P/messages/history` | `messages:read` | `MessageHistoryQuerySchema`; texto/canal/remitente/destinatario/rango UTC, cursor ligado a filtros, visibilidad previa a paginación y cero cambios al ACK. Ver [historial](MESSAGE_HISTORY.md) |
+| POST `P/messages` | `messages:write` (+ `messages:read` al responder) | `SendMessageInputSchema` + sesión; máx. 16 KiB; reply_to_message_id autoriza padre y restringe audiencia. Ver [respuestas](MESSAGE_REPLIES.md) |
+| GET `P/messages/history` | `messages:read` | `MessageHistoryQuerySchema`; texto/canal/remitente/destinatario/rango UTC/thread, cursor ligado a filtros, visibilidad previa a paginación y cero cambios al ACK. Ver [historial](MESSAGE_HISTORY.md) |
+| GET `P/messages/:messageId` | `messages:read` | Sesión propia; sólo mensaje visible y retenido; ausente/privado ajeno/cruzado devuelven el mismo error sin ACK |
 | POST `P/status` | `messages:write` | `ReportStatusInputSchema` + sesión |
 | GET `P/status` | `messages:read` | Último estado por agente |
 | POST `P/locks/claim` | `locks:write` | `ClaimLockInputSchema` + sesión; conflicto de rutas jerárquico |
@@ -29,7 +30,7 @@ Revisión de fase 8.6: contrastado con `app.ts`, `http/routes`, catálogo MCP y 
 | DELETE `P/locks/:lockId` | `locks:write` | Sesión; propietario u owner |
 | DELETE `P/locks` | `locks:write` | Sesión y rutas canónicas; compatibilidad de liberación por paths |
 | GET `P/locks` | `locks:read` | Locks activos; expiración transaccional |
-| GET `P/team-status` | `projects:read` | Resumen de agentes, estados y locks del proyecto |
+| GET `P/team-status` | `projects:read` | Resumen de agentes, estados y locks; known_agents añade nombres/estado de miembros vigentes, incluidos desconectados |
 | POST `P/invitations` | `members:write` | `CreateInvitationInputSchema`; owner/maintainer, límites de rol |
 | GET `P/invitations` | `members:read` | Administración; no devuelve secreto almacenado |
 | DELETE `P/invitations/:invitationId` | `members:write` | Revocación administrativa |
@@ -60,7 +61,7 @@ Todas las herramientas de proyecto requieren `join_project` antes. Inputs se val
 | `wait_for_messages` | Cursor opcional, timeout 1–60 s | Misma confirmación; espera activa cancelable, no despierta agente inactivo |
 | `get_inbox_recovery` | Sin argumentos | Snapshot y frontera; no ACK |
 | `resync_inbox` | Cursor de snapshot y aceptación literal true | Acepta pérdida y devuelve página retenida aún sin confirmar |
-| `send_team_message` | Body, canal, destinos, prioridad, correlación, clave opcional | Mensaje validado; idempotencia |
+| `send_team_message` | Body, canal, destinos, prioridad, correlación, reply_to_message_id y clave opcionales | Mensaje validado; idempotencia y respuesta sin ampliar audiencia |
 | `report_status` | Objetivo, progreso, decisión/bloqueo/siguiente paso, clave opcional | Estado validado; idempotencia |
 | `claim_module_lock` | Paths, motivo, TTL, clave opcional | Lock validado; idempotencia |
 | `renew_module_lock` | Lock UUID, TTL 1–3600 (default 300), clave opcional | `RenewModuleLockInputSchema`; lock validado y renovación autorizada/idempotente |

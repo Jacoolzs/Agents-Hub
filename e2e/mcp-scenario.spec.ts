@@ -118,16 +118,32 @@ test("dos procesos MCP: estado, conflicto, mensaje dirigido, replay y expiració
       arguments: { paths: ["src/auth/x.ts"], reason: "Conflict" },
     });
     expect(conflict.isError).toBe(true);
-    await call(alice, "send_team_message", {
+    const directed = await call(alice, "send_team_message", {
       body: "Contrato para Bob",
       recipient_agent_ids: ["bob"],
     });
     const inbox = await call(bob, "check_inbox");
     expect(JSON.stringify(inbox)).toContain("Contrato para Bob");
-    await call(bob, "send_team_message", {
+    const replyPayload = {
       body: "Contrato recibido",
-      recipient_agent_ids: ["alice"],
+      reply_to_message_id: directed.message_id,
+      idempotency_key: "reply-through-stdio",
+    };
+    const reply = await call(bob, "send_team_message", replyPayload);
+    expect(reply.recipient_agent_ids).toEqual(["alice"]);
+    expect(reply.reply_to_message_id).toBe(directed.message_id);
+    expect(reply.thread_id).toBe(directed.message_id);
+    expect(await call(bob, "send_team_message", replyPayload)).toEqual(reply);
+    const expanded = await bob.callTool({
+      name: "send_team_message",
+      arguments: { ...replyPayload, recipient_agent_ids: [], idempotency_key: "unsafe-broadcast" },
     });
+    expect(expanded.isError).toBe(true);
+    const invalidReference = await bob.callTool({
+      name: "send_team_message",
+      arguments: { body: "Invalid parent", reply_to_message_id: "not-a-uuid" },
+    });
+    expect(invalidReference.isError).toBe(true);
     const beforeRestart = await call(alice, "send_team_message", {
       body: "Comando antes de reiniciar",
       idempotency_key: "across-generation",

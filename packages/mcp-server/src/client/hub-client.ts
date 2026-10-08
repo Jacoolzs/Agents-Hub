@@ -154,6 +154,7 @@ export class HubClient {
       recipient_agent_ids?: string[] | undefined;
       priority?: string | undefined;
       correlation_id?: string | undefined;
+      reply_to_message_id?: string | undefined;
     },
     idempotencyKey: string = crypto.randomUUID(),
   ) {

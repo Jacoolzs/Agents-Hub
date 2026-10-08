@@ -25,6 +25,7 @@ export type ConnectionStatus =
   | "error";
 
 export interface TeamStatusData {
+  known_agents?: Array<{ agent_id: string; status: "active" | "idle" | "disconnected" }>;
   active_agents: AgentSession[];
   locks: WorkspaceLock[];
   statuses: StatusReport[];

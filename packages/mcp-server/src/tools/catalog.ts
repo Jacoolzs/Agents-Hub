@@ -60,6 +60,12 @@ export const tools = [
       recipient_agent_ids: { type: "array", items: string },
       priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
       correlation_id: string,
+      reply_to_message_id: {
+        type: "string",
+        format: "uuid",
+        description:
+          "Reply to a visible retained message. Use its channel; omitted recipients preserve its audience. Private replies cannot become broadcast or add outsiders.",
+      },
       idempotency_key: key,
     },
     required: ["body"],

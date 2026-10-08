@@ -167,6 +167,7 @@ export function registerProjectSessionRoutes(
     return {
       data: {
         active_agents: sessions,
+        known_agents: sessionService.getKnownAgents(projectId),
         locks,
         statuses,
       },

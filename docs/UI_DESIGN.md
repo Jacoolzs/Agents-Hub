@@ -29,7 +29,7 @@ El resultado inicial de UI/UX Pro Max recomendaba una landing operativa y una pa
 
 ## Interacción y límites
 
-Navegación con estado visible y accesible; borradores y filtros permanecen al cambiar de sección. Mensajes con remitente, canal, fecha completa y privacidad explícita. Formularios etiquetados, foco visible, estados de carga/error y movimiento reducido. IDs y texto largo pueden ajustarse a varias líneas. Se conserva la API, autorización, historial/ACK, recuperación explícita y renovación idempotente de locks. La selección de destinatarios y respuestas 10.3 continúan pendientes.
+Navegación con estado visible y accesible; borradores y filtros permanecen al cambiar de sección. Mensajes con remitente, canal, fecha completa y privacidad explícita. Formularios etiquetados, foco visible, estados de carga/error y movimiento reducido. IDs y texto largo pueden ajustarse a varias líneas. Se conserva la API, autorización, historial/ACK, recuperación explícita y renovación idempotente de locks. 10.3 añade selección múltiple con etiquetas, audiencia explícita, contexto de respuesta y conversación autorizada; ver [contrato](MESSAGE_REPLIES.md).
 
 Skills instaladas fuera del repositorio: `frontend-design` de `anthropics/skills` y `ui-ux-pro-max` de `nextlevelbuilder/ui-ux-pro-max-skill`, bajo `C:/Users/orlan/.codex/skills`. Ambas se leyeron y se utilizaron; sus recomendaciones no reemplazan las ADR ni el stack vigente.
 

@@ -35,6 +35,104 @@ test.afterAll(async () => {
   }
 });
 
+test("respuestas privadas conservan audiencia, seleccionan agentes desconectados y cargan el original", async ({
+  page,
+}, testInfo) => {
+  const project = server.ctx.projectService.createProject("Conversaciones privadas", testUserId)
+    .project.project_id;
+  for (const agent of ["writer", "reply-dashboard", "offline-bob", "outsider"])
+    server.ctx.sessionService.joinProject(project, agent, testUserId);
+  server.ctx.sessionService.disconnect(project, "offline-bob");
+  server.ctx.sessionService.disconnect(project, "reply-dashboard");
+  const root = server.ctx.messageService.sendMessage(project, "writer", {
+    channel: "contratos",
+    body: "Contrato original antes de la página actual",
+    recipient_agent_ids: ["reply-dashboard", "offline-bob"],
+  });
+  server.ctx.db
+    .prepare("UPDATE messages SET created_at = ? WHERE message_id = ?")
+    .run("2026-10-08T01:00:00.000Z", root.message_id);
+  for (let index = 0; index < 51; index++) {
+    const noise = server.ctx.messageService.sendMessage(project, "writer", {
+      body: `Otro tema ${index}`,
+    });
+    server.ctx.db
+      .prepare("UPDATE messages SET created_at = ? WHERE message_id = ?")
+      .run(`2026-10-08T02:00:${String(index).padStart(2, "0")}.000Z`, noise.message_id);
+  }
+  const priorReply = server.ctx.messageService.sendMessage(project, "writer", {
+    channel: "contratos",
+    body: "Seguimos con este contrato privado",
+    reply_to_message_id: root.message_id,
+  });
+  await page.route(/\/v1\/projects\/[^/]+\/inbox\?/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { events: [], next_cursor: "MA", has_more: false } }),
+    }),
+  );
+  await page.goto("/");
+  await page.fill("#hub-url", HUB_URL);
+  await page.fill("#auth-token", authToken);
+  await page.fill("#project-id", project);
+  await page.fill("#agent-id", "reply-dashboard");
+  await page.click("button[type=submit]");
+  await expect(page.getByText("Conectado (WS)")).toBeVisible();
+  await expect(page.locator(".message-body").filter({ hasText: root.body })).toHaveCount(0);
+  const row = page
+    .getByRole("article")
+    .filter({ has: page.locator(".message-body", { hasText: priorReply.body }) });
+  await row.locator("summary").click();
+  await expect(row.locator("blockquote")).toContainText(root.body);
+  // History was isolated only to prove lazy loading of an older original.
+  // Restore the real inbox for the live reply and its explicit ACK path.
+  await page.unroute(/\/v1\/projects\/[^/]+\/inbox\?/);
+  await row.getByRole("button", { name: /^Responder a/ }).click();
+  await expect(page.getByText("Respondiendo a writer", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Audiencia", { exact: true })).toHaveValue("private");
+  await expect(page.locator("#message-audience-choice option[value=public]")).toBeDisabled();
+  await expect(page.getByRole("checkbox", { name: /^offline-bob/ })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: /^writer/ })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: /^outsider/ })).toHaveCount(0);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page
+    .locator(".message-composer")
+    .screenshot({ path: testInfo.outputPath("reply-mobile.png") });
+  await page
+    .getByLabel("Mensaje", { exact: true })
+    .fill("Respuesta enviada sin copiar identificadores");
+  await page.getByRole("button", { name: "Enviar", exact: true }).click();
+  await expect(
+    page
+      .locator(".message-body")
+      .filter({ hasText: "Respuesta enviada sin copiar identificadores" }),
+  ).toHaveCount(1);
+  const reply = server.ctx.messageService
+    .getHistory(project, "reply-dashboard", undefined, { thread: root.message_id })
+    .messages.find((message) => message.body === "Respuesta enviada sin copiar identificadores");
+  expect(reply?.recipient_agent_ids).toEqual(["writer", "offline-bob"]);
+  expect(reply?.reply_to_message_id).toBe(priorReply.message_id);
+  expect(
+    server.ctx.messageService.getHistory(project, "outsider", undefined, {
+      thread: root.message_id,
+    }).messages,
+  ).toEqual([]);
+  await row.getByRole("button", { name: /^Ver conversación de/ }).click();
+  await expect(page.getByText("Conversación seleccionada", { exact: true })).toBeVisible();
+  await expect(page.locator(".message-body")).toHaveCount(3);
+  await expect(page.locator(".message-body").filter({ hasText: root.body })).toHaveCount(1);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath("thread-desktop.png"), fullPage: true });
+  await page.getByRole("button", { name: "Volver a todos los mensajes", exact: true }).click();
+  await page.getByLabel("Audiencia", { exact: true }).selectOption("private");
+  await expect(page.getByRole("checkbox", { name: /^outsider/ })).toBeVisible();
+});
+
 test("renovación responsive conserva borradores y permite navegar con teclado", async ({
   page,
 }, testInfo) => {

@@ -112,6 +112,7 @@ Antes de E2E, compila y ejecuta `pnpm exec playwright install chromium`. El serv
 - [Plan de evolución](docs/ROADMAP.md): fases 7–15 propuestas, prioridades, dependencias, entregables y criterios de aceptación.
 - [Aceptación humana](docs/acceptance/pilot.md), [clientes](docs/compatibility/clients.md), [historial](docs/MESSAGE_HISTORY.md) y [recuperación tras retención](docs/RECOVERY.md): protocolo del piloto y contratos de lectura/recuperación.
 - [Contratos vigentes](docs/API_CONTRACT.md): rutas, scopes, herramientas, errores, eventos y límites de validación.
+- [Respuestas y destinatarios](docs/MESSAGE_REPLIES.md): conversaciones por UI/MCP y audiencia privada limitada al original.
 - [Sesiones e instancias](docs/SESSIONS.md): colisiones de nombres, reintentos, vencimiento y reanudación del checkpoint.
 - [Diagnóstico](docs/DOCTOR.md): errores de instalación/acceso y salida JSON sin credenciales.
 - [Plantilla MCP](docs/MCP_SETUP.md): configuración local genérica y creación de archivo nuevo.

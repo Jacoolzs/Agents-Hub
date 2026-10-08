@@ -177,4 +177,10 @@ export const MIGRATIONS = [
     version: 6,
     sql: "CREATE INDEX idx_messages_history ON messages(project_id, created_at DESC, message_id DESC);",
   },
+  {
+    version: 7,
+    sql: `ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT;
+    ALTER TABLE messages ADD COLUMN thread_id TEXT;
+    CREATE INDEX idx_messages_thread ON messages(project_id, thread_id, created_at DESC, message_id DESC);`,
+  },
 ];

@@ -121,6 +121,9 @@ export class SessionService {
   public getActiveSessions(projectId: string): AgentSession[] {
     return this.repository.activeByProject(projectId);
   }
+  public getKnownAgents(projectId: string) {
+    return this.repository.knownByProject(projectId);
+  }
 
   private isExpired(session: AgentSession): boolean {
     return Date.now() - Date.parse(session.last_seen_at) >= this.expireSeconds * 1000;

@@ -1,11 +1,12 @@
 import type { Message, MessageHistoryFilters, MessagePriority } from "@agents-hub/shared";
-import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import type React from "react";
 import { useMemo, useState } from "react";
 import { Icon } from "../../components/Icon.js";
 import { EmptyState, ErrorBanner } from "../../components/States.js";
 import { useHub } from "../../context/HubContext.js";
-import { fetchMessageHistory, sendMessage } from "../../lib/api.js";
+import { fetchMessageHistory, fetchTeamStatus, sendMessage } from "../../lib/api.js";
+import { MessageReference } from "./MessageReference.js";
 
 function matchesHistoryFilters(message: Message, filters: MessageHistoryFilters): boolean {
   return (
@@ -14,7 +15,10 @@ function matchesHistoryFilters(message: Message, filters: MessageHistoryFilters)
     (!filters.sender || message.sender_id === filters.sender) &&
     (!filters.recipient || message.recipient_agent_ids.includes(filters.recipient)) &&
     (!filters.from || message.created_at >= filters.from) &&
-    (!filters.to || message.created_at < filters.to)
+    (!filters.to || message.created_at < filters.to) &&
+    (!filters.thread ||
+      message.message_id === filters.thread ||
+      message.thread_id === filters.thread)
   );
 }
 
@@ -32,11 +36,54 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
   const [historyFilters, setHistoryFilters] = useState<MessageHistoryFilters>({});
   const [newChannel, setNewChannel] = useState("general");
   const [newPriority, setNewPriority] = useState<MessagePriority>("normal");
-  const [newRecipients, setNewRecipients] = useState("");
+  const [newRecipients, setNewRecipients] = useState<string[]>([]);
+  const [audience, setAudience] = useState<"public" | "private">("public");
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [newBody, setNewBody] = useState("");
   const [sent, setSent] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [formError, setFormError] = useState<unknown | null>(null);
+
+  const agentsQuery = useQuery({
+    queryKey: ["recipient-agents", auth?.projectId, auth?.sessionId],
+    enabled: Boolean(auth) && active,
+    refetchInterval: 10000,
+    queryFn: () => {
+      if (!auth) throw new Error("No auth");
+      return fetchTeamStatus(auth.baseUrl, auth.token, auth.projectId);
+    },
+  });
+  const privateReply = Boolean(replyTo?.recipient_agent_ids.length);
+  const replyAudience = new Set(replyTo ? [replyTo.sender_id, ...replyTo.recipient_agent_ids] : []);
+  const knownAgents = new Map(
+    (agentsQuery.data?.known_agents ?? agentsQuery.data?.active_agents ?? []).map((agent) => [
+      agent.agent_id,
+      agent.status,
+    ]),
+  );
+  for (const name of newRecipients)
+    if (!knownAgents.has(name)) knownAgents.set(name, "disconnected");
+  const choices = [...knownAgents].filter(([name]) => !privateReply || replyAudience.has(name));
+
+  function startReply(message: Message) {
+    setReplyTo(message);
+    setNewChannel(message.channel);
+    const others = [...new Set([message.sender_id, ...message.recipient_agent_ids])].filter(
+      (name) => name !== auth?.agentId,
+    );
+    setAudience(message.recipient_agent_ids.length ? "private" : "public");
+    setNewRecipients(
+      message.recipient_agent_ids.length ? (others.length ? others : [message.sender_id]) : [],
+    );
+    setFormError(null);
+    setSent(false);
+    requestAnimationFrame(() => document.getElementById("message-body")?.focus());
+  }
+
+  function viewThread(message: Message) {
+    setFilterDraft({ text: "", channel: "", sender: "", recipient: "", from: "", to: "" });
+    setHistoryFilters({ thread: message.thread_id ?? message.message_id });
+  }
 
   const historyQuery = useInfiniteQuery({
     queryKey: ["message-history", auth?.projectId, auth?.sessionId, historyFilters],
@@ -56,21 +103,22 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
   const sendMutation = useMutation({
     mutationFn: async () => {
       if (!auth) throw new Error("No auth");
-      const recipients = newRecipients
-        .split(",")
-        .map((r) => r.trim())
-        .filter(Boolean);
+      const recipients = audience === "private" ? newRecipients : [];
+      if (audience === "private" && !recipients.length)
+        throw new Error("Selecciona al menos un destinatario para el mensaje privado.");
 
       return sendMessage(auth.baseUrl, auth.token, auth.projectId, auth.sessionId, {
         channel: newChannel.trim() || "general",
         body: newBody.trim(),
         priority: newPriority,
-        recipient_agent_ids: recipients.length > 0 ? recipients : undefined,
+        recipient_agent_ids: recipients,
+        ...(replyTo ? { reply_to_message_id: replyTo.message_id } : {}),
       });
     },
     onSuccess: () => {
       setNewBody("");
       setSent(true);
+      setReplyTo(null);
       setFormError(null);
       void realtimeManager?.recoverMissedEvents();
     },
@@ -99,6 +147,7 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
     setFormError(null);
     const clean = (value: string) => value.trim() || undefined;
     setHistoryFilters({
+      ...(historyFilters.thread ? { thread: historyFilters.thread } : {}),
       ...(clean(filterDraft.text) ? { text: clean(filterDraft.text) } : {}),
       ...(clean(filterDraft.channel) ? { channel: clean(filterDraft.channel) } : {}),
       ...(clean(filterDraft.sender) ? { sender: clean(filterDraft.sender) } : {}),
@@ -137,6 +186,11 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
     );
   }, [events, historyFilters, historyQuery.data]);
 
+  const loadedMessages = useMemo(
+    () => new Map(messages.map((message) => [message.message_id, message])),
+    [messages],
+  );
+
   const filterLabels = {
     text: "Buscar texto",
     channel: "Canal",
@@ -147,6 +201,15 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
 
   return (
     <div className="conversation">
+      {historyFilters.thread && (
+        <div className="conversation-context">
+          <strong>Conversación seleccionada</strong>
+          <span>Sólo los mensajes que puedes ver.</span>
+          <button type="button" onClick={clearFilters}>
+            Volver a todos los mensajes
+          </button>
+        </div>
+      )}
       <div className="history-toolbar">
         <form
           onSubmit={applyFilters}
@@ -304,12 +367,35 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
                   })}
                 </time>
               </div>
+              {msg.reply_to_message_id && (
+                <MessageReference
+                  messageId={msg.reply_to_message_id}
+                  loaded={loadedMessages.get(msg.reply_to_message_id)}
+                  active={active}
+                />
+              )}
               <p className="message-body">{msg.body}</p>
               {msg.recipient_agent_ids.length > 0 && (
                 <p className="message-privacy">
                   Privado para: {msg.recipient_agent_ids.join(", ")}
                 </p>
               )}
+              <div className="message-actions">
+                <button
+                  type="button"
+                  onClick={() => startReply(msg)}
+                  aria-label={`Responder a ${msg.sender_id}: ${msg.body.slice(0, 60)}`}
+                >
+                  Responder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => viewThread(msg)}
+                  aria-label={`Ver conversación de ${msg.sender_id}: ${msg.body.slice(0, 60)}`}
+                >
+                  Ver conversación
+                </button>
+              </div>
             </article>
           ))
         )}
@@ -322,6 +408,22 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
         aria-label="Enviar un mensaje"
         aria-busy={sendMutation.isPending}
       >
+        {replyTo && (
+          <div className="reply-context">
+            <div>
+              <strong>Respondiendo a {replyTo.sender_id}</strong>
+              <p>{replyTo.body}</p>
+              <small>
+                {privateReply
+                  ? "La respuesta conserva la audiencia privada del original."
+                  : "El mensaje original es visible para todo el equipo."}
+              </small>
+            </div>
+            <button type="button" onClick={() => setReplyTo(null)}>
+              Cancelar respuesta
+            </button>
+          </div>
+        )}
         <div className="composer-heading">
           <h2>Nuevo mensaje</h2>
           <span>Comparte contexto útil para el equipo</span>
@@ -333,6 +435,7 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
               id="message-channel"
               type="text"
               value={newChannel}
+              readOnly={Boolean(replyTo)}
               onChange={(e) => setNewChannel(e.target.value)}
               placeholder="general"
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800"
@@ -353,20 +456,71 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
             </select>
           </div>
           <div>
-            <label htmlFor="message-recipients">
-              Destinatarios <span className="font-normal">(opcional)</span>
-            </label>
-            <input
-              id="message-recipients"
-              type="text"
-              value={newRecipients}
-              onChange={(e) => setNewRecipients(e.target.value)}
-              placeholder="agente1, agente2"
+            <label htmlFor="message-audience-choice">Audiencia</label>
+            <select
+              id="message-audience-choice"
+              value={audience}
+              onChange={(e) => {
+                setAudience(e.target.value as "public" | "private");
+                setNewRecipients([]);
+              }}
               aria-describedby="message-audience"
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800"
-            />
+            >
+              <option value="public" disabled={privateReply}>
+                Todo el equipo
+              </option>
+              <option value="private">Destinatarios específicos</option>
+            </select>
           </div>
         </div>
+        {audience === "private" && (
+          <fieldset className="recipient-picker">
+            <legend>Destinatarios</legend>
+            <ErrorBanner error={agentsQuery.error} />
+            {choices.length === 0 && (
+              <p>
+                {agentsQuery.isPending
+                  ? "Cargando agentes…"
+                  : "No hay agentes disponibles. Los que se registren aparecerán aquí."}
+              </p>
+            )}
+            <div>
+              {choices.map(([name, status]) => (
+                <label key={name}>
+                  <input
+                    type="checkbox"
+                    checked={newRecipients.includes(name)}
+                    onChange={(event) =>
+                      setNewRecipients((current) =>
+                        event.target.checked
+                          ? [...current, name]
+                          : current.filter((recipient) => recipient !== name),
+                      )
+                    }
+                  />
+                  <span>
+                    {name}
+                    <small>
+                      {status === "disconnected"
+                        ? "Desconectado"
+                        : status === "idle"
+                          ? "Sin actividad reciente"
+                          : "Conectado"}
+                    </small>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p>
+              {newRecipients.length}{" "}
+              {newRecipients.length === 1
+                ? "destinatario seleccionado"
+                : "destinatarios seleccionados"}
+              . Los agentes inactivos consultan sus mensajes al retomar.
+            </p>
+          </fieldset>
+        )}
         <label htmlFor="message-body" className="sr-only">
           Mensaje
         </label>
@@ -390,8 +544,10 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
         <div className="compose-footer">
           <div>
             <p id="message-audience">
-              {newRecipients.trim()
-                ? "Mensaje dirigido a los destinatarios indicados."
+              {audience === "private"
+                ? newRecipients.length
+                  ? `Privado para: ${newRecipients.join(", ")}.`
+                  : "Selecciona al menos un destinatario."
                 : "Visible para todo el equipo."}
             </p>
             <p>Ctrl / ⌘ + Enter para enviar</p>
@@ -399,7 +555,11 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
           </div>
           <button
             type="submit"
-            disabled={sendMutation.isPending || !newBody.trim()}
+            disabled={
+              sendMutation.isPending ||
+              !newBody.trim() ||
+              (audience === "private" && newRecipients.length === 0)
+            }
             className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded-lg text-sm inline-flex items-center gap-2"
           >
             <Icon name="send" />

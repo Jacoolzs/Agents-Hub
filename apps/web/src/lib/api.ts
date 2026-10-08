@@ -12,6 +12,7 @@ import {
   type InboxRecovery,
   InboxRecoverySchema,
   MessageHistoryPageSchema,
+  MessageSchema,
   WorkspaceLockSchema,
 } from "@agents-hub/shared";
 import type { InboxResponse, TeamStatusData } from "../types/index.js";
@@ -234,6 +235,7 @@ export async function sendMessage(
     recipient_agent_ids?: string[] | undefined;
     priority?: ("low" | "normal" | "high" | "urgent") | undefined;
     correlation_id?: string | undefined;
+    reply_to_message_id?: string | undefined;
   },
 ): Promise<Message> {
   const res = await fetch(`${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/messages`, {
@@ -244,7 +246,21 @@ export async function sendMessage(
       ...payload,
     }),
   });
-  return handleResponse<Message>(res);
+  return MessageSchema.parse(await handleResponse<unknown>(res));
+}
+
+export async function fetchMessageById(
+  baseUrl: string,
+  token: string,
+  projectId: string,
+  sessionId: string,
+  messageId: string,
+): Promise<Message> {
+  const res = await fetch(
+    `${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/messages/${encodeURIComponent(messageId)}?session_id=${encodeURIComponent(sessionId)}`,
+    { headers: makeHeaders(token) },
+  );
+  return MessageSchema.parse(await handleResponse<unknown>(res));
 }
 
 export async function fetchMessageHistory(
@@ -258,7 +274,16 @@ export async function fetchMessageHistory(
     session_id: sessionId,
     limit: String(options.limit ?? 50),
   });
-  for (const key of ["before", "text", "channel", "sender", "recipient", "from", "to"] as const) {
+  for (const key of [
+    "before",
+    "text",
+    "channel",
+    "sender",
+    "recipient",
+    "from",
+    "to",
+    "thread",
+  ] as const) {
     const value = options[key];
     if (value !== undefined) params.set(key, String(value));
   }
