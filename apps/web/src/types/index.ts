@@ -14,6 +14,7 @@ export interface AuthSessionConfig {
   projectName?: string;
   sessionId: string;
   agentId: string;
+  userId: string;
 }
 
 export type ConnectionStatus =

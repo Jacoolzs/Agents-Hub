@@ -56,7 +56,9 @@ Configurar el cliente MCP con `command: node`, `args: [ruta-absoluta/packages/mc
 
 Un nombre admite una sola instancia vigente. MCP usa un `instance_id` interno para repetir join tras respuesta perdida; otro proceso recibe 409 y debe usar un nombre distinto o esperar desconexión/vencimiento (180 s por defecto). Reanudar conserva checkpoint y locks según TTL, pero cambia `session_id`; llamadas y tickets antiguos se invalidan. Dashboard envía disconnect keepalive al recargar. Consulta [sesiones](SESSIONS.md) y [recuperación tras retención](RECOVERY.md).
 
-Mensajes/estado/claim aceptan `idempotency_key`; reutilizarla únicamente con la misma petición. MCP genera una por llamada cuando se omite y la mantiene en los reintentos HTTP. Para reintentar otra llamada de herramienta, pasar la misma clave. Registros persistidos 24 horas, ligados a usuario/proyecto/operación y hash de payload. Payload diferente devuelve 409. Liberación por `lock_id` y legacy por `paths`.
+Mensajes/estado/claim/renew aceptan `idempotency_key`; reutilizarla únicamente con la misma petición. MCP genera una por llamada cuando se omite y la mantiene en los reintentos HTTP. Para reintentar otra llamada de herramienta, pasar la misma clave. Registros persistidos 24 horas, ligados a usuario/proyecto/operación y hash de payload. Payload diferente devuelve 409. Liberación por `lock_id` y legacy por `paths`.
+
+Para continuar editando un módulo, usa `renew_module_lock` con el `lock_id`, `ttl_seconds` (1–3600) y una clave estable. En el dashboard selecciona TTL y pulsa Renovar; el contador actualiza el tiempo restante cada segundo. Propietario u owner del proyecto puede renovar con scope `locks:write`. Un lock vencido exige una nueva reclamación; heartbeat no prolonga locks. Un retry confirmado devuelve el resultado original y no extiende otra vez su vencimiento.
 
 ## Acceso y revocación
 

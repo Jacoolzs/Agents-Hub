@@ -56,6 +56,79 @@ function setup() {
   return { app, owner, project, token, root, provision, request };
 }
 describe("Multiuser and operational acceptance", () => {
+  it("renews with one result after a lost response, enforces ownership and rejects expired locks", async () => {
+    const { app, owner, project, token, root, provision, request } = setup();
+    const friend = provision("renew-friend", "collaborator");
+    const stranger = provision("renew-stranger", "collaborator");
+    const friendSession = app.ctx.sessionService.joinProject(project, "friend", friend.id);
+    const otherSession = app.ctx.sessionService.joinProject(project, "stranger", stranger.id);
+    const ownerSession = app.ctx.sessionService.joinProject(project, "owner", owner);
+    const lock = app.ctx.lockService.claimLock(project, "friend", {
+      paths: ["src/renew"],
+      reason: "Work",
+      ttl_seconds: 60,
+    });
+    const denied = await request(stranger.token, "POST", `${root}/locks/${lock.lock_id}/renew`, {
+      session_id: otherSession.session_id,
+      ttl_seconds: 300,
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe("LOCK_NOT_OWNER");
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("Missing server address");
+    const client = new HubClient({
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      token: friend.token,
+    });
+    const realFetch = globalThis.fetch;
+    let attempts = 0;
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const response = await realFetch(input, init);
+      if (String(input).endsWith("/renew") && ++attempts === 1) {
+        await response.arrayBuffer();
+        throw new TypeError("Lost renewal response", {
+          cause: Object.assign(new Error("Connection reset"), { code: "ECONNRESET" }),
+        });
+      }
+      return response;
+    });
+    try {
+      const renewed = await client.renewLock(
+        project,
+        friendSession.session_id,
+        lock.lock_id,
+        300,
+        "renew-retry",
+      );
+      expect(attempts).toBe(2);
+      expect(renewed.ttl_seconds).toBe(300);
+      expect(
+        app.ctx.db
+          .prepare("SELECT COUNT(*) AS n FROM audit_entries WHERE action = 'lock.renew'")
+          .get()?.n,
+      ).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+    const override = await request(token, "POST", `${root}/locks/${lock.lock_id}/renew`, {
+      session_id: ownerSession.session_id,
+      ttl_seconds: 600,
+      idempotency_key: "owner-renew",
+    });
+    expect(override.statusCode).toBe(200);
+    app.ctx.db
+      .prepare("UPDATE workspace_locks SET expires_at = ? WHERE lock_id = ?")
+      .run("2000-01-01T00:00:00.000Z", lock.lock_id);
+    const expired = await request(friend.token, "POST", `${root}/locks/${lock.lock_id}/renew`, {
+      session_id: friendSession.session_id,
+      ttl_seconds: 300,
+      idempotency_key: "new-after-expiry",
+    });
+    expect(expired.statusCode).toBe(409);
+    expect(expired.json().error.code).toBe("LOCK_CONFLICT");
+  });
+
   it("retries a lost HTTP response after commit using one stable idempotency key", async () => {
     const { app, owner, project, token } = setup();
     const session = app.ctx.sessionService.joinProject(project, "retry-agent", owner);

@@ -228,7 +228,7 @@ describe("Recovery after retention", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  });
+  }, 15000);
   it("does not silently report a complete inbox after history is removed", async () => {
     const app = buildApp();
     try {

@@ -63,10 +63,11 @@ Todas las herramientas de proyecto requieren `join_project` antes. Inputs se val
 | `send_team_message` | Body, canal, destinos, prioridad, correlación, clave opcional | Mensaje validado; idempotencia |
 | `report_status` | Objetivo, progreso, decisión/bloqueo/siguiente paso, clave opcional | Estado validado; idempotencia |
 | `claim_module_lock` | Paths, motivo, TTL, clave opcional | Lock validado; idempotencia |
+| `renew_module_lock` | Lock UUID, TTL 1–3600 (default 300), clave opcional | `RenewModuleLockInputSchema`; lock validado y renovación autorizada/idempotente |
 | `release_module_lock` | Lock UUID o paths legacy | Liberación autorizada; idempotencia HTTP del adaptador |
 | `get_team_status` | Sin argumentos | Resumen de equipo |
 
-Renovación existe en HTTP/HubClient pero todavía no está expuesta como herramienta (10.5). El resultado MCP de retención usa `isError: true` y contenido JSON con código/cursor/siguiente paso; otros errores usan texto redactado. Las respuestas de mutaciones/inbox/snapshot se validan en runtime; validación completa de todas las salidas sigue siendo un requisito pendiente, no una garantía actual.
+Renovación explícita expuesta en MCP y UI (10.5): propietario del lock u owner del proyecto, siempre con scope `locks:write`; un lock vencido debe reclamarse de nuevo. HTTP admite clave en header o body, y su respuesta se valida con `WorkspaceLockSchema`. Repetir una clave ya confirmada devuelve el resultado anterior, sin extender el TTL otra vez. El resultado MCP de retención usa `isError: true` y contenido JSON con código/cursor/siguiente paso; otros errores usan texto redactado. Validación completa de todas las salidas sigue pendiente.
 
 ## Errores y eventos
 

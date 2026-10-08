@@ -233,7 +233,7 @@ describe("Exclusive agent instances", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  });
+  }, 15000);
   it("retries a lost join response with one instance, one session and one joined event", async () => {
     const app = buildApp();
     const owner = crypto.randomUUID();

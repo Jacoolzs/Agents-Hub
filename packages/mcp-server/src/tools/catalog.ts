@@ -96,6 +96,17 @@ export const tools = [
     required: [],
   },
   {
+    name: "renew_module_lock",
+    description:
+      "Explicitly renew an active lock you own (or an owner may renew). Expired locks must be claimed again; heartbeat never renews them.",
+    properties: {
+      lock_id: string,
+      ttl_seconds: { type: "integer", minimum: 1, maximum: 3600 },
+      idempotency_key: key,
+    },
+    required: ["lock_id"],
+  },
+  {
     name: "get_team_status",
     description: "Read agents, status and active locks after joining.",
     properties: {},

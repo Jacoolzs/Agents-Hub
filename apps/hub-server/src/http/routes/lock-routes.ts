@@ -1,4 +1,10 @@
-import { AppError, ClaimLockInputSchema } from "@agents-hub/shared";
+import {
+  AppError,
+  ClaimLockInputSchema,
+  RenewLockInputSchema,
+  UuidSchema,
+  WorkspaceLockSchema,
+} from "@agents-hub/shared";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../app.js";
 import type { RouteDependencies } from "./dependencies.js";
@@ -50,27 +56,48 @@ export function registerLockRoutes(
   app.post("/v1/projects/:projectId/locks/:lockId/renew", async (req, reply) => {
     const userId = getAuthenticatedUserId(req, "locks:write");
     const { projectId, lockId } = req.params as { projectId: string; lockId: string };
-    authService.checkProjectPermission(userId, projectId);
+    const role = authService.checkProjectPermission(userId, projectId);
+    if (!UuidSchema.safeParse(lockId).success)
+      throw new AppError("INVALID_INPUT", "lockId must be a UUID");
 
-    const body = req.body as { session_id?: string; ttl_seconds?: number };
-    if (!body?.session_id) {
+    const { session_id, idempotency_key, ...renewPayload } =
+      (req.body as { session_id?: string; idempotency_key?: unknown } & Record<string, unknown>) ??
+      {};
+    if (typeof session_id !== "string" || !UuidSchema.safeParse(session_id).success) {
       throw new AppError("INVALID_INPUT", "session_id is required");
     }
 
-    const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
-    const renewed = command(req, userId, projectId, `lock.renew:${lockId}`, body, () =>
-      lockService.renewLock(
-        projectId,
-        session.agent_id,
-        lockId,
-        body.ttl_seconds === undefined
+    const parsed = RenewLockInputSchema.safeParse({
+      ...renewPayload,
+      ttl_seconds:
+        renewPayload.ttl_seconds === undefined
           ? (config?.LOCK_DEFAULT_TTL_SECONDS ?? 300)
-          : body.ttl_seconds,
-        authService.checkProjectPermission(userId, projectId) === "owner",
-      ),
+          : renewPayload.ttl_seconds,
+    });
+    if (!parsed.success)
+      throw new AppError(
+        "INVALID_INPUT",
+        parsed.error.errors[0]?.message ?? "Invalid lock renewal",
+      );
+    const session = sessionService.validateSessionForUser(session_id, userId, projectId);
+    const renewed = command(
+      req,
+      userId,
+      projectId,
+      `lock.renew:${lockId}`,
+      { session_id, ...renewPayload },
+      () =>
+        lockService.renewLock(
+          projectId,
+          session.agent_id,
+          lockId,
+          parsed.data.ttl_seconds,
+          role === "owner",
+        ),
+      idempotency_key,
     );
     const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
-    return { data: renewed, request_id: reqId };
+    return { data: WorkspaceLockSchema.parse(renewed), request_id: reqId };
   });
 
   // Release lock by lockId

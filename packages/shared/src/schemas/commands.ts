@@ -11,6 +11,13 @@ export const IdempotencyKeySchema = z
   .min(1)
   .max(128)
   .regex(/^[A-Za-z0-9._-]+$/);
+export const RenewModuleLockInputSchema = z
+  .object({
+    lock_id: UuidSchema,
+    ttl_seconds: z.number().int().min(1).max(3600).default(300),
+    idempotency_key: IdempotencyKeySchema.optional(),
+  })
+  .strict();
 export const CreateProjectInputSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
@@ -67,6 +74,7 @@ export const HubCapabilitiesSchema = z
         "explicit_ack",
         "idempotent_commands",
         "message_history",
+        "explicit_lock_renewal",
       ]),
     ),
   })

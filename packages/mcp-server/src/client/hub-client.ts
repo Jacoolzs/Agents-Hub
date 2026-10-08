@@ -214,10 +214,11 @@ export class HubClient {
     sessionId: string,
     lockId: string,
     ttlSeconds?: number,
+    idempotencyKey: string = crypto.randomUUID(),
   ) {
     return this.request(`/v1/projects/${projectId}/locks/${lockId}/renew`, {
       method: "POST",
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey,
       body: {
         session_id: sessionId,
         ttl_seconds: ttlSeconds,

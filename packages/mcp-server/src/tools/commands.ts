@@ -4,6 +4,7 @@ import {
   IdempotencyKeySchema,
   MessageSchema,
   ReleaseLockInputSchema,
+  RenewModuleLockInputSchema,
   ReportStatusInputSchema,
   SendMessageInputSchema,
   StatusReportSchema,
@@ -74,6 +75,20 @@ export async function executeProjectCommand(
       }
       const input = ReleaseLockInputSchema.parse(args);
       return content(await hubClient.releaseLock(room.projectId, room.sessionId, input.paths));
+    }
+    case "renew_module_lock": {
+      const input = RenewModuleLockInputSchema.parse(args);
+      return content(
+        WorkspaceLockSchema.parse(
+          await hubClient.renewLock(
+            room.projectId,
+            room.sessionId,
+            input.lock_id,
+            input.ttl_seconds,
+            IdempotencyKeySchema.parse(input.idempotency_key ?? crypto.randomUUID()),
+          ),
+        ),
+      );
     }
     case "get_team_status":
       EmptyInputSchema.parse(args);

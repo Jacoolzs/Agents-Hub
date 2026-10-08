@@ -20,11 +20,11 @@ Actualizado: 2026-10-08. Esta sección se actualiza al finalizar **cada tarea** 
 
 ### Objetivo y punto de corte
 
-Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](docs/ROADMAP.md), preservando alcance y aceptación, con commits y publicación progresivos desde una rama nueva. El objetivo completo sigue pendiente; 10.1/10.2 están verificadas y el trabajo continúa con 10.5.
+Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](docs/ROADMAP.md), preservando alcance y aceptación, con commits y publicación progresivos desde una rama nueva. El objetivo completo sigue pendiente; 10.1/10.2/10.5 están verificadas localmente. Sigue 10.3 (respuestas/destinatarios) y después 10.4 (presencia).
 
 - Directorio: `C:\Users\orlan\Documents\GitHub\Agents-Hub`. Retomar en **este mismo checkout** para disponer del trabajo no publicado.
-- Rama de trabajo: `feat/phase-10-message-history`, creada desde `main` en `13a81d8`; commits `4c5feba` (base 8.1–9.2) y `28f9638` (10.1) publicados en `origin/feat/phase-10-message-history`.
-- No descartar ni cambiar de checkout sin revisar `git status`: el trabajo continúa con 10.2 sobre el corte publicado. No hay cambios ajenos detectados ni artefactos operativos añadidos.
+- Rama de trabajo: `feat/phase-10-message-history`, creada desde `main` en `13a81d8`; commits `4c5feba` (base 8.1–9.2), `28f9638` (10.1) y `9c33fa2` (10.2) publicados en `origin/feat/phase-10-message-history`.
+- Incremento 10.5 preparado para commit/push en esta tarea. Revalidar HEAD y `git status` antes de continuar; los tres commits anteriores están publicados. No hay cambios ajenos detectados ni artefactos operativos añadidos.
 - Se preservaron cambios documentales que ya existían al iniciar la implementación. No descartarlos ni hacer reset/checkout/pull indiscriminado. Publicación/CI remoto de los incrementos nuevos no están verificados.
 - Las ejecuciones de verificación registradas terminaron; no hay un test pendiente que este relevo pida esperar. El estado del Hub/túnel operativo personal no se ha inspeccionado en esta tarea: no asumir que está apagado ni reiniciarlo para retomar código.
 
@@ -40,6 +40,7 @@ Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](d
 | 9.2: plantilla genérica | `pnpm mcp:config`, rutas absolutas, token placeholder, creación exclusiva `--output`; [MCP_SETUP](docs/MCP_SETUP.md). Guías y aceptación de productos concretos siguen pendientes |
 | 10.1: historial independiente | GET autorizado con cursor keyset propio, privacidad previa a paginación, migración 6, capacidad `message_history` y UI Infinite Query deduplicada; [MESSAGE_HISTORY](docs/MESSAGE_HISTORY.md), `message-history.test.ts` y E2E de recarga |
 | 10.2: búsqueda/filtros | Texto literal, canal/remitente/destinatario/rango UTC antes de paginar, cursor ligado a huella normalizada y controles web; mismo contrato de [historial](docs/MESSAGE_HISTORY.md) |
+| 10.5: renovación de locks | `renew_module_lock`, TTL/UUID/clave/salida validados, UI con contador por segundo, retry estable y autorización del servidor; sin renovación por heartbeat |
 
 Usar el stack existente: Node 24 LTS (última versión observada 24.12.0), pnpm/workspaces/lockfile, TypeScript estricto, Zod, Fastify, `node:sqlite`/WAL, MCP SDK v1, React/Vite/Tailwind/TanStack Query, Vitest, Playwright y Biome. No se añadieron dependencias en estos incrementos. No introducir otro SDK, ORM, base de datos, servicio o virtualización sin necesidad comprobada y decisión registrada.
 
@@ -47,24 +48,23 @@ Documentos de apoyo: [inventario de contratos](docs/API_CONTRACT.md), [arquitect
 
 ### Por dónde seguir y cómo: próximo incremento
 
-**Prioridad recomendada: 10.5, renovación explícita de locks en MCP y UI.** El backend y `HubClient.renewLock()` ya existen; no asociar renovación al heartbeat.
+**Prioridad recomendada: 10.3, respuestas correlacionadas y selección de destinatarios.** Registrar contrato antes de implementar. `correlation_id` ya existe como campo libre; decidir compatibilidad de clientes anteriores y referencia canónica sin tratar cualquier string previo como UUID de mensaje.
 
-1. Revisar `http/routes/lock-routes.ts`, `application/services/lock-service.ts`, `packages/shared/src/schemas/lock.ts`, `packages/mcp-server/src/tools/catalog.ts`/`commands.ts` y `apps/web/src/features/locks/LocksPanel.tsx`.
-2. Añadir input/output compartido y herramienta MCP `renew_module_lock`, con `lock_id`, TTL 1–3600 y `idempotency_key` estable. Reutilizar el pipeline `command()`/HubClient actual; no duplicar autorización en el adaptador.
-3. Propietario del lock u owner del proyecto puede renovar; otros reciben rechazo. Un lock vencido no se resucita: debe reclamarse otra vez. Retry con misma clave/actor/payload devuelve el resultado confirmado sin duplicar evento/auditoría.
-4. UI muestra cuenta regresiva basada en `expires_at`, acción Renovar para locks permitidos y errores diferenciados de expiración/ownership/red. No renovar automáticamente ni inferir que heartbeat significa trabajo activo.
-5. Probar servicio/HTTP/MCP stdio/UI: permisos, TTL, vencimiento, dos actores, owner, idempotencia tras respuesta perdida y actualización visual. Actualizar capabilities/inventario/guías sólo con lo realmente expuesto.
+1. Revisar `MessageFeed`, `SendMessageInputSchema`/`MessageSchema`, `MessageService`, puerto/adaptador de mensajes y rutas. Añadir selección por lista de agentes existentes (team-status), conservando destinatarios válidos aunque estén desconectados; no depender exclusivamente de presencia activa.
+2. Definir regla de respuesta que nunca amplíe la visibilidad original. Una referencia al mensaje padre sólo puede comprobarse después de autorizar proyecto/sesión y visibilidad; rechazar privado ajeno sin inferir existencia ni contenido. No confiar en correlation_id enviado como prueba de autorización.
+3. Añadir acción Responder, contexto visible y destinatarios elegidos sin copiar IDs. Mantener historial/ACK independientes y deduplicación por message_id; probar privado→broadcast, terceros, referencias inexistentes, múltiples destinatarios y paginación de conversaciones.
+4. La aceptación exige seguir una conversación y contestarla desde UI/MCP sin fuga privada. Migración/API nueva sólo si lo requiere el contrato registrado; sin dependencias por defecto.
 
-**Después de 10.5:** retomar 10.3 respuestas/destinatarios y 10.4 presencia comprensible, sin convertirlos en orquestación automática.
+Después: 10.4 distingue conexión de adaptador, heartbeat y actividad reportada; ADR-006 sigue. 10.6 accesibilidad y 8.6 validación completa aún pendientes.
 
 ### Verificación y evidencia disponible
 
-Verificación actual de 10.1/10.2 y del acumulado de la rama:
+Verificación actual de 10.1/10.2/10.5 y del acumulado de la rama:
 
-- `pnpm check`: PASS, lint + typecheck + **134 tests en 19 suites**.
+- `pnpm check`: PASS, lint + typecheck + **135 tests en 19 suites**.
 - `pnpm -r build`: PASS, incluido bundle productivo web.
-- `pnpm test:e2e`: **10 PASS**; añade historial paginado/recarga/filtros/mensaje entrante y conserva procesos stdio, fencing, recuperación/ACK, privacidad y flujos web.
-- `git diff --check`: PASS con la advertencia conocida de futura normalización CRLF→LF en README. No hay evidencia todavía de CI remoto para el commit 10.1 ni aceptación humana con dos productos.
+- `pnpm test:e2e`: **10 PASS**; renovación MCP stdio y respuesta perdida UI con misma clave añadidas, conservando historial/filtros/recovery/ACK.
+- `git diff --check`: PASS. CI `4c5feba`/`28f9638` aprobado; CI `9c33fa2` falló por dos timeouts 5 s en backup Windows (run 37804381985). Presupuesto acotado de esos tests ampliado a 15 s conservando aserciones; verificar CI del nuevo commit. Piloto humano aún pendiente.
 
 Al retomar, comprobar rama/HEAD/status/diff, Node y pnpm. Si faltan dependencias, usar `pnpm install --frozen-lockfile`; no actualizar el lockfile por defecto. Para código nuevo ejecutar:
 
@@ -94,8 +94,8 @@ Compilar antes de Playwright: sirve el bundle de producción y usa el adaptador 
 Continúa la implementación de las fases nuevas de Agents-Hub en este checkout.
 Lee AGENTS.md y BITACORA.md completas, especialmente el relevo vigente.
 Contrasta rama, commit, cambios locales y código actual; conserva lo no publicado.
-Empieza por 10.5: renovación explícita de locks en MCP/UI con TTL, cuenta
-regresiva, permisos e idempotencia. Sigue los pasos y archivos
+Empieza por 10.3: respuestas correlacionadas y selector de destinatarios,
+registrando privacidad de respuestas y compatibilidad de correlation_id. Sigue los pasos y archivos
 del relevo, conserva ADR-018–021 y los límites del roadmap. Actualiza la bitácora
 y el relevo al terminar cada tarea, con lo hecho, cómo verificarlo y por dónde seguir.
 ```
@@ -176,6 +176,13 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-08] — Reanudación y renovación explícita 10.5
+- El usuario solicita retomar tras el corte de cuota. Se contrasta la rama `feat/phase-10-message-history`, HEAD `9c33fa2` publicado y los cambios locales de 10.5; no hay procesos de prueba pendientes que esperar.
+- MCP incorpora `renew_module_lock` con input estricto, TTL 1–3600, clave estable y salida WorkspaceLock validada. UI añade acción, TTL y cuenta regresiva cada segundo; retry transitorio conserva clave y payload del clic. Owner se obtiene del listado autorizado de miembros; el servidor sigue siendo autoridad de permisos.
+- Ruta HTTP valida UUID, payload/TTL y salida; admite clave en body o header. Se preserva la huella anterior del comando (lock_id ya pertenece a operation), evitando conflictos artificiales de registros existentes. `null` sigue siendo TTL inválido; sólo campo ausente usa default. Heartbeat no renueva.
+- Se añaden regresiones de respuesta perdida HTTP/UI, ownership, owner y vencimiento, además del pipeline MCP y stdio. Gates completos pendientes tras la reanudación; no declarar 10.5 entregada hasta observar sus resultados y publicar.
+- Verificación local observada: `pnpm check` PASS (135 tests, 19 suites), build PASS y 10 E2E PASS, con retry UI de respuesta perdida y renovación MCP real. CI histórico de `4c5feba` y `28f9638` aprobado; `9c33fa2` falló en Windows por timeout 5 s de dos tests de upgrade/backup en disco (5.44/5.61 s), sin aserciones funcionales fallidas. Se ajustará sólo el presupuesto de esas pruebas de I/O a 15 s, conservando integridad/upgrade/reapertura y comprobando el nuevo CI.
+
 ### [2026-10-08] — Inicio de implementación continua en rama nueva
 - El usuario autoriza continuar el roadmap, hacer commits y publicar progresivamente. Se releen AGENTS.md/BITACORA.md y se crea `feat/phase-10-message-history` desde `main`/`13a81d8`, preservando los 33 archivos modificados y 25 sin seguimiento del incremento local 8.1–9.2.
 - Estrategia de entrega: verificar y publicar primero ese punto de partida como commit recuperable; después implementar 10.1 en un commit separado con contrato, backend, web, pruebas y documentación. No se amplía todavía a búsqueda 10.2.
@@ -198,7 +205,7 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - El cursor filtrado incluye una huella FNV-1a 64-bit de valores normalizados, no el texto en claro. Cambiar filtros con el mismo cursor devuelve CURSOR_INVALID; cursores 10.1 sin filtros conservan compatibilidad. La huella liga semántica, no es autenticación ni sustituye autorización.
 - UI incorpora formulario compacto y accesible; filtros forman parte de la query key, reinician páginas y también se aplican a eventos vivos para coherencia. Pruebas cubren combinación, caracteres `%_` literales, fechas, privado oculto y mismatch de cursor.
 - Resultado final local: `pnpm check` PASS (134/134, 19 suites), `pnpm -r build` PASS, E2E dirigido de filtros PASS y suite `pnpm test:e2e` PASS (10/10). `git diff --check` se ejecuta antes del commit; no hay dependencia o migración adicional.
-- Siguiente paso: publicar commit separado de 10.2 y continuar con renovación explícita 10.5.
+- Commit `9c33fa2` (`feat: add private message history filters`) creado y publicado. Siguiente paso: renovación explícita 10.5.
 
 ### [2026-10-08] — Revalidación de estado y próximo incremento
 - El usuario solicita analizar la bitácora y explicar el estado y la continuación. Se lee completa y se contrasta el relevo con el checkout actual, sin iniciar implementación funcional.

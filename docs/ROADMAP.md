@@ -275,9 +275,10 @@ El usuario autoriza implementar la evolución. El alcance y las condiciones ante
 | 9.2: configuración | Preparación genérica verificada | [Plantilla](MCP_SETUP.md) con rutas absolutas/token de ejemplo y creación exclusiva; guías/aceptación de productos específicos pendientes |
 | 10.1: historial paginado | Verificada localmente | [Contrato](MESSAGE_HISTORY.md), cursor keyset separado, privacidad previa a paginación, UI infinita, 133 pruebas y 10 E2E; CI remoto pendiente |
 | 10.2: búsqueda y filtros | Verificada localmente | Filtros literales/autorizados antes de paginar, cursor ligado a huella, controles web, 134 pruebas y 10 E2E; CI remoto pendiente |
+| 10.5: renovación explícita | Verificada localmente | MCP/UI, TTL, cuenta regresiva, permisos/retry estable; 135 pruebas y 10 E2E; CI del nuevo commit pendiente |
 | 9.3–14 | Pendientes | Conservar dependencias/aceptación del plan; no declarar entregadas |
 | 15 | Investigaciones condicionadas | Sin nuevos servicios, Docker ni orquestación |
 
-Siguiente lote: validación exhaustiva de salidas/payloads, diagnóstico local y renovación MCP/UI. La bitácora conserva resultados precisos de checks y limitaciones de cada incremento.
+Siguiente lote: 10.3 respuestas/destinatarios y 10.4 presencia comprensible. La validación exhaustiva de salidas/payloads sigue pendiente (8.6); diagnóstico y renovación están entregados en la rama de evolución.
 
-Verificación actual: pnpm check (130 pruebas Vitest, lint/typecheck), build y nueve E2E PASS; utilidades CLI con pruebas de ejecución real/no mutación/no sobrescritura. 9.1 terminada localmente y 9.2 preparada como plantilla genérica; validación exhaustiva de salidas/payloads y demás capacidades siguen pendientes. Siguiente incremento funcional: historial independiente del inbox y renovación explícita. Sin commit, publicación ni CI remoto de estos cambios; fases 7–15 en conjunto no están terminadas.
+Verificación local actual: check con 135 pruebas, build y 10 E2E PASS. 8.1–9.2/10.1/10.2 publicados en `feat/phase-10-message-history`; 10.5 preparado para publicación. CI de `4c5feba`/`28f9638` aprobado; `9c33fa2` falló por timeout de dos pruebas de backup en Windows, con corrección acotada en el incremento 10.5. Fases 7–15 en conjunto siguen pendientes; conservar aceptación humana y demás condiciones.

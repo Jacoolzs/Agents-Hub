@@ -424,6 +424,7 @@ export function buildApp(
         "explicit_ack",
         "idempotent_commands",
         "message_history",
+        "explicit_lock_renewal",
       ],
     }),
     request_id: reply.getHeader("x-request-id"),

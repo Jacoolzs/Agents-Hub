@@ -106,6 +106,7 @@ Herramientas MCP del MVP:
 9. `wait_for_messages` — espera activa acotada y cancelable.
 10. `get_inbox_recovery` — revisar snapshot autorizado tras vencer el cursor.
 11. `resync_inbox` — aceptar pérdida de historial y reanudar sin confirmar la nueva página.
+12. `renew_module_lock` — renovar explícitamente un lock activo autorizado con TTL y clave idempotente.
 
 La validación completa de inputs/outputs es un requisito del diseño. El adaptador valida inputs y respuestas de mutaciones/inbox/snapshot con schemas compartidos; no se afirma cobertura exhaustiva de todas las salidas ni payloads de eventos. El servidor no confía en nombres enviados por el cliente para autorizar: usa IDs y pertenencia verificada. [Inventario vigente](docs/API_CONTRACT.md) detalla rutas, scopes, errores y límites; [recuperación](docs/RECOVERY.md) especifica ADR-020.
 
@@ -131,7 +132,7 @@ La validación completa de inputs/outputs es un requisito del diseño. El adapta
 
 - Validación estricta de esquemas, límites de payload, rate limits por usuario/agente/IP y límites de conexiones.
 - Normalizar rutas de locks y rechazar traversal, rutas absolutas ambiguas y comodines no soportados.
-- Locks con propietario, TTL, renovación explícita y limpieza por heartbeat; nunca son una garantía de integridad de Git.
+- Locks con propietario, TTL, renovación explícita y limpieza por mantenimiento; heartbeat no renueva locks. Nunca son una garantía de integridad de Git.
 - Confirmación humana para acciones futuras como push, merge, comandos destructivos o ejecución de herramientas.
 - Auditoría de login, invitaciones, cambios de membresía, locks, mensajes borrados y acciones sensibles.
 - Pruebas de autorización negativas: un agente de proyecto A no puede leer ni escribir datos del proyecto B.

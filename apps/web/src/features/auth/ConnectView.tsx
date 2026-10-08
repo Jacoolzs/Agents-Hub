@@ -84,6 +84,7 @@ export function ConnectView() {
         projectName: finalProjectName,
         sessionId: session.session_id,
         agentId: session.agent_id,
+        userId: session.user_id,
       });
     } catch (err) {
       setError(err);

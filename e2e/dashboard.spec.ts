@@ -403,6 +403,32 @@ test.describe("Agents-Hub Web Dashboard (Producción y Resiliencia)", () => {
     await expect(page.getByText("Refactorizando autorización basada en roles")).toBeVisible();
     await expect(page.getByText("Mi Lock")).toBeVisible();
 
+    const lock = server.ctx.lockService
+      .getActiveLocks(testProjectId)
+      .find((current) => current.owner_agent_id === "e2e-agent");
+    expect(lock).toBeDefined();
+    await page.locator("#lock-ttl").fill("600");
+    let renewalRequests = 0;
+    const keys: string[] = [];
+    await page.route(/\/locks\/[^/]+\/renew$/, async (route) => {
+      keys.push(route.request().postDataJSON().idempotency_key);
+      const response = await route.fetch();
+      if (++renewalRequests === 1) await route.abort("failed");
+      else await route.fulfill({ response });
+    });
+    await page.getByRole("button", { name: `Renovar lock ${lock?.lock_id}` }).click();
+    await expect
+      .poll(
+        () =>
+          server.ctx.lockService
+            .getActiveLocks(testProjectId)
+            .find((current) => current.lock_id === lock?.lock_id)?.ttl_seconds,
+      )
+      .toBe(600);
+    await expect.poll(() => renewalRequests).toBe(2);
+    expect(new Set(keys).size).toBe(1);
+    await expect(page.getByText(/Expira en: 9m/)).toBeVisible();
+
     // Liberar el lock
     await page.click("button:has-text('Liberar')");
     // Verificar que desaparece

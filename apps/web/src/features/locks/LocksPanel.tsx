@@ -1,10 +1,17 @@
 import type { WorkspaceLock } from "@agents-hub/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { EmptyState, ErrorBanner, LoadingSpinner } from "../../components/States.js";
 import { useHub } from "../../context/HubContext.js";
-import { claimLock, fetchLocks, releaseLock } from "../../lib/api.js";
+import {
+  ApiClientError,
+  claimLock,
+  fetchLocks,
+  membershipRequest,
+  releaseLock,
+  renewLock,
+} from "../../lib/api.js";
 
 export function LocksPanel() {
   const { auth } = useHub();
@@ -14,6 +21,12 @@ export function LocksPanel() {
   const [reason, setReason] = useState("");
   const [ttlSeconds, setTtlSeconds] = useState(300);
   const [formError, setFormError] = useState<unknown | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const locksQuery = useQuery({
     queryKey: ["locks", auth?.projectId],
@@ -55,6 +68,21 @@ export function LocksPanel() {
     },
   });
 
+  const membershipQuery = useQuery({
+    queryKey: ["current-membership", auth?.projectId, auth?.userId],
+    enabled: Boolean(auth),
+    retry: false,
+    queryFn: async () => {
+      if (!auth) throw new Error("No auth");
+      const members = await membershipRequest<Array<{ user_id: string; role: string }>>(
+        auth.baseUrl,
+        auth.token,
+        `/v1/projects/${encodeURIComponent(auth.projectId)}/members`,
+      );
+      return members.find((member) => member.user_id === auth.userId)?.role ?? null;
+    },
+  });
+
   const releaseMutation = useMutation({
     mutationFn: async (lockId: string) => {
       if (!auth) throw new Error("No auth");
@@ -63,6 +91,33 @@ export function LocksPanel() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["locks", auth?.projectId] });
       void queryClient.invalidateQueries({ queryKey: ["team-status", auth?.projectId] });
+    },
+  });
+
+  const renewMutation = useMutation({
+    mutationFn: async (command: { lockId: string; ttl: number; key: string }) => {
+      if (!auth) throw new Error("No auth");
+      return renewLock(
+        auth.baseUrl,
+        auth.token,
+        auth.projectId,
+        auth.sessionId,
+        command.lockId,
+        command.ttl,
+        command.key,
+      );
+    },
+    retry: (failures, error) =>
+      failures < 2 &&
+      (error instanceof TypeError ||
+        (error instanceof ApiClientError && [408, 502, 503, 504].includes(error.statusCode))),
+    onSuccess: () => {
+      setFormError(null);
+      void queryClient.invalidateQueries({ queryKey: ["locks", auth?.projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["team-status", auth?.projectId] });
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ["locks", auth?.projectId] });
     },
   });
 
@@ -75,7 +130,7 @@ export function LocksPanel() {
   const locks = locksQuery.data ?? [];
 
   const formatExpiresAt = (expiresAt: string) => {
-    const diffMs = new Date(expiresAt).getTime() - Date.now();
+    const diffMs = new Date(expiresAt).getTime() - now;
     if (diffMs <= 0) return "Expirado";
     const sec = Math.floor(diffMs / 1000);
     const min = Math.floor(sec / 60);
@@ -97,6 +152,9 @@ export function LocksPanel() {
         {releaseMutation.isError && (
           <ErrorBanner error={releaseMutation.error} onDismiss={() => releaseMutation.reset()} />
         )}
+        {renewMutation.isError && (
+          <ErrorBanner error={renewMutation.error} onDismiss={() => renewMutation.reset()} />
+        )}
 
         {locksQuery.isLoading ? (
           <LoadingSpinner message="Cargando locks activos..." />
@@ -111,6 +169,8 @@ export function LocksPanel() {
           <div className="space-y-3">
             {locks.map((lock: WorkspaceLock) => {
               const isOwner = lock.owner_agent_id === auth?.agentId;
+              const canRenew = isOwner || membershipQuery.data === "owner";
+              const isExpired = Date.parse(lock.expires_at) <= now;
               return (
                 <div
                   key={lock.lock_id}
@@ -139,16 +199,40 @@ export function LocksPanel() {
                       </p>
                     </div>
 
-                    {isOwner && (
-                      <button
-                        type="button"
-                        onClick={() => releaseMutation.mutate(lock.lock_id)}
-                        disabled={releaseMutation.isPending}
-                        className="px-3 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 hover:text-rose-200 border border-rose-800 rounded-lg text-xs font-medium transition-colors"
-                      >
-                        Liberar
-                      </button>
-                    )}
+                    <div className="flex gap-2">
+                      {canRenew && !isExpired && (
+                        <button
+                          type="button"
+                          aria-label={`Renovar lock ${lock.lock_id}`}
+                          onClick={() =>
+                            renewMutation.mutate({
+                              lockId: lock.lock_id,
+                              ttl: ttlSeconds,
+                              key: crypto.randomUUID(),
+                            })
+                          }
+                          disabled={
+                            renewMutation.isPending ||
+                            !Number.isInteger(ttlSeconds) ||
+                            ttlSeconds < 1 ||
+                            ttlSeconds > 3600
+                          }
+                          className="px-3 py-1 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                        >
+                          Renovar {ttlSeconds}s
+                        </button>
+                      )}
+                      {isOwner && (
+                        <button
+                          type="button"
+                          onClick={() => releaseMutation.mutate(lock.lock_id)}
+                          disabled={releaseMutation.isPending}
+                          className="px-3 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 hover:text-rose-200 border border-rose-800 rounded-lg text-xs font-medium transition-colors"
+                        >
+                          Liberar
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Paths locked */}
@@ -218,15 +302,15 @@ export function LocksPanel() {
 
           <div>
             <label htmlFor="lock-ttl" className="block text-xs font-semibold text-slate-300 mb-1">
-              TTL en Segundos (por defecto: 300)
+              TTL para reclamar o renovar (segundos)
             </label>
             <input
               id="lock-ttl"
               type="number"
-              min={10}
+              min={1}
               max={3600}
               value={ttlSeconds}
-              onChange={(e) => setTtlSeconds(Number.parseInt(e.target.value, 10) || 300)}
+              onChange={(e) => setTtlSeconds(e.target.valueAsNumber)}
               className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
             />
           </div>

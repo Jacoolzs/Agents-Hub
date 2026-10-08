@@ -113,8 +113,11 @@ export function HubProvider({ children }: { children: React.ReactNode }) {
         case "agent.heartbeat":
         case "agent.left":
         case "agent.idle":
+          void queryClient.invalidateQueries({ queryKey: ["team-status", auth.projectId] });
+          break;
         case "membership.updated":
           void queryClient.invalidateQueries({ queryKey: ["team-status", auth.projectId] });
+          void queryClient.invalidateQueries({ queryKey: ["current-membership", auth.projectId] });
           break;
       }
     });

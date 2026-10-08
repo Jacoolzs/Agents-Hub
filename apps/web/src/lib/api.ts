@@ -12,6 +12,7 @@ import {
   type InboxRecovery,
   InboxRecoverySchema,
   MessageHistoryPageSchema,
+  WorkspaceLockSchema,
 } from "@agents-hub/shared";
 import type { InboxResponse, TeamStatusData } from "../types/index.js";
 
@@ -341,6 +342,30 @@ export async function releaseLock(
     },
   );
   return handleResponse<{ released: string[] }>(res);
+}
+
+export async function renewLock(
+  baseUrl: string,
+  token: string,
+  projectId: string,
+  sessionId: string,
+  lockId: string,
+  ttlSeconds: number,
+  idempotencyKey: string = crypto.randomUUID(),
+): Promise<WorkspaceLock> {
+  const res = await fetch(
+    `${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/locks/${encodeURIComponent(lockId)}/renew`,
+    {
+      method: "POST",
+      headers: makeHeaders(token),
+      body: JSON.stringify({
+        session_id: sessionId,
+        ttl_seconds: ttlSeconds,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
+  return WorkspaceLockSchema.parse(await handleResponse<unknown>(res));
 }
 
 export async function fetchLocks(

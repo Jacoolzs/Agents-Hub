@@ -40,6 +40,17 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
           expires_at: "2026-10-07T00:05:00.000Z",
           created_at: "2026-10-07T00:00:00.000Z",
         },
+        "/v1/projects/11111111-1111-4111-8111-111111111111/locks/33333333-3333-4333-8333-333333333333/renew":
+          {
+            lock_id: "33333333-3333-4333-8333-333333333333",
+            project_id: "11111111-1111-4111-8111-111111111111",
+            owner_agent_id: "agent-alice",
+            paths: ["src/index.ts"],
+            reason: "Editing",
+            ttl_seconds: 600,
+            expires_at: "2026-10-07T00:10:00.000Z",
+            created_at: "2026-10-07T00:00:00.000Z",
+          },
         "/v1/projects/11111111-1111-4111-8111-111111111111/team-status": {
           active_agents: [{ agent_id: "agent-alice" }],
           locks: [],
@@ -114,6 +125,14 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
       reason: "Refactor",
     });
     expect(lockRes.lock_id).toBe("33333333-3333-4333-8333-333333333333");
+    const renewed = await client.renewLock(
+      "11111111-1111-4111-8111-111111111111",
+      "sess-123",
+      lockRes.lock_id,
+      600,
+      "stable-renewal",
+    );
+    expect(renewed.ttl_seconds).toBe(600);
 
     const msgRes = await client.sendMessage("11111111-1111-4111-8111-111111111111", "sess-123", {
       body: "Hello team",
@@ -189,6 +208,7 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
     expect(toolNames).toContain("send_team_message");
     expect(toolNames).toContain("report_status");
     expect(toolNames).toContain("claim_module_lock");
+    expect(toolNames).toContain("renew_module_lock");
     expect(toolNames).toContain("release_module_lock");
     expect(toolNames).toContain("get_team_status");
 
@@ -218,6 +238,19 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
     expect(lockRes.isError).toBeFalsy();
     const lockContent = lockRes.content as Array<{ type: string; text: string }>;
     expect(lockContent[0]?.text).toContain("33333333-3333-4333-8333-333333333333");
+
+    const renewRes = await mcpClient.callTool({
+      name: "renew_module_lock",
+      arguments: {
+        lock_id: "33333333-3333-4333-8333-333333333333",
+        ttl_seconds: 600,
+        idempotency_key: "stable-renewal",
+      },
+    });
+    expect(renewRes.isError).toBeFalsy();
+    expect((renewRes.content as Array<{ type: string; text: string }>)[0]?.text).toContain(
+      '"ttl_seconds": 600',
+    );
 
     // 5. Cleanup
     await mcpClient.close();

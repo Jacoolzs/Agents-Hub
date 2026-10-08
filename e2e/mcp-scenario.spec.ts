@@ -91,7 +91,28 @@ test("dos procesos MCP: estado, conflicto, mensaje dirigido, replay y expiració
     expect(status.active_agents.map((agent: { agent_id: string }) => agent.agent_id)).toContain(
       "alice",
     );
-    await call(alice, "claim_module_lock", { paths: ["src/auth"], reason: "MVP", ttl_seconds: 1 });
+    const claimed = await call(alice, "claim_module_lock", {
+      paths: ["src/auth"],
+      reason: "MVP",
+      ttl_seconds: 1,
+    });
+    const renewed = await call(alice, "renew_module_lock", {
+      lock_id: claimed.lock_id,
+      ttl_seconds: 1,
+      idempotency_key: "renew-auth-lock",
+    });
+    expect(
+      await call(alice, "renew_module_lock", {
+        lock_id: claimed.lock_id,
+        ttl_seconds: 1,
+        idempotency_key: "renew-auth-lock",
+      }),
+    ).toEqual(renewed);
+    expect(
+      hub.ctx.db
+        .prepare("SELECT COUNT(*) AS n FROM audit_entries WHERE action = 'lock.renew'")
+        .get()?.n,
+    ).toBe(1);
     const conflict = await bob.callTool({
       name: "claim_module_lock",
       arguments: { paths: ["src/auth/x.ts"], reason: "Conflict" },
