@@ -6,6 +6,7 @@ export interface WsTicketPayload {
   userId: string;
   projectId: string;
   sessionId: string;
+  tokenId?: string;
 }
 
 export class WsTicketService {
@@ -20,6 +21,7 @@ export class WsTicketService {
     projectId: string,
     sessionId: string,
     ttlSeconds = 30,
+    tokenId?: string,
   ): string {
     const rawTicket = `wst_${crypto.randomBytes(24).toString("base64url")}`;
     const ticketHash = WsTicketService.hashTicket(rawTicket);
@@ -29,10 +31,19 @@ export class WsTicketService {
 
     this.db
       .prepare(`
-      INSERT INTO ws_tickets (ticket_id, ticket_hash, user_id, project_id, session_id, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ws_tickets (ticket_id, ticket_hash, user_id, project_id, session_id, expires_at, created_at, auth_token_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
-      .run(ticketId, ticketHash, userId, projectId, sessionId, expiresAt, now.toISOString());
+      .run(
+        ticketId,
+        ticketHash,
+        userId,
+        projectId,
+        sessionId,
+        expiresAt,
+        now.toISOString(),
+        tokenId ?? null,
+      );
 
     return rawTicket;
   }
@@ -51,7 +62,7 @@ export class WsTicketService {
       WHERE ticket_hash = ?
         AND used_at IS NULL
         AND expires_at > ?
-      RETURNING user_id, project_id, session_id
+      RETURNING user_id, project_id, session_id, auth_token_id
     `);
 
     const row = stmt.get(now, ticketHash, now) as
@@ -59,6 +70,7 @@ export class WsTicketService {
           user_id: string;
           project_id: string;
           session_id: string;
+          auth_token_id: string | null;
         }
       | undefined;
 
@@ -74,6 +86,13 @@ export class WsTicketService {
       userId: row.user_id,
       projectId: row.project_id,
       sessionId: row.session_id,
+      ...(row.auth_token_id ? { tokenId: row.auth_token_id } : {}),
     };
+  }
+
+  public cleanup(): void {
+    this.db
+      .prepare("DELETE FROM ws_tickets WHERE expires_at <= ? OR used_at IS NOT NULL")
+      .run(new Date().toISOString());
   }
 }

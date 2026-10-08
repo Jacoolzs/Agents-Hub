@@ -8,12 +8,15 @@ interface ShellProps {
     messages: React.ReactNode;
     agents: React.ReactNode;
     locks: React.ReactNode;
+    members: React.ReactNode;
   };
 }
 
 export function Shell({ children }: ShellProps) {
   const { auth, connectionStatus, disconnect } = useHub();
-  const [activeTab, setActiveTab] = useState<"messages" | "agents" | "locks">("messages");
+  const [activeTab, setActiveTab] = useState<"messages" | "agents" | "locks" | "members">(
+    "messages",
+  );
 
   if (!auth) return null;
 
@@ -85,6 +88,14 @@ export function Shell({ children }: ShellProps) {
         <div className="max-w-7xl mx-auto mt-3 flex border-b border-slate-800/80 -mb-3">
           <button
             type="button"
+            data-testid="tab-members"
+            onClick={() => setActiveTab("members")}
+            className="px-4 py-2 text-sm font-medium"
+          >
+            Miembros
+          </button>
+          <button
+            type="button"
             data-testid="tab-messages"
             onClick={() => setActiveTab("messages")}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -127,6 +138,7 @@ export function Shell({ children }: ShellProps) {
         {activeTab === "messages" && children.messages}
         {activeTab === "agents" && children.agents}
         {activeTab === "locks" && children.locks}
+        {activeTab === "members" && children.members}
       </main>
     </div>
   );

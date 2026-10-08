@@ -6,6 +6,8 @@ export function redactSecrets(input: unknown): unknown {
     return input
       .replace(/ah_[A-Za-z0-9_-]+/g, "ah_***REDACTED***")
       .replace(/wst_[A-Za-z0-9_-]+/g, "wst_***REDACTED***")
+      .replace(/ahi_[A-Za-z0-9_-]+/g, "ahi_***REDACTED***")
+      .replace(/sk-[A-Za-z0-9_-]+/g, "sk-***REDACTED***")
       .replace(/Bearer\s+[A-Za-z0-9_.-]+/gi, "Bearer ***REDACTED***");
   }
 

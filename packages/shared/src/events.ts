@@ -8,8 +8,10 @@ export const MAX_EVENT_PAYLOAD_BYTES = 64 * 1024;
 
 export const EventTypeSchema = z.enum([
   "project.created",
+  "membership.updated",
   "agent.joined",
   "agent.heartbeat",
+  "agent.idle",
   "agent.left",
   "message.created",
   "status.updated",

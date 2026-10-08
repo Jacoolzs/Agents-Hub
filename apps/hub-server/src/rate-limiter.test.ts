@@ -113,10 +113,10 @@ describe("Rate Limiting, Health Diagnostics & Secret Redaction (Phase 6 Operatio
         expect(readyRes.statusCode).toBe(200);
         const readyData = readyRes.json();
         expect(readyData.status).toBe("ready");
-        expect(readyData.database.responsive).toBe(true);
-        expect(readyData.database.journal_mode).toBeDefined();
-        expect(readyData.websockets.active_connections).toBe(0);
-        expect(readyData.process.uptime_seconds).toBeGreaterThanOrEqual(0);
+        expect(readyData.request_id).toBeDefined();
+        expect(readyData.database).toBeUndefined();
+        expect(readyData.websockets).toBeUndefined();
+        expect(readyData.process).toBeUndefined();
       }
     } finally {
       await app.close();

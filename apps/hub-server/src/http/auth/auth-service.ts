@@ -4,6 +4,8 @@ import { AppError, type MembershipRole } from "@agents-hub/shared";
 
 export interface AuthContext {
   userId: string;
+  tokenId: string;
+  expiresAt: string;
   projectId?: string;
   role?: MembershipRole;
   scopes?: string[];
@@ -21,6 +23,7 @@ export class AuthService {
     audience: string,
     scopes: string[] = ["*"],
     ttlSeconds = 3600,
+    projectId?: string,
   ): string {
     const rawToken = `ah_${crypto.randomBytes(24).toString("base64url")}`;
     const tokenHash = AuthService.hashToken(rawToken);
@@ -30,8 +33,8 @@ export class AuthService {
 
     this.db
       .prepare(`
-      INSERT INTO auth_tokens (token_id, token_hash, subject, audience, scopes, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO auth_tokens (token_id, token_hash, subject, audience, scopes, expires_at, created_at, project_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .run(
         tokenId,
@@ -41,6 +44,7 @@ export class AuthService {
         JSON.stringify(scopes),
         expiresAt,
         now.toISOString(),
+        projectId ?? null,
       );
 
     return rawToken;
@@ -60,6 +64,9 @@ export class AuthService {
           subject: string;
           audience: string;
           scopes: string;
+          token_id: string;
+          expires_at: string;
+          project_id: string | null;
         }
       | undefined;
 
@@ -79,10 +86,30 @@ export class AuthService {
     return {
       userId: row.subject,
       scopes,
+      tokenId: row.token_id,
+      expiresAt: row.expires_at,
+      ...(row.project_id ? { projectId: row.project_id } : {}),
     };
   }
 
-  public checkProjectPermission(userId: string, projectId: string): MembershipRole {
+  public isTokenActive(tokenId: string): boolean {
+    return !!this.db
+      .prepare(
+        "SELECT 1 FROM auth_tokens WHERE token_id = ? AND revoked_at IS NULL AND expires_at > ? AND audience = 'agents-hub'",
+      )
+      .get(tokenId, new Date().toISOString());
+  }
+
+  public revokeToken(tokenId: string, userId?: string): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE auth_tokens SET revoked_at = ? WHERE token_id = ? ${userId ? "AND subject = ?" : ""}`,
+      )
+      .run(new Date().toISOString(), tokenId, ...(userId ? [userId] : []));
+    return result.changes > 0;
+  }
+
+  public checkProjectPermission(userId: string, projectId: string, write = false): MembershipRole {
     const stmt = this.db.prepare(`
       SELECT role FROM memberships
       WHERE project_id = ? AND user_id = ?
@@ -96,6 +123,9 @@ export class AuthService {
       );
     }
 
+    if (write && row.role === "reader") {
+      throw new AppError("FORBIDDEN", "Read-only members cannot mutate project resources");
+    }
     return row.role;
   }
 }

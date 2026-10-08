@@ -16,4 +16,5 @@ test-results/
 .turbo/
 .DS_Store
 Thumbs.db
+.tools/
 *.tsbuildinfo

@@ -54,6 +54,55 @@ function makeHeaders(token: string): HeadersInit {
   };
 }
 
+export async function heartbeatSession(
+  baseUrl: string,
+  token: string,
+  sessionId: string,
+  projectId: string,
+  agentId: string,
+): Promise<void> {
+  await handleResponse(
+    await fetch(`${baseUrl}/v1/sessions/${sessionId}/heartbeat`, {
+      method: "POST",
+      headers: makeHeaders(token),
+      body: JSON.stringify({ project_id: projectId, agent_id: agentId }),
+      signal: AbortSignal.timeout(10000),
+    }),
+  );
+}
+export async function disconnectSession(
+  baseUrl: string,
+  token: string,
+  sessionId: string,
+  projectId: string,
+  agentId: string,
+): Promise<void> {
+  await handleResponse(
+    await fetch(`${baseUrl}/v1/sessions/${sessionId}`, {
+      method: "DELETE",
+      headers: makeHeaders(token),
+      body: JSON.stringify({ project_id: projectId, agent_id: agentId }),
+      keepalive: true,
+      signal: AbortSignal.timeout(3000),
+    }),
+  );
+}
+export async function membershipRequest<T>(
+  baseUrl: string,
+  token: string,
+  path: string,
+  method = "GET",
+  body?: unknown,
+): Promise<T> {
+  return handleResponse<T>(
+    await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: makeHeaders(token),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+  );
+}
+
 export async function fetchProject(
   baseUrl: string,
   token: string,

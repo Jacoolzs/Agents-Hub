@@ -4,6 +4,7 @@ import {
   type ReportStatusInput,
   ReportStatusInputSchema,
   type StatusReport,
+  containsObviousSecret,
   generateId,
   nowUtc,
 } from "@agents-hub/shared";
@@ -26,6 +27,12 @@ export class StatusService {
       throw new AppError("INVALID_INPUT", err);
     }
     const input = parsed.data;
+    if (
+      Object.values(input).some(
+        (value) => typeof value === "string" && containsObviousSecret(value),
+      )
+    )
+      throw new AppError("INVALID_INPUT", "Remove credentials from status reports");
 
     const statusId = generateId();
     const now = nowUtc();

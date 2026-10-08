@@ -1,0 +1,12 @@
+{
+  "date": "2026-10-08T02:35:44.561Z",
+  "transport": "Cloudflare Quick Tunnel HTTPS/WSS with publicly trusted TLS",
+  "static_dashboard": "PASS",
+  "two_user_directed_delivery": "PASS",
+  "browser_ticket_authentication": "PASS",
+  "logs_secret_redaction": "PASS",
+  "supervisor_shutdown": "PASS",
+  "ws_close_code": 1001,
+  "sqlite_integrity_restart": "PASS",
+  "ephemeral_database": true
+}

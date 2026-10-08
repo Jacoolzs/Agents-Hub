@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { AppError } from "@agents-hub/shared";
+import { AppError, encodeCursor } from "@agents-hub/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDatabase } from "../../infrastructure/db/database.js";
 import { SqliteEventBus } from "../../infrastructure/event-bus/event-bus.js";
@@ -55,11 +55,11 @@ describe("Hub Server Domain Services (Phase 2)", () => {
       expect(session.status).toBe("active");
 
       sessionService.heartbeat(project.project_id, "agent-alice");
-      sessionService.updateCursor(project.project_id, "agent-alice", "cursor-10");
+      sessionService.updateCursor(project.project_id, "agent-alice", encodeCursor(3));
 
       const active = sessionService.getActiveSessions(project.project_id);
       expect(active.length).toBe(1);
-      expect(active[0]?.last_cursor).toBe("cursor-10");
+      expect(active[0]?.last_cursor).toBe(encodeCursor(3));
 
       sessionService.disconnect(project.project_id, "agent-alice");
       expect(sessionService.getActiveSessions(project.project_id).length).toBe(0);
@@ -69,6 +69,7 @@ describe("Hub Server Domain Services (Phase 2)", () => {
   describe("Messages & Target Routing", () => {
     it("sends message and records event transactionally", () => {
       const { project } = projectService.createProject("Chat Room", "u-1");
+      sessionService.joinProject(project.project_id, "agent-bob", "u-1");
       const msg = messageService.sendMessage(project.project_id, "agent-alice", {
         body: "Hello Bob!",
         recipient_agent_ids: ["agent-bob"],

@@ -16,7 +16,8 @@ export const NormalizedWorkspacePathSchema = z
     (p) => !p.split(/[/\\]/).some((part) => part === ".." || part === "."),
     "Path cannot contain directory traversal ('.' or '..')",
   )
-  .transform((p) => p.replace(/\\/g, "/").replace(/\/+/g, "/"));
+  .refine((p) => !/[*?\[\]]/.test(p), "Wildcards are not supported")
+  .transform((p) => p.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/$/, ""));
 
 export const WorkspaceLockSchema = z
   .object({
@@ -50,3 +51,9 @@ export const ReleaseLockInputSchema = z
   .strict();
 
 export type ReleaseLockInput = z.infer<typeof ReleaseLockInputSchema>;
+
+export const RenewLockInputSchema = z
+  .object({
+    ttl_seconds: z.number().int().min(1).max(3600).default(300),
+  })
+  .strict();

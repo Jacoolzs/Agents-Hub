@@ -16,7 +16,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm --filter @agents-hub/web dev --port 5173",
+    command:
+      "pnpm --filter @agents-hub/web exec vite preview --host 127.0.0.1 --port 5173 --strictPort",
     port: 5173,
     reuseExistingServer: !process.env.CI,
   },

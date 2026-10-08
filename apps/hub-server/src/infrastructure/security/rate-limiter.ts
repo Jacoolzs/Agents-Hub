@@ -88,7 +88,9 @@ export class RateLimiter {
     }
 
     const windowStart = now - rule.windowMs;
-    bucket.timestamps = bucket.timestamps.filter((t) => t > windowStart);
+    if ((bucket.timestamps[0] ?? now) <= windowStart) {
+      bucket.timestamps = bucket.timestamps.filter((t) => t > windowStart);
+    }
 
     const oldest = bucket.timestamps[0];
     const resetMs = oldest ? oldest + rule.windowMs - now : rule.windowMs;

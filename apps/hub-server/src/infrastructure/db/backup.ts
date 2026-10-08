@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { AppError } from "@agents-hub/shared";
 
 /**
- * Creates an instantaneous, consistent online snapshot backup of the SQLite database
+ * Creates a consistent snapshot backup of the SQLite database synchronously
  * using the SQLite VACUUM INTO command.
  *
  * @param db Active DatabaseSync instance.
@@ -16,9 +16,9 @@ export function backupDatabase(db: DatabaseSync, destinationFilePath: string): v
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  // If destination file already exists, remove it first as VACUUM INTO requires a non-existent file
+  // Preserve previous backups and the live database; destinations must be new.
   if (fs.existsSync(destinationFilePath)) {
-    fs.unlinkSync(destinationFilePath);
+    throw new AppError("INVALID_INPUT", "Backup destination already exists");
   }
 
   try {

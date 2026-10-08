@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-08T02:54:08.317Z",
+  "node": "v24.12.0",
+  "platform": "win32",
+  "cpu": "AMD Ryzen 7 8845HS w/ Radeon 780M Graphics",
+  "ram_gib": 15.3,
+  "database": "SQLite on disk, WAL",
+  "clients": 100,
+  "inbox_interval_ms": 1000,
+  "writer_concurrency_max": 5,
+  "seconds": 30.36,
+  "messages": 600,
+  "events_per_second": 21.74,
+  "expected_ws_deliveries": 60000,
+  "received_ws_deliveries": 60000,
+  "lost_ws_deliveries": 0,
+  "duplicate_ws_deliveries": 0,
+  "errors": [],
+  "latency": {
+    "message": {
+      "samples": 600,
+      "p50_ms": 45.2,
+      "p95_ms": 138.58,
+      "p99_ms": 235.51
+    },
+    "inbox": {
+      "samples": 2598,
+      "p50_ms": 80.49,
+      "p95_ms": 233.88,
+      "p99_ms": 281.18
+    },
+    "lock_claim": {
+      "samples": 30,
+      "p50_ms": 76.79,
+      "p95_ms": 212.42,
+      "p99_ms": 222.25
+    },
+    "websocket": {
+      "samples": 60000,
+      "p50_ms": 44,
+      "p95_ms": 136,
+      "p99_ms": 226
+    }
+  },
+  "messages_per_second": 19.76,
+  "events_total": 660
+}

@@ -12,6 +12,8 @@ export const ApiErrorCodeSchema = z.enum([
   "SESSION_EXPIRED",
   "RATE_LIMITED",
   "INTERNAL_ERROR",
+  "IDEMPOTENCY_CONFLICT",
+  "STATE_CONFLICT",
 ]);
 
 export type ApiErrorCode = z.infer<typeof ApiErrorCodeSchema>;

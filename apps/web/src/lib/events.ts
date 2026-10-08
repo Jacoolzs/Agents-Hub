@@ -1,5 +1,5 @@
 import type { EventEnvelope } from "@agents-hub/shared";
-import { encodeCursor } from "@agents-hub/shared";
+import { decodeCursor } from "@agents-hub/shared";
 import type { ConnectionStatus } from "../types/index.js";
 import { ackInbox, createWsTicket, fetchInbox } from "./api.js";
 
@@ -24,6 +24,18 @@ export class RealtimeManager {
   private isDestroyed = false;
   private lastCursor: string | null = null;
   private lastSequence = 0;
+  private recovery: Promise<void> | null = null;
+  private recoverAgain = false;
+  private deliveredSequence = 0;
+  private recoveryTimeout: ReturnType<typeof setTimeout> | null = null;
+  private errorListeners = new Set<(error: unknown | null) => void>();
+
+  public onRecoveryError(listener: (error: unknown | null) => void): () => void {
+    this.errorListeners.add(listener);
+    return () => {
+      this.errorListeners.delete(listener);
+    };
+  }
 
   constructor(private config: RealtimeManagerConfig) {
     if (typeof window !== "undefined") {
@@ -42,6 +54,9 @@ export class RealtimeManager {
 
     this.config = config;
     if (changed) {
+      this.lastCursor = null;
+      this.lastSequence = 0;
+      this.deliveredSequence = 0;
       this.reconnectAttempts = 0;
       void this.connect();
     }
@@ -72,6 +87,7 @@ export class RealtimeManager {
 
   public setLastCursor(cursor: string | null): void {
     this.lastCursor = cursor;
+    this.lastSequence = cursor ? (decodeCursor(cursor) ?? 0) : 0;
   }
 
   public forceCloseSocketForTest(): void {
@@ -156,10 +172,10 @@ export class RealtimeManager {
         if (this.isDestroyed) return;
         try {
           const data = JSON.parse(event.data);
-          // Fastify WS sends { type: "connected", projectId, agentId } or raw EventEnvelope
-          if (data && typeof data === "object" && "sequence" in data && "type" in data) {
-            const envelope = data as EventEnvelope;
-            this.handleIncomingEvent(envelope);
+          // Live frames trigger an ordered inbox drain: advancing directly to a
+          // live sequence could skip earlier events during reconnection.
+          if (data?.type === "event" && data.data?.sequence) {
+            void this.recoverMissedEvents();
           }
         } catch {
           // non-JSON message ignored
@@ -186,22 +202,7 @@ export class RealtimeManager {
   }
 
   private handleIncomingEvent(event: EventEnvelope): void {
-    if (event.sequence > this.lastSequence) {
-      this.lastSequence = event.sequence;
-      this.lastCursor = encodeCursor(event.sequence);
-
-      // Acknowledge cursor in background
-      void ackInbox(
-        this.config.baseUrl,
-        this.config.token,
-        this.config.projectId,
-        this.config.sessionId,
-        this.lastCursor,
-      ).catch(() => {
-        // non-blocking
-      });
-    }
-
+    if (event.sequence <= this.deliveredSequence || this.isDestroyed) return;
     for (const listener of this.eventListeners) {
       try {
         listener(event);
@@ -209,25 +210,63 @@ export class RealtimeManager {
         // ignore listener error
       }
     }
+    this.deliveredSequence = event.sequence;
   }
 
   public async recoverMissedEvents(): Promise<void> {
+    if (this.isDestroyed) return;
+    this.recoverAgain = true;
+    if (this.recovery) return this.recovery;
+    this.recovery = this.drainInbox();
     try {
-      const inbox = await fetchInbox(
-        this.config.baseUrl,
-        this.config.token,
-        this.config.projectId,
-        this.config.sessionId,
-        this.lastCursor ?? undefined,
-      );
+      await this.recovery;
+    } finally {
+      this.recovery = null;
+    }
+  }
 
-      if (inbox.events.length > 0) {
-        for (const ev of inbox.events) {
-          this.handleIncomingEvent(ev);
+  private async drainInbox(): Promise<void> {
+    try {
+      while (this.recoverAgain && !this.isDestroyed) {
+        this.recoverAgain = false;
+        let hasMore = true;
+        while (hasMore && !this.isDestroyed) {
+          const inbox = await fetchInbox(
+            this.config.baseUrl,
+            this.config.token,
+            this.config.projectId,
+            this.config.sessionId,
+            this.lastCursor ?? undefined,
+          );
+          if (this.isDestroyed) return;
+          for (const ev of inbox.events) {
+            this.handleIncomingEvent(ev);
+          }
+          if (inbox.events.length > 0) {
+            const cursor = inbox.next_cursor;
+            await ackInbox(
+              this.config.baseUrl,
+              this.config.token,
+              this.config.projectId,
+              this.config.sessionId,
+              cursor,
+            );
+            if (this.isDestroyed) return;
+            this.lastCursor = cursor;
+            this.lastSequence = decodeCursor(cursor) ?? this.lastSequence;
+          }
+          hasMore = inbox.has_more;
         }
       }
-    } catch {
-      // recovery failure will retry on next poll or reconnect
+      for (const listener of this.errorListeners) listener(null);
+    } catch (error) {
+      if (this.isDestroyed) return;
+      for (const listener of this.errorListeners) listener(error);
+      if (!this.recoveryTimeout)
+        this.recoveryTimeout = setTimeout(() => {
+          this.recoveryTimeout = null;
+          void this.recoverMissedEvents();
+        }, 2000);
     }
   }
 
@@ -286,6 +325,8 @@ export class RealtimeManager {
       ).__agentsHubTestRealtime = undefined;
     }
     this.stopPollingFallback();
+    if (this.recoveryTimeout) clearTimeout(this.recoveryTimeout);
+    this.errorListeners.clear();
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;

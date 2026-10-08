@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
+    "share": "node scripts/share.mjs",
+    "test:share": "node scripts/share-smoke.mjs",
+    "admin": "node apps/hub-server/dist/admin.js",
+    "benchmark": "node apps/hub-server/dist/benchmarks/network-benchmark.js",
     "dev": "pnpm --parallel --filter @agents-hub/hub-server --filter @agents-hub/web dev",
     "lint": "biome check .",
     "format": "biome format --write .",

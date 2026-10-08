@@ -42,4 +42,17 @@ describe("SQLite Hot Backup (Phase 6 Operations)", () => {
     backupDb.close();
     db.close();
   });
+
+  it("preserves an existing backup instead of deleting it", () => {
+    const db = createDatabase(":memory:");
+    const backupFile = path.join(tmpDir, "existing.sqlite");
+    try {
+      backupDatabase(db, backupFile);
+      const original = fs.readFileSync(backupFile);
+      expect(() => backupDatabase(db, backupFile)).toThrow(/already exists/);
+      expect(fs.readFileSync(backupFile)).toEqual(original);
+    } finally {
+      db.close();
+    }
+  });
 });

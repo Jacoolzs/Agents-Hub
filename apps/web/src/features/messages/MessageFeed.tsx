@@ -1,14 +1,13 @@
 import type { Message, MessagePriority } from "@agents-hub/shared";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type React from "react";
 import { useMemo, useState } from "react";
-import { EmptyState, ErrorBanner, LoadingSpinner } from "../../components/States.js";
+import { EmptyState, ErrorBanner } from "../../components/States.js";
 import { useHub } from "../../context/HubContext.js";
-import { fetchInbox, sendMessage } from "../../lib/api.js";
+import { sendMessage } from "../../lib/api.js";
 
 export function MessageFeed() {
-  const { auth } = useHub();
-  const queryClient = useQueryClient();
+  const { auth, events, syncError, realtimeManager } = useHub();
 
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [newChannel, setNewChannel] = useState("general");
@@ -16,15 +15,6 @@ export function MessageFeed() {
   const [newRecipients, setNewRecipients] = useState("");
   const [newBody, setNewBody] = useState("");
   const [formError, setFormError] = useState<unknown | null>(null);
-
-  const inboxQuery = useQuery({
-    queryKey: ["inbox", auth?.projectId, auth?.sessionId],
-    queryFn: () => {
-      if (!auth) throw new Error("No auth");
-      return fetchInbox(auth.baseUrl, auth.token, auth.projectId, auth.sessionId, undefined, 100);
-    },
-    enabled: Boolean(auth),
-  });
 
   const sendMutation = useMutation({
     mutationFn: async () => {
@@ -44,7 +34,7 @@ export function MessageFeed() {
     onSuccess: () => {
       setNewBody("");
       setFormError(null);
-      void queryClient.invalidateQueries({ queryKey: ["inbox", auth?.projectId] });
+      void realtimeManager?.recoverMissedEvents();
     },
     onError: (err) => {
       setFormError(err);
@@ -59,9 +49,8 @@ export function MessageFeed() {
 
   // Extract messages from inbox events
   const messages: Message[] = useMemo(() => {
-    if (!inboxQuery.data?.events) return [];
     const list: Message[] = [];
-    for (const event of inboxQuery.data.events) {
+    for (const event of events) {
       if (event.type === "message.created" && event.payload) {
         const payload = event.payload as Record<string, unknown>;
         list.push({
@@ -72,7 +61,7 @@ export function MessageFeed() {
     }
     // Newest at bottom
     return list.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  }, [inboxQuery.data]);
+  }, [events]);
 
   const uniqueChannels = useMemo(() => {
     const set = new Set<string>();
@@ -142,11 +131,8 @@ export function MessageFeed() {
 
       {/* Messages List Area */}
       <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-        {inboxQuery.isLoading ? (
-          <LoadingSpinner message="Cargando mensajes del inbox..." />
-        ) : inboxQuery.isError ? (
-          <ErrorBanner error={inboxQuery.error} />
-        ) : filteredMessages.length === 0 ? (
+        <ErrorBanner error={syncError} />
+        {filteredMessages.length === 0 ? (
           <EmptyState
             title="No hay mensajes en este canal"
             description="Envía un mensaje utilizando el formulario de abajo para iniciar la colaboración."

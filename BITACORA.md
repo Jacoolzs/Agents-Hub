@@ -46,7 +46,9 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-014 | 2026-10-07 | Notificación transaccional post-commit en EventBus y autorización por Scopes | SqliteEventBus despacha a listeners únicamente tras COMMIT; para evitar eventos fantasma en rollbacks. Todas las rutas aplican autorización granular por scopes. | Aceptado |
 | ADR-015 | 2026-10-07 | Autenticación WebSocket en navegador mediante tickets efímeros HTTPS | La API WebSocket nativa de navegadores no permite enviar headers `Authorization: Bearer`. Para evitar exponer tokens en URLs en producción, se implementa el endpoint `POST /ws-ticket` que emite un ticket efímero de 30s de un solo uso con hash SHA-256 consumido atómicamente. | Aceptado |
 | ADR-016 | 2026-10-07 | Rate Limiting granular de ventana deslizante por IP e Identidad | Protección contra ataques DoS/fuerza bruta y saturación del Hub mediante limitador en memoria con cubetas de ventana deslizante, headers estándar RFC 6585/IETF (`RateLimit-*`, `Retry-After`) y código de error 429 `RATE_LIMITED`. | Aceptado |
-| ADR-017 | 2026-10-07 | Redacción de secretos en logs/errores y hot backup SQLite vía `VACUUM INTO` | Enmascaramiento obligatorio de tokens (`ah_*`, `wst_*`, `Bearer`) en logs estructurados y payloads de error. Respaldo de datos atómico en caliente mediante `VACUUM INTO` nativo de SQLite sin bloquear lecturas ni corromper WAL. | Aceptado |
+| ADR-017 | 2026-10-07 | Redacción de secretos en logs/errores y snapshot SQLite vía `VACUUM INTO` | Snapshot consistente; `DatabaseSync` bloquea el hilo durante ejecución, por lo que backups grandes requieren ventana operativa/proceso separado. | Aceptado (Corregido) |
+| ADR-018 | 2026-10-07 | Cierre del MVP con stack efectivo y matriz de roles | TypeScript 5.9/Zod 3.25/MCP v1 y SQLite nativo; reader lee y mantiene presencia propia, collaborator escribe y controla locks propios, maintainer administra collaborator/reader, owner administra roles y puede liberar/renovar locks ajenos. Scopes y rol se intersectan. | Aceptado |
+| ADR-019 | 2026-10-07 | Confirmación explícita MCP y comandos idempotentes | `check_inbox(cursor)` confirma la página previamente entregada antes de leer novedades; join devuelve cursor confirmado; herramienta `ack_inbox` permite confirmar la última página sin nueva lectura. Nunca confirmar antes de entregar. Idempotencia por identidad/proyecto/operación/clave con hash y resultado atómicos. | Aceptado |
 
 ---
 
@@ -83,6 +85,108 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-07] — Publicación del piloto en main autorizada
+- El usuario solicita pasar todos los cambios a main para desbloquear la instalación MCP de su amigo desde GitHub. Se prepara commit del cierre multiusuario, locks, cursores, operación y documentación; después se integrará en main y se publicará sin reescribir historia.
+- Verificación repetida: pnpm check pasa lint, typecheck y 97 tests en 13 suites; git diff --check pasa. Build, siete E2E, instalación limpia y smoke HTTPS/WSS cuentan con evidencia previa de esta misma implementación.
+- Fetch confirma que main local contiene los cuatro commits pendientes de origin/main, sin commits remotos divergentes. Datos, tokens, logs, binarios portables y artefactos generados quedan excluidos por Git.
+- Esta publicación permite clonar/actualizar y compilar el adaptador; no declara resueltos los pendientes estructurales ni la aceptación humana de dos clientes LLM. Siguiente paso: verificar main remoto y continuar la prueba compartida del paso 8.
+
+### [2026-10-07] — Piloto compartido preparado y métricas finales
+- Carga concurrente pasa: 100 clientes, 600 mensajes + 60 eventos de locks en 30.36 s, 21.74 eventos/s y 19.76 mensajes/s. Se verifican los conteos contra SQLite. Inbox/ACK cada 1 s y máximo cinco envíos en vuelo; 60000 entregas de mensajes, sin pérdidas/duplicados/errores. p95: mensaje 138.58 ms, inbox 233.88 ms, claim 212.42 ms, entrega WS 136 ms. Documentación usa estos valores; no oculta la variante secuencial fallida ni garantiza 100 dashboards consultando por cada evento.
+- Mensajes y eventos se reportan por separado: el criterio de 20 eventos/s incluye eventos de locks. El runner persiste frecuencia/concurrencia y recoge errores de envíos sin dejar promesas rechazadas sin observar.
+- Verificación final funcional: `pnpm check` pasa lint/typecheck/97 tests; siete E2E y build pasan. Frozen install/check/build limpio comprobados tras corregir cachés; audit producción sin vulnerabilidades. Smoke público TLS/WSS/supervisor/restauración pasó y el túnel quedó cerrado.
+- Quedan explícitos: repositorios abstractos como refactor estructural, CI remoto, sesión humana con dos productos LLM distintos y despliegue permanente. La copia temporal de pruebas permanece por bloqueo de limpieza automático. No se publica ni fusiona la rama.
+- Siguiente paso operativo del usuario: emitir identidad personal y ejecutar `pnpm share`; crear proyecto e invitar cada amigo con su token propio según `docs/OPERATIONS.md`.
+
+### [2026-10-07] — Ajuste de medición concurrente y limpieza temporal bloqueada
+- Con auditoría transaccional añadida, repetir el emisor HTTP secuencial entrega todos los mensajes pero tarda 42.79 s (14.02/s): no pasa el criterio de 20/s y se conserva ese resultado en `network-benchmark-serial.json`. No se sustituye por una declaración de capacidad aprobada.
+- Se ajusta el runner a emisor espaciado 50 ms con máximo cinco peticiones en vuelo y consumidores inbox/ACK cada 1 s (frecuencia del adaptador MCP). Mantiene 100 WS conectados, duración, conteos y rechazo si throughput/pérdidas fallan; configura explícitamente concurrencia/frecuencia en el reporte. No se cambia SQLite durability ni se omite auditoría para medir.
+- La política automática de ejecución bloquea eliminar la copia temporal de instalación limpia en `%TEMP%/agents-hub-clean-2ba743e7-436b-43cd-b8e9-e0f0f526e291`; se conserva, sin afectar el repositorio. No se intenta eludir la política.
+- Siguiente paso: comprobar la carga concurrente ajustada y cerrar con su resultado real.
+
+### [2026-10-07] — Instalación limpia recuperada y comprobaciones finales
+- Tras retirar las cachés versionadas, la copia limpia pasa frozen install, lint/typecheck/96 tests y build; root pasa 97 tests tras añadir regresión del límite WS de 64 KiB (close 1009). Build y siete E2E repiten PASS con validación de resultados MCP y lifecycle humano.
+- Se ajusta STRIDE a evidencia real: conflictos de rutas no tienen índice por path, no existe detector semántico de pensamientos/secretos, roles intersectados con scopes y rate limit por sujeto verificado. Se preserva pendiente estructural de repositorios.
+- Se exige token emisor en handshake de tickets: tickets legacy sin binding deben reemitirse tras upgrade. API nueva ya lo incluye. Se añade auditoría de mensajes/estado dentro de la transacción idempotente y de rechazos autenticados de mutaciones, sin registrar cuerpos/secrets; request ID validado se usa también como ID interno.
+- Guía de operación y cierre actualizados: provisionamiento individual, invitaciones, `pnpm share`, MCP/ACK, revocación, backup/restore y límites. Cloudflared portable queda ignorado, sin servicio global ni acceso público permanente.
+- Siguiente paso: último check de estos ajustes y revisión del diff; el piloto compartido queda preparado. No hay commit/push/merge ni ejecución remota de CI.
+
+### [2026-10-07] — Evidencia de carga, túnel público e instalación limpia
+- Benchmark real: 100 clientes HTTP/WS, SQLite/WAL en disco, 600 mensajes durante 30.01 s (~20/s), 60000 entregas WS, sin pérdidas/duplicados/errores. p95: mensaje 72.68 ms, inbox 107.36 ms, claim 71.08 ms, entrega WS 70 ms. Evidencia sin secretos en `docs/evidence/network-benchmark.json`; no equivale a SLO de Internet.
+- Smoke público pasa HTTPS/WSS con TLS confiable, dashboard estático en mismo origen, dos identidades, ticket en navegador, logs sin tokens/invitación/ticket, parada del supervisor por IPC con close WS 1001 e integridad al reiniciar SQLite. Se usó DB efímera y se cerró el túnel. Evidencia en `docs/evidence/share-smoke.json`.
+- Checks locales pasan lint/typecheck/96 pruebas; siete E2E contra bundle estático pasan. Se añaden migración desde DB antigua y retry real del cliente tras respuesta perdida después del commit. Readiness productivo evita publicar diagnósticos internos; logs incluyen IDs pseudonimizados y patrón de ruta sin query.
+- Instalación frozen en copia limpia pasa, pero typecheck/build fallan porque cuatro `.tsbuildinfo` estaban versionados sin sus `dist`: el compilador omite generar paquetes compartidos. Se retiran sólo esos artefactos generados del índice Git (ya están ignorados), conservando cachés locales. Se repetirá el check limpio sin ellas.
+- Se aclara en arquitectura que interfaces/repositorios son objetivo estructural aún pendiente, no implementación existente. No se cambia el diseño ni se declara cerrado todo 0–6. También siguen pendientes CI remoto, sesión con dos productos LLM distintos y operación permanente con hostname estable.
+- Siguiente paso: terminar verificación limpia y actualizar el cierre/guía final de uso desde el PC.
+
+### [2026-10-07] — Aceptación multiusuario, MCP y recuperación
+- Pasan 93 pruebas Vitest. Se verifican invitaciones hash/TTL/revocación/uso único, separación entre proyectos, scopes intersectados con roles, reader con presencia propia, límites de maintainer y transferencia explícita de owner; el token ligado a un proyecto no lista/revoca tokens generales.
+- Backup restaurado a DB nueva mantiene integridad/WAL, cursor confirmado y respuesta idempotente tras reinicio. Expiración de sesiones emite idle/left una sola vez. No se permiten destinos existentes en restore.
+- El escenario stdio con dos usuarios distintos detectó que el SDK no procesa EOF de stdin como cierre: se añade listener explícito que desconecta y cierra el adaptador. La repetición pasa con ACK y reanudación propios del MCP, cancelación y timeout real de espera.
+- Se corrige la prueba web de 429 para buscar el mensaje localizado que muestra el dashboard. WebSocket abierto ya reintenta ACK perdido sin duplicar el feed; se valida polling con WS indisponible contra bundle de producción.
+- Se añade benchmark reproducible de red con 100 conexiones HTTP/WS, SQLite en disco y 20 mensajes/s. Cuota IP predeterminada 60000/min y sujeto 3000/min; la IP compartida del túnel requiere cuota agregada, configurable. Se evita filtrar la ventana de rate limit en cada petición si no hay timestamps vencidos.
+- Siguiente paso: recoger métricas, ejecutar smoke público efímero HTTPS/WSS con supervisor y terminar checks/documentación. CI remoto y compatibilidad con productos de agentes distintos siguen sin evidencia.
+
+### [2026-10-07] — Acceso desde el PC y operación compartida
+- Se elige Cloudflare Quick Tunnel como transporte temporal HTTPS/WSS para el piloto en el PC, equivalente al uso propuesto de ngrok, sin cuenta/dominio ni puertos entrantes. Se instala un ejecutable portable oficial, con versión y SHA-256 fijados; no es dependencia del dominio ni requisito del MVP. URL cambia al reiniciar y el servicio no ofrece garantía de disponibilidad; para operación estable habrá que configurar un túnel con dominio.
+- El Hub sirve el bundle web en el mismo origen; el launcher limitará CORS a la URL obtenida y supervisará ambos procesos con cierre por IPC. No se expone ninguna base de trabajo durante las verificaciones: se usarán datos efímeros.
+- Dashboard usa una única lectura incremental del inbox, deduplicación antes del ACK, reintento ante fallo de ACK/inbox y error visible; incorpora aceptación y gestión de invitaciones. Se añade presencia y desconexión humana.
+- CLI local provisiona identidades/tokens personales, revoca por ID, crea backups y restaura sólo a destinos nuevos verificados. Transferir ownership conserva el creador histórico del proyecto. Typecheck completo vuelve a pasar tras corregir el tipo MCP.
+- Siguiente paso: pruebas de roles/invitaciones y del bundle estático, escenario MCP con ACK propio, benchmark HTTP/WS en disco y prueba del túnel.
+
+### [2026-10-07] — Locks, cursores y autorización corregidos; cierre multiusuario en desarrollo
+- Se implementan rutas canónicas sin slash final, TTL de renovación validado, excepción del owner y expiración transaccional de locks con evento único; ACK monotónico mediante secuencia persistida y cursor cero/decodificación canónica.
+- Se añaden migraciones SQL versionadas, savepoints en transacciones anidadas e idempotencia persistente de mensajes/estado/locks. Secuencias por proyecto sobreviven a retención de eventos.
+- Tickets vinculan token emisor; handshake verifica membresía/token vigente y sockets activos se revalidan al emitir eventos, revocar acceso y periódicamente. Se valida destinatario existente y se corrigen respuestas 422/413.
+- Verificación intermedia: 88 pruebas Vitest pasan, incluidas 14 regresiones nuevas de locks, TTL, ACK, revocación e idempotencia. Typecheck pasó para el Hub; el nuevo adaptador MCP requiere ajustar un tipo inferido de UUID de clave antes del próximo check completo.
+- El usuario elige su PC como servidor con acceso desde fuera de la red; se preparará túnel HTTPS y arranque local, sin abrir puertos del router. No se ha expuesto aún el servicio.
+- En curso: invitaciones/membresías/tokens personales, ACK explícito MCP y lifecycle, dashboard incremental, CLI/backup/restore y pruebas operativas/carga. Sin dependencias nuevas hasta este punto.
+
+### [2026-10-07] — Inicio de correcciones y cierre autorizado por el usuario
+- El usuario autoriza corregir locks, cursores, cierre multiusuario/operativo y restantes hallazgos de la auditoría 0–6. Se conservan cambios locales existentes; no se fusiona/publica automáticamente.
+- Se reconcilia `ARCHITECTURE.md` con ADR-011/012, versiones efectivas del lockfile, roles/eventos reales y fases del plan ejecutable. Se levanta el bloqueo documental para continuar dentro de ese alcance.
+- Se registra la matriz de roles ADR-018 y ACK/idempotencia ADR-019. Nuevas tablas/servicios de invitaciones e idempotencia concretan entregables ya previstos, sin añadir dependencias externas.
+- Invitaciones: identidad provisionada por administrador local, secreto hash de uso único, TTL y revocación; maintainer sólo invita/administra collaborator/reader. Tokens personales y revocables; no registro público/OAuth en este cierre.
+- Siguiente paso: normalización/TTL/expiración de locks, cursor estricto y monotónico, validación y revocación WS; después acceso multiusuario, MCP y operación. Destino de despliegue preguntado mientras continúa el trabajo local.
+
+### [2026-10-07] — Auditoría 0–6 consolidada: implementación local aprobada, cierre pendiente
+- Informe creado en `docs/REVIEW_PHASES_0_6.md`: matriz por fase, defectos reproducidos, pendientes de contratos/dominio/API/MCP/dashboard/operación y orden recomendado de cierre, sin modificar código funcional.
+- Hallazgos adicionales reproducidos: locks `src/api/` y `src/api/file.ts` de agentes distintos se aceptan simultáneamente; ticket emitido antes de eliminar membresía permite handshake WebSocket (`connected`); mensaje de 16385 bytes devuelve 422 `INVALID_INPUT` en lugar del código público de tamaño; cursor cero no decodifica. Se requieren regresiones antes de declarar el cierre.
+- Resultado final de verificaciones: lint/typecheck/build PASS, 74 tests Vitest y 5 E2E PASS; `pnpm audit --prod` no informa vulnerabilidades conocidas. La conexión npm falló dentro del sandbox y pasó en la repetición autorizada.
+- Se corrige en `docs/MVP_CLOSEOUT.md` la afirmación obsoleta sobre roles: reader ya tiene restricción de escritura y prueba; permanecen incompletas la matriz de presencia/administración y la excepción del owner para locks.
+- Consecuencia: las fases tienen implementación base funcional, pero no se certifican como completamente cerradas. El replay MCP probado utiliza ACK/cursor asistidos por el harness; el benchmark no acredita red concurrente ni 20 eventos/s. CI remoto, instalación limpia, TLS, restore y supervisor real no verificados en esta sesión.
+- No se añaden dependencias ni se cambia alcance; Docker/orquestación/daemon continúan diferidos. El bloqueo documental para nuevas decisiones de arquitectura queda explícito. Siguiente paso recomendado: reconciliar documentos y corregir locks/autorización/cursor; continuar con acceso multiusuario, MCP/idempotencia, observabilidad/carga y aceptación operativa.
+
+### [2026-10-07] — Auditoría del estado pendiente de las fases 0–6, en curso
+- El usuario solicita analizar y verificar los pendientes; se revisa el checkout completo de `feat/phase-6-security-performance-ops`, incluidos cambios locales previos, sin implementar nuevas funcionalidades ni fusionar/publicar.
+- La numeración de fases y la tabla tecnológica de `ARCHITECTURE.md` discrepan de `DEVELOPMENT_PLAN.md` y las ADR-011/012 (SQLite nativo y MCP SDK v1). Se registra el bloqueo para nuevas decisiones de arquitectura hasta reconciliar documentos; esta auditoría usa el plan ejecutable 0–6 y las ADR vigentes, sin cambiar el stack.
+- Lint y typecheck pasan. Vitest no inicia dentro del sandbox por `spawn EPERM`; se solicita y obtiene autorización para repetir `pnpm test` fuera del sandbox. No se considera un fallo funcional ni una prueba aprobada hasta obtener su resultado.
+- Se confirma por código la ausencia de invitaciones/idempotencia persistente y logger JSON, y se revisan contratos MCP, expiración de locks, autorización y benchmark para precisar los pendientes por fase.
+- Siguiente paso: terminar comprobaciones locales y dejar una matriz verificable de implementación, cobertura faltante y aceptación operativa.
+
+### [2026-10-07] — Evidencia funcional y pendientes residuales de la auditoría 0–6
+- Verificación actual: lint y typecheck pasan; 74 tests Vitest (11 suites), build completo y 5 E2E Playwright pasan. Tests/build/E2E requieren ejecución autorizada fuera del sandbox por restricciones de creación de procesos (`spawn EPERM`). Los E2E sirven la web desde Vite dev, aunque el Hub del dashboard usa configuración de producción.
+- Sondas sobre una DB en memoria reproducen: renovación HTTP de lock con TTL 86400 aceptada (200), destinatario inexistente aceptado (201), ACK que retrocede de secuencia 2 a 1 aceptado (200), `name: 123` al crear proyecto devuelve 500. Un lock vencido desaparece de lecturas activas, pero permanece en SQLite y no genera `lock.expired`.
+- Inspección: MCP no llama a `ackInbox`, no devuelve cursor en `join_project`, no automatiza heartbeat/disconnect y la espera no usa señal de cancelación. El E2E MCP confirma cursor mediante `hub.inject` y lo reenvía explícitamente al reconectar: demuestra replay asistido, no recuperación autónoma del adaptador.
+- La prueba de rendimiento registra 100 filas de sesiones y ejecuta operaciones secuenciales en SQLite en memoria, sin consumidores WS conectados ni carga sostenida de 20 eventos/s. No valida todavía el objetivo de capacidad de Fase 6.
+- Estos hallazgos amplían la precisión del cierre pendiente; no se modifica código de aplicación. Siguiente paso: consolidar prioridades, evidencia y criterios de aceptación en el informe de auditoría.
+
+### [2026-10-07] — Cierre del plan por Codex, en curso
+- El usuario solicita terminar el plan del MVP. Se continúa sobre la rama de Fase 6 existente, conservando su implementación.
+- La verificación inicial pasa 70 tests, lint y typecheck; `pnpm audit --prod` no encuentra vulnerabilidades conocidas.
+- Pendientes detectados: CI, guía de operación, escenario final con procesos MCP reales y correcciones de ownership de sesiones, backup destructivo y compatibilidad del envelope WebSocket.
+- La afirmación previa de backup no bloqueante se corrige: `VACUUM INTO` sobre `DatabaseSync` bloquea el hilo de Node durante su ejecución; el snapshot es consistente, pero debe ejecutarse en ventana operativa o proceso separado para bases grandes.
+- Se usarán herramientas y dependencias existentes. No se declara terminado el MVP hasta verificar los entregables.
+
+### [2026-10-07] — Plan de cierre detallado y verificación local
+- Se completan `docs/MVP_CLOSEOUT.md` (orden, archivos, contratos, pruebas y aceptación del trabajo restante) y `docs/OPERATIONS.md` (arranque, TLS, backup, restauración, límites y apagado); enlazados desde README y DEVELOPMENT_PLAN.
+- Se añade CI con instalación congelada, checks, build, auditoría de dependencias de producción y Playwright. El workflow remoto no ha sido ejecutado en esta sesión.
+- Correcciones implementadas: ownership en rejoin/heartbeat/disconnect; reader no puede escribir recursos de proyecto con token comodín; backups existentes se preservan; manejo SIGINT/SIGTERM; mutaciones MCP no se reintentan sin idempotencia; inbox encuentra eventos visibles tras batches ocultos; dashboard procesa envelope WS, drena páginas en orden y espera ACK antes de avanzar su cursor.
+- Escenario final automatizado con procesos MCP reales por stdio añadido a Playwright: estado, locks/conflicto, mensajes dirigidos/respuesta, reinicio del adaptador y replay, expiración y aislamiento. El dashboard recibe además un mensaje nuevo después de quedar estable el socket.
+- Resultado local observado: lint/typecheck/build pasan, 74 tests Vitest y 5 Playwright pasan; `pnpm audit --prod` no reporta vulnerabilidades conocidas. `git diff --check` pasa.
+- Estado: plan de cierre escrito y verificable, prueba funcional local del MVP aprobada. NO se declara aceptación de producción: faltan provisionamiento/invitaciones, idempotencia persistente, cobertura completa de roles/administración, logging JSON, benchmark de red con 100 agentes y operación de despliegue/restore real según `docs/MVP_CLOSEOUT.md`.
+- Los cambios permanecen en la rama de Fase 6 para revisión; no se ha fusionado ni publicado nada durante esta sesión.
 
 ### [2026-10-07] — Fase 6 Completada: Seguridad, Rendimiento y Operación (`feat/phase-6-security-performance-ops`)
 - **Fusión de Fase 5 a main:**

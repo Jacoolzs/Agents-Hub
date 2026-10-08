@@ -60,11 +60,11 @@ Fuera del MVP quedan la asignación autónoma de tareas, sincronización de arch
 
 ### Componentes
 
-**`team-hub-mcp` local.** Se ejecuta como servidor MCP iniciado por el cliente mediante `stdio` utilizando `@modelcontextprotocol/sdk` v1.6.0. No expone un puerto público ni recibe conexiones entrantes. Traduce las llamadas de herramientas a solicitudes autenticadas al Hub, aplica timeouts y no imprime logs en `stdout`.
+**`team-hub-mcp` local.** Se ejecuta como servidor MCP iniciado por el cliente mediante `stdio` utilizando `@modelcontextprotocol/sdk` v1.x (lockfile actual: 1.32.1). No expone un puerto público ni recibe conexiones entrantes. Traduce las llamadas de herramientas a solicitudes autenticadas al Hub, aplica timeouts y no imprime logs en `stdout`.
 
 **Hub Server.** Es la única autoridad para proyectos, miembros, agentes, mensajes, presencia, locks y secuencias de eventos. El MVP puede ejecutarse como un proceso Node.js/TypeScript con módulos internos separados.
 
-**Persistencia.** SQLite con WAL mediante `node:sqlite` nativo de Node 24 (`DatabaseSync`) para desarrollo y primera instalación de un solo nodo (evitando toolchains nativos C++ en Windows). El código oculta el acceso detrás de repositorios/interfaces para migrar a PostgreSQL o añadir Drizzle sin rehacer el dominio. Redis no es requisito del MVP.
+**Persistencia.** SQLite con WAL mediante `node:sqlite` nativo de Node 24 (`DatabaseSync`) para desarrollo y primera instalación de un solo nodo (evitando toolchains nativos C++ en Windows). La separación detrás de repositorios/interfaces es un objetivo del diseño todavía pendiente; los servicios actuales ejecutan SQL directamente sobre SQLite. Redis no es requisito del MVP.
 
 **Dashboard.** Cliente web que consume una API autenticada y un canal WebSocket sólo para eventos de presentación. Nunca es la autoridad de permisos ni de locks.
 
@@ -84,11 +84,10 @@ Entidades: `User`, `Project`, `Membership`, `AgentSession`, `Message`, `StatusRe
 
 Tipos de evento mínimos:
 
-- `agent.connected` / `agent.disconnected`
+- `agent.joined` / `agent.heartbeat` / `agent.left`
 - `message.created`
 - `status.updated`
-- `lock.claimed` / `lock.released` / `lock.expired`
-- `delivery.reported`
+- `lock.acquired` / `lock.released` / `lock.expired`
 
 Cada evento incluye `event_id`, `project_id`, `type`, `actor_id`, `occurred_at`, `sequence`, `payload_version` y un payload validado por esquema. Los mensajes deben admitir destinatario, canal, prioridad, correlación y expiración opcional.
 
@@ -110,7 +109,7 @@ Todos los inputs y outputs se validan con JSON Schema. El servidor no confía en
 
 - Cada solicitud se asocia a un usuario, proyecto y sesión de agente.
 - El MVP puede usar invitaciones de un solo uso y tokens de corta duración; se almacenan hashes, nunca tokens en claro.
-- Las acciones se autorizan por proyecto y rol (`owner`, `member`, `agent`, `observer`).
+- Las acciones se autorizan por proyecto y rol (`owner`, `maintainer`, `collaborator`, `reader`) intersectado con scopes del token.
 - Los tokens deben ser revocables, tener audiencia explícita para Agents-Hub y nunca reenviarse a servicios externos.
 - La futura autenticación web puede usar OAuth/OIDC; no se inventa un protocolo de autenticación propio.
 
@@ -165,15 +164,15 @@ AGENTS.md
 
 | Capa | Tecnología | Motivo y límite |
 |---|---|---|
-| Lenguaje | TypeScript 6.x, `strict: true` | Tipos compartidos entre Hub, MCP y web. Se evita mezclar lenguajes en el MVP. |
+| Lenguaje | TypeScript 5.9.x, `strict: true` | Versión efectiva del lockfile; tipos compartidos entre Hub, MCP y web. |
 | Runtime | Node.js 24.x Active LTS | Línea estable para producción; no se usa Node Current como runtime principal. |
 | Monorepo | pnpm workspaces | Dependencias y paquetes internos simples; no añadimos Turborepo hasta tener una necesidad de cache/build distribuido. |
-| MCP | `@modelcontextprotocol/server` y `@modelcontextprotocol/client` v2 | SDK oficial, servidor local por `stdio`, schemas compatibles y soporte de transportes. |
-| Validación | Zod 4 | Validación en límites, tipos inferidos y contratos compartidos; todo input externo se valida una vez al entrar. |
+| MCP | `@modelcontextprotocol/sdk` v1.x | ADR-012; SDK oficial, servidor local por `stdio`. |
+| Validación | Zod 3.25.x | Versión efectiva del lockfile; validación en límites y contratos compartidos. |
 | Hub HTTP | Fastify 5 | Bajo overhead, plugins maduros y buen soporte TypeScript. |
 | Eventos | `@fastify/websocket` sobre `ws` | Canal de presencia/UI; no reemplaza el inbox persistente ni la recuperación por cursor. |
-| Persistencia MVP | SQLite + WAL, `better-sqlite3` y Drizzle ORM | Instalación local sencilla y transacciones claras. Se mantiene un repositorio abstracto para migrar a PostgreSQL. |
-| Migraciones | Drizzle Kit | Migraciones versionadas dentro del repositorio; nunca cambios manuales en producción. |
+| Persistencia MVP | SQLite + WAL con `node:sqlite` | ADR-011; evita toolchain C++ en Windows. |
+| Migraciones | SQL versionado en el repositorio | Sin nueva dependencia; upgrades transaccionales. |
 | Dashboard | React + Vite + Tailwind CSS | UI rápida y pequeña, sin introducir SSR ni complejidad de Next.js para el MVP. |
 | Estado web | TanStack Query + estado local de React | Cache de API; WebSocket invalida/actualiza consultas, no se duplica la lógica del dominio. |
 | Pruebas unitarias/integración | Vitest | Tests rápidos para dominio, repositorios, API y protocolo de inbox. |
@@ -195,27 +194,29 @@ AGENTS.md
 
 ## 9. Plan de ejecución
 
-### Fase 0 — Contratos y seguridad mínima
+La numeración vigente es la de `DEVELOPMENT_PLAN.md`: 0 bootstrap, 1 contratos, 2 dominio/SQLite, 3 HTTP/WebSocket, 4 MCP, 5 dashboard, 6 seguridad/rendimiento/operación. El esquema siguiente se conserva sólo como resumen histórico y no determina el orden de implementación.
+
+### Etapa histórica 0 — Contratos y seguridad mínima
 
 Definir esquemas de eventos, errores, identidad local, roles, cursor e idempotencia. Añadir lint, format, tests, validación de configuración y documentación de amenazas.
 
-### Fase 1 — Hub mínimo
+### Etapa histórica 1 — Hub mínimo
 
 Implementar proyecto/membresía, mensajes persistentes, inbox por cursor, estado de agente y locks TTL. Probar API con dos clientes simulados.
 
-### Fase 2 — MCP local
+### Etapa histórica 2 — MCP local
 
 Implementar las siete herramientas, conexión `stdio`, retries, reconexión y recuperación desde cursor. Probar con dos procesos MCP locales y un Hub local.
 
-### Fase 3 — Dashboard mínimo
+### Etapa histórica 3 — Dashboard mínimo
 
 Mostrar mensajes, presencia, estados, locks y errores de conexión. La UI no añade permisos propios ni lógica duplicada del dominio.
 
-### Fase 4 — Seguridad y validación de uso
+### Etapa histórica 4 — Seguridad y validación de uso
 
 Invitaciones revocables, TLS de despliegue, rate limiting, auditoría, pruebas de aislamiento y una sesión real con dos agentes distintos. Medir rendimiento antes de optimizar.
 
-### Fase 5 — Después del MVP
+### Etapa histórica 5 — Después del MVP
 
 Evaluar tareas/dependencias, integración Git, sandbox Docker, notificaciones activas y adaptadores específicos de CLI sólo si la evidencia del MVP lo justifica.
 

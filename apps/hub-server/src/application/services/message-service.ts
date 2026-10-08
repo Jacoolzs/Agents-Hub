@@ -1,9 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
   AppError,
+  MAX_MESSAGE_BODY_BYTES,
   type Message,
   type SendMessageInput,
   SendMessageInputSchema,
+  containsObviousSecret,
   generateId,
   nowUtc,
 } from "@agents-hub/shared";
@@ -16,6 +18,11 @@ export class MessageService {
   ) {}
 
   public sendMessage(projectId: string, senderId: string, rawInput: SendMessageInput): Message {
+    if (
+      typeof rawInput?.body === "string" &&
+      Buffer.byteLength(rawInput.body, "utf8") > MAX_MESSAGE_BODY_BYTES
+    )
+      throw new AppError("MESSAGE_TOO_LARGE", "Message body exceeds 16 KiB");
     const parsed = SendMessageInputSchema.safeParse(rawInput);
     if (!parsed.success) {
       const err = parsed.error.errors[0]?.message ?? "Invalid message input";
@@ -26,9 +33,21 @@ export class MessageService {
     const messageId = generateId();
     const now = nowUtc();
     const recipientIds = input.recipient_agent_ids ?? [];
+    if (containsObviousSecret(input.body))
+      throw new AppError("INVALID_INPUT", "Remove credentials from the message before sending");
     const priority = input.priority ?? "normal";
 
     return this.eventBus.transaction(() => {
+      for (const recipient of recipientIds) {
+        if (
+          !this.db
+            .prepare(`SELECT 1 FROM agent_sessions s JOIN memberships m ON m.project_id = s.project_id AND m.user_id = s.user_id
+          WHERE s.project_id = ? AND s.agent_id = ?`)
+            .get(projectId, recipient)
+        ) {
+          throw new AppError("INVALID_INPUT", "Recipient is not an agent in this project");
+        }
+      }
       this.db
         .prepare(`
         INSERT INTO messages (message_id, project_id, sender_id, recipient_agent_ids, channel, body, priority, correlation_id, created_at)

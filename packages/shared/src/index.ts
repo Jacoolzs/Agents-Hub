@@ -8,3 +8,4 @@ export * from "./schemas/session.js";
 export * from "./schemas/message.js";
 export * from "./schemas/status.js";
 export * from "./schemas/lock.js";
+export * from "./schemas/commands.js";

@@ -13,25 +13,34 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
     fakeHub = {
       calls: [],
       mockResponses: {
-        "/v1/projects/proj-1/sessions": {
+        "/v1/projects/11111111-1111-4111-8111-111111111111/sessions": {
           session_id: "sess-123",
-          project_id: "proj-1",
+          project_id: "11111111-1111-4111-8111-111111111111",
           agent_id: "agent-alice",
         },
-        "/v1/projects/proj-1/inbox?limit=50": {
+        "/v1/projects/11111111-1111-4111-8111-111111111111/inbox?limit=50": {
           events: [{ sequence: 1, type: "agent.joined", payload: { agent_id: "agent-alice" } }],
           next_cursor: "cursor-1",
           has_more: false,
         },
-        "/v1/projects/proj-1/messages": {
-          message_id: "msg-1",
+        "/v1/projects/11111111-1111-4111-8111-111111111111/messages": {
+          message_id: "22222222-2222-4222-8222-222222222222",
+          project_id: "11111111-1111-4111-8111-111111111111",
+          sender_id: "agent-alice",
           body: "Hello team",
+          created_at: "2026-10-07T00:00:00.000Z",
         },
-        "/v1/projects/proj-1/locks/claim": {
-          lock_id: "lock-1",
+        "/v1/projects/11111111-1111-4111-8111-111111111111/locks/claim": {
+          lock_id: "33333333-3333-4333-8333-333333333333",
+          project_id: "11111111-1111-4111-8111-111111111111",
+          owner_agent_id: "agent-alice",
           paths: ["src/index.ts"],
+          reason: "Editing",
+          ttl_seconds: 300,
+          expires_at: "2026-10-07T00:05:00.000Z",
+          created_at: "2026-10-07T00:00:00.000Z",
         },
-        "/v1/projects/proj-1/team-status": {
+        "/v1/projects/11111111-1111-4111-8111-111111111111/team-status": {
           active_agents: [{ agent_id: "agent-alice" }],
           locks: [],
           statuses: [],
@@ -83,11 +92,14 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
     const server = createMcpServer({ hubClient: client });
 
     // Simulate tool call for join_project
-    const sessionRes = await client.createSession("proj-1", "agent-alice");
+    const sessionRes = await client.createSession(
+      "11111111-1111-4111-8111-111111111111",
+      "agent-alice",
+    );
     expect(sessionRes.session_id).toBe("sess-123");
 
     // Simulate inbox call
-    const inboxRes = await client.getInbox("proj-1");
+    const inboxRes = await client.getInbox("11111111-1111-4111-8111-111111111111");
     expect(inboxRes.events.length).toBe(1);
     expect(inboxRes.next_cursor).toBe("cursor-1");
 
@@ -97,20 +109,23 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
   });
 
   it("claims workspace locks and sends team messages", async () => {
-    const lockRes = await client.claimLock("proj-1", "sess-123", {
+    const lockRes = await client.claimLock("11111111-1111-4111-8111-111111111111", "sess-123", {
       paths: ["src/index.ts"],
       reason: "Refactor",
     });
-    expect(lockRes.lock_id).toBe("lock-1");
+    expect(lockRes.lock_id).toBe("33333333-3333-4333-8333-333333333333");
 
-    const msgRes = await client.sendMessage("proj-1", "sess-123", {
+    const msgRes = await client.sendMessage("11111111-1111-4111-8111-111111111111", "sess-123", {
       body: "Hello team",
     });
-    expect(msgRes.message_id).toBe("msg-1");
+    expect(msgRes.message_id).toBe("22222222-2222-4222-8222-222222222222");
   });
 
   it("validates MCP tool inputs using Zod schemas and returns isError on invalid input", async () => {
-    const server = createMcpServer({ hubClient: client, defaultProjectId: "proj-1" });
+    const server = createMcpServer({
+      hubClient: client,
+      defaultProjectId: "11111111-1111-4111-8111-111111111111",
+    });
 
     // Calling send_team_message before joining project
     // @ts-expect-error test direct handler invocation
@@ -134,7 +149,10 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
         method: "tools/call",
         params: {
           name: "join_project",
-          arguments: { project_id: "proj-1", agent_name: "agent-alice" },
+          arguments: {
+            project_id: "11111111-1111-4111-8111-111111111111",
+            agent_name: "agent-alice",
+          },
         },
       });
 
@@ -147,7 +165,7 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
         },
       });
       expect(invalidClaimRes.isError).toBe(true);
-      expect(invalidClaimRes.content[0].text).toContain("Invalid arguments for claim_module_lock");
+      expect(invalidClaimRes.content[0].text).toContain("Tool Execution Error");
     }
   });
 
@@ -177,7 +195,7 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
     // 2. Call join_project
     const joinRes = await mcpClient.callTool({
       name: "join_project",
-      arguments: { project_id: "proj-1", agent_name: "agent-alice" },
+      arguments: { project_id: "11111111-1111-4111-8111-111111111111", agent_name: "agent-alice" },
     });
     expect(joinRes.isError).toBeFalsy();
     const joinContent = joinRes.content as Array<{ type: string; text: string }>;
@@ -190,7 +208,7 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
     });
     expect(sendRes.isError).toBeFalsy();
     const sendContent = sendRes.content as Array<{ type: string; text: string }>;
-    expect(sendContent[0]?.text).toContain("msg-1");
+    expect(sendContent[0]?.text).toContain("22222222-2222-4222-8222-222222222222");
 
     // 4. Call claim_module_lock
     const lockRes = await mcpClient.callTool({
@@ -199,7 +217,7 @@ describe("MCP Server Tools & Protocol (Phase 4)", () => {
     });
     expect(lockRes.isError).toBeFalsy();
     const lockContent = lockRes.content as Array<{ type: string; text: string }>;
-    expect(lockContent[0]?.text).toContain("lock-1");
+    expect(lockContent[0]?.text).toContain("33333333-3333-4333-8333-333333333333");
 
     // 5. Cleanup
     await mcpClient.close();

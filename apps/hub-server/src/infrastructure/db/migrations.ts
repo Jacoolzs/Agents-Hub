@@ -119,3 +119,41 @@ CREATE TABLE IF NOT EXISTS ws_tickets (
 );
 CREATE INDEX IF NOT EXISTS idx_ws_tickets_hash ON ws_tickets(ticket_hash);
 `;
+
+export const MIGRATIONS = [
+  { version: 1, sql: INITIAL_MIGRATION_SQL },
+  {
+    version: 2,
+    sql: `
+    ALTER TABLE agent_sessions ADD COLUMN last_sequence INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE auth_tokens ADD COLUMN project_id TEXT REFERENCES projects(project_id) ON DELETE CASCADE;
+    ALTER TABLE ws_tickets ADD COLUMN auth_token_id TEXT;
+    CREATE INDEX idx_ws_tickets_expiry ON ws_tickets(expires_at);
+    CREATE TABLE invitations (
+      invitation_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_by TEXT NOT NULL REFERENCES users(user_id),
+      role TEXT NOT NULL CHECK(role IN ('maintainer', 'collaborator', 'reader')),
+      expires_at TEXT NOT NULL, created_at TEXT NOT NULL,
+      revoked_at TEXT, consumed_at TEXT, consumed_by TEXT REFERENCES users(user_id)
+    );
+    CREATE INDEX idx_invitations_project ON invitations(project_id, created_at);
+    CREATE TABLE idempotency_records (
+      user_id TEXT NOT NULL, project_id TEXT NOT NULL,
+      operation TEXT NOT NULL, key TEXT NOT NULL, request_hash TEXT NOT NULL,
+      result TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, project_id, operation, key)
+    );
+    CREATE INDEX idx_idempotency_expiry ON idempotency_records(expires_at);
+  `,
+  },
+  {
+    version: 3,
+    sql: `CREATE TABLE project_sequences (project_id TEXT PRIMARY KEY REFERENCES projects(project_id) ON DELETE CASCADE, sequence INTEGER NOT NULL);
+    INSERT INTO project_sequences SELECT project_id, MAX(sequence) FROM events GROUP BY project_id;
+    CREATE INDEX idx_events_retention ON events(occurred_at);
+    CREATE INDEX idx_messages_retention ON messages(created_at);
+  `,
+  },
+];

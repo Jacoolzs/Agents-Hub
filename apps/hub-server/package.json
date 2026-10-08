@@ -6,6 +6,7 @@
   "main": "./dist/server.js",
   "scripts": {
     "build": "tsc -b",
+    "dev": "node --watch dist/server.js",
     "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run"

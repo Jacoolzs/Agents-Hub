@@ -3,13 +3,19 @@ import {
   AppError,
   type ClaimLockInput,
   ClaimLockInputSchema,
+  NormalizedWorkspacePathSchema,
+  ReleaseLockInputSchema,
+  RenewLockInputSchema,
   type WorkspaceLock,
+  containsObviousSecret,
   generateId,
   nowUtc,
 } from "@agents-hub/shared";
 import type { SqliteEventBus } from "../../infrastructure/event-bus/event-bus.js";
 
-function arePathsConflicting(pathA: string, pathB: string): boolean {
+function arePathsConflicting(rawA: string, rawB: string): boolean {
+  const pathA = NormalizedWorkspacePathSchema.parse(rawA);
+  const pathB = NormalizedWorkspacePathSchema.parse(rawB);
   if (pathA === pathB) return true;
   // Conflict if one is parent directory/prefix of the other
   if (pathA.startsWith(`${pathB}/`) || pathB.startsWith(`${pathA}/`)) return true;
@@ -29,6 +35,8 @@ export class LockService {
       throw new AppError("INVALID_INPUT", err);
     }
     const input = parsed.data;
+    if (containsObviousSecret(input.reason))
+      throw new AppError("INVALID_INPUT", "Remove credentials from lock reasons");
 
     const lockId = generateId();
     const now = nowUtc();
@@ -114,7 +122,15 @@ export class LockService {
     });
   }
 
-  public releaseLock(projectId: string, agentId: string, pathsToRelease: string[]): string[] {
+  public releaseLock(
+    projectId: string,
+    agentId: string,
+    rawPaths: string[],
+    isProjectOwner = false,
+  ): string[] {
+    const parsed = ReleaseLockInputSchema.safeParse({ paths: rawPaths });
+    if (!parsed.success) throw new AppError("INVALID_INPUT", "Invalid paths to release");
+    const pathsToRelease = parsed.data.paths;
     const now = nowUtc();
     return this.eventBus.transaction(() => {
       const activeStmt = this.db.prepare(`
@@ -130,12 +146,14 @@ export class LockService {
       const released: string[] = [];
 
       for (const lock of activeLocks) {
-        const paths = JSON.parse(lock.paths) as string[];
+        const paths = (JSON.parse(lock.paths) as string[]).map((path) =>
+          NormalizedWorkspacePathSchema.parse(path),
+        );
         const remaining = paths.filter((p) => !pathsToRelease.includes(p));
         const matched = paths.filter((p) => pathsToRelease.includes(p));
 
         if (matched.length > 0) {
-          if (lock.owner_agent_id !== agentId) {
+          if (lock.owner_agent_id !== agentId && !isProjectOwner) {
             throw new AppError(
               "LOCK_NOT_OWNER",
               `Cannot release lock owned by agent '${lock.owner_agent_id}'`,
@@ -171,7 +189,11 @@ export class LockService {
     agentId: string,
     lockId: string,
     ttlSeconds = 300,
+    isProjectOwner = false,
   ): WorkspaceLock {
+    const parsed = RenewLockInputSchema.safeParse({ ttl_seconds: ttlSeconds });
+    if (!parsed.success)
+      throw new AppError("INVALID_INPUT", "TTL must be an integer between 1 and 3600");
     const now = nowUtc();
     return this.eventBus.transaction(() => {
       const stmt = this.db.prepare(
@@ -194,7 +216,7 @@ export class LockService {
         throw new AppError("PROJECT_NOT_FOUND", `Lock ${lockId} not found in project ${projectId}`);
       }
 
-      if (lock.owner_agent_id !== agentId) {
+      if (lock.owner_agent_id !== agentId && !isProjectOwner) {
         throw new AppError("LOCK_NOT_OWNER", `Cannot renew lock owned by '${lock.owner_agent_id}'`);
       }
 
@@ -228,7 +250,12 @@ export class LockService {
     });
   }
 
-  public releaseLockById(projectId: string, agentId: string, lockId: string): void {
+  public releaseLockById(
+    projectId: string,
+    agentId: string,
+    lockId: string,
+    isProjectOwner = false,
+  ): void {
     this.eventBus.transaction(() => {
       const stmt = this.db.prepare(
         "SELECT * FROM workspace_locks WHERE lock_id = ? AND project_id = ?",
@@ -245,7 +272,7 @@ export class LockService {
         throw new AppError("PROJECT_NOT_FOUND", `Lock ${lockId} not found`);
       }
 
-      if (lock.owner_agent_id !== agentId) {
+      if (lock.owner_agent_id !== agentId && !isProjectOwner) {
         throw new AppError(
           "LOCK_NOT_OWNER",
           `Cannot release lock owned by '${lock.owner_agent_id}'`,
@@ -263,6 +290,7 @@ export class LockService {
   }
 
   public getActiveLocks(projectId: string): WorkspaceLock[] {
+    this.expireLocks(projectId);
     const now = nowUtc();
     const stmt = this.db.prepare(`
       SELECT * FROM workspace_locks
@@ -291,5 +319,27 @@ export class LockService {
       expires_at: r.expires_at,
       created_at: r.created_at,
     }));
+  }
+
+  public expireLocks(projectId?: string): number {
+    return this.eventBus.transaction(() => {
+      const rows = this.db
+        .prepare(`SELECT lock_id, project_id, owner_agent_id, paths
+        FROM workspace_locks WHERE expires_at <= ? ${projectId ? "AND project_id = ?" : ""}`)
+        .all(nowUtc(), ...(projectId ? [projectId] : [])) as Array<{
+        lock_id: string;
+        project_id: string;
+        owner_agent_id: string;
+        paths: string;
+      }>;
+      for (const row of rows) {
+        this.db.prepare("DELETE FROM workspace_locks WHERE lock_id = ?").run(row.lock_id);
+        this.eventBus.recordEvent(row.project_id, row.owner_agent_id, "lock.expired", {
+          lock_id: row.lock_id,
+          paths: JSON.parse(row.paths),
+        });
+      }
+      return rows.length;
+    });
   }
 }

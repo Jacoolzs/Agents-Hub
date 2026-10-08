@@ -1,14 +1,17 @@
 import type React from "react";
 import { useState } from "react";
-import { ErrorBanner, LoadingSpinner } from "../../components/States.js";
+import { ErrorBanner } from "../../components/States.js";
 import { useHub } from "../../context/HubContext.js";
-import { createProject, fetchProject, joinSession } from "../../lib/api.js";
+import { createProject, fetchProject, joinSession, membershipRequest } from "../../lib/api.js";
 
 export function ConnectView() {
   const { connect } = useHub();
 
   const [mode, setMode] = useState<"join" | "create">("join");
-  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:8787");
+  const [baseUrl, setBaseUrl] = useState(
+    window.location.port === "5173" ? "http://127.0.0.1:8787" : window.location.origin,
+  );
+  const [invitation, setInvitation] = useState("");
   const [token, setToken] = useState("");
   const [projectId, setProjectId] = useState("");
   const [projectName, setProjectName] = useState("");
@@ -49,6 +52,16 @@ export function ConnectView() {
       } else {
         if (!finalProjectId) {
           throw new Error("El ID del proyecto es requerido.");
+        }
+        if (invitation.trim()) {
+          await membershipRequest(
+            cleanBaseUrl,
+            cleanToken,
+            `/v1/projects/${encodeURIComponent(finalProjectId)}/invitations/accept`,
+            "POST",
+            { token: invitation.trim() },
+          );
+          setInvitation("");
         }
         const proj = await fetchProject(cleanBaseUrl, cleanToken, finalProjectId);
         finalProjectName = proj.name;
@@ -135,7 +148,7 @@ export function ConnectView() {
 
           <div>
             <label htmlFor="auth-token" className="block text-xs font-semibold text-slate-300 mb-1">
-              Token de Acceso / Invitación
+              Token de Acceso personal
             </label>
             <input
               id="auth-token"
@@ -147,6 +160,25 @@ export function ConnectView() {
               required
             />
           </div>
+
+          {mode === "join" && (
+            <div>
+              <label
+                htmlFor="invitation"
+                className="block text-xs font-semibold text-slate-300 mb-1"
+              >
+                Invitación (sólo la primera vez)
+              </label>
+              <input
+                id="invitation"
+                type="password"
+                value={invitation}
+                onChange={(e) => setInvitation(e.target.value)}
+                placeholder="ahi_..."
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm"
+              />
+            </div>
+          )}
 
           {mode === "join" ? (
             <div>

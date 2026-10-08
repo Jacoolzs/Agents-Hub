@@ -23,13 +23,16 @@ export class HubClient {
       method?: string;
       body?: unknown;
       timeoutMs?: number;
+      signal?: AbortSignal | undefined;
+      idempotencyKey?: string | undefined;
     } = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
     const method = options.method ?? "GET";
     const timeout = options.timeoutMs ?? this.timeoutMs;
 
-    return withRetry(async () => {
+    const execute = async () => {
+      options.signal?.throwIfAborted();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -40,8 +43,11 @@ export class HubClient {
             "Content-Type": "application/json",
             Authorization: `Bearer ${this.token}`,
             "x-request-id": crypto.randomUUID(),
+            ...(options.idempotencyKey ? { "idempotency-key": options.idempotencyKey } : {}),
           },
-          signal: controller.signal,
+          signal: options.signal
+            ? AbortSignal.any([controller.signal, options.signal])
+            : controller.signal,
         };
         if (options.body !== undefined) {
           fetchOptions.body = JSON.stringify(options.body);
@@ -62,17 +68,22 @@ export class HubClient {
       } finally {
         clearTimeout(timer);
       }
-    });
+    };
+    return method === "GET" || options.idempotencyKey
+      ? withRetry(execute, { signal: options.signal })
+      : execute();
   }
 
   public async createSession(projectId: string, agentId: string) {
-    return this.request<{ session_id: string; project_id: string; agent_id: string }>(
-      `/v1/projects/${projectId}/sessions`,
-      {
-        method: "POST",
-        body: { agent_id: agentId },
-      },
-    );
+    return this.request<{
+      session_id: string;
+      project_id: string;
+      agent_id: string;
+      last_cursor?: string;
+    }>(`/v1/projects/${projectId}/sessions`, {
+      method: "POST",
+      body: { agent_id: agentId },
+    });
   }
 
   public async heartbeat(sessionId: string, projectId: string, agentId: string) {
@@ -82,7 +93,21 @@ export class HubClient {
     });
   }
 
-  public async getInbox(projectId: string, sessionId?: string, cursor?: string, limit = 50) {
+  public async disconnect(sessionId: string, projectId: string, agentId: string) {
+    return this.request(`/v1/sessions/${sessionId}`, {
+      method: "DELETE",
+      body: { project_id: projectId, agent_id: agentId },
+      timeoutMs: 1500,
+    });
+  }
+
+  public async getInbox(
+    projectId: string,
+    sessionId?: string,
+    cursor?: string,
+    limit = 50,
+    signal?: AbortSignal,
+  ) {
     let qs = `?limit=${limit}`;
     if (cursor) qs += `&after=${encodeURIComponent(cursor)}`;
     if (sessionId) qs += `&session_id=${encodeURIComponent(sessionId)}`;
@@ -90,7 +115,7 @@ export class HubClient {
       events: Array<{ sequence: number; type: string; payload: unknown }>;
       next_cursor: string;
       has_more: boolean;
-    }>(`/v1/projects/${projectId}/inbox${qs}`);
+    }>(`/v1/projects/${projectId}/inbox${qs}`, { signal });
   }
 
   public async ackInbox(projectId: string, sessionId: string, cursor: string) {
@@ -110,9 +135,11 @@ export class HubClient {
       priority?: string | undefined;
       correlation_id?: string | undefined;
     },
+    idempotencyKey: string = crypto.randomUUID(),
   ) {
     return this.request(`/v1/projects/${projectId}/messages`, {
       method: "POST",
+      idempotencyKey,
       body: {
         session_id: sessionId,
         ...body,
@@ -130,9 +157,11 @@ export class HubClient {
       blocked_by?: string | undefined;
       next_step?: string | undefined;
     },
+    idempotencyKey: string = crypto.randomUUID(),
   ) {
     return this.request(`/v1/projects/${projectId}/status`, {
       method: "POST",
+      idempotencyKey,
       body: {
         session_id: sessionId,
         ...body,
@@ -148,9 +177,11 @@ export class HubClient {
       reason: string;
       ttl_seconds?: number | undefined;
     },
+    idempotencyKey: string = crypto.randomUUID(),
   ) {
     return this.request(`/v1/projects/${projectId}/locks/claim`, {
       method: "POST",
+      idempotencyKey,
       body: {
         session_id: sessionId,
         ...body,
@@ -166,6 +197,7 @@ export class HubClient {
   ) {
     return this.request(`/v1/projects/${projectId}/locks/${lockId}/renew`, {
       method: "POST",
+      idempotencyKey: crypto.randomUUID(),
       body: {
         session_id: sessionId,
         ttl_seconds: ttlSeconds,
@@ -176,6 +208,7 @@ export class HubClient {
   public async releaseLockById(projectId: string, sessionId: string, lockId: string) {
     return this.request(`/v1/projects/${projectId}/locks/${lockId}`, {
       method: "DELETE",
+      idempotencyKey: crypto.randomUUID(),
       body: {
         session_id: sessionId,
       },
@@ -185,6 +218,7 @@ export class HubClient {
   public async releaseLock(projectId: string, sessionId: string, paths: string[]) {
     return this.request(`/v1/projects/${projectId}/locks`, {
       method: "DELETE",
+      idempotencyKey: crypto.randomUUID(),
       body: {
         session_id: sessionId,
         paths,

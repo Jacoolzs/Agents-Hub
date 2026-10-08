@@ -31,7 +31,118 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   if (server) {
     await server.close();
+    server.ctx.db.close();
   }
+});
+
+test("invitación UI con identidades distintas y revocación de acceso", async ({
+  page,
+  browser,
+}) => {
+  const friendId = crypto.randomUUID();
+  server.ctx.db
+    .prepare("INSERT INTO users VALUES (?, ?, ?)")
+    .run(friendId, "e2e-friend", new Date().toISOString());
+  const friendToken = server.ctx.authService.createToken(friendId, "agents-hub");
+  await page.goto("/");
+  await page.fill("#hub-url", HUB_URL);
+  await page.fill("#auth-token", authToken);
+  await page.fill("#project-id", testProjectId);
+  await page.fill("#agent-id", "invite-owner");
+  await page.click("button[type=submit]");
+  await page.getByTestId("tab-members").click();
+  await page.getByRole("button", { name: "Crear invitación" }).click();
+  await expect(page.locator("#new-invitation")).toHaveValue(/^ahi_/);
+  const invitation = await page.locator("#new-invitation").inputValue();
+  const context = await browser.newContext();
+  const friendPage = await context.newPage();
+  try {
+    await friendPage.goto("/");
+    await friendPage.fill("#hub-url", HUB_URL);
+    await friendPage.fill("#auth-token", friendToken);
+    await friendPage.fill("#project-id", testProjectId);
+    await friendPage.fill("#agent-id", "friend-dashboard");
+    await friendPage.fill("#invitation", invitation);
+    await friendPage.click("button[type=submit]");
+    await expect(friendPage.getByText("Conectado (WS)")).toBeVisible();
+    await friendPage.locator("textarea").fill("Mensaje de un amigo con identidad propia");
+    await friendPage.getByRole("button", { name: "Enviar", exact: true }).click();
+    await page.getByTestId("tab-messages").click();
+    await expect(page.getByText("Mensaje de un amigo con identidad propia")).toHaveCount(1);
+    await server.inject({
+      method: "DELETE",
+      url: `/v1/projects/${testProjectId}/members/${friendId}`,
+      headers: { authorization: `Bearer ${authToken}` },
+    });
+    await expect(friendPage.getByText("Conectado (WS)")).toHaveCount(0);
+    await expect
+      .poll(() =>
+        server.ctx.sessionService
+          .getActiveSessions(testProjectId)
+          .some((s) => s.agent_id === "friend-dashboard"),
+      )
+      .toBe(false);
+  } finally {
+    await context.close();
+  }
+});
+
+test("recupera un ACK fallido con WS abierto sin duplicados y polling si WS no vuelve", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.fill("#hub-url", HUB_URL);
+  await page.fill("#auth-token", authToken);
+  await page.fill("#project-id", testProjectId);
+  await page.fill("#agent-id", "ack-recovery");
+  await page.click("button[type=submit]");
+  await expect(page.getByText("Conectado (WS)")).toBeVisible();
+  let failed = false;
+  await page.route("**/inbox/ack", async (route) => {
+    if (!failed) {
+      failed = true;
+      await route.fulfill({
+        status: 429,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "RATE_LIMITED", message: "Retry ACK" } }),
+      });
+    } else await route.continue();
+  });
+  server.ctx.messageService.sendMessage(testProjectId, "invite-owner", {
+    body: "ACK perdido, mensaje único",
+    channel: "general",
+    priority: "normal",
+  });
+  await expect(page.getByText("ACK perdido, mensaje único")).toHaveCount(1);
+  await expect(page.getByText("Límite de peticiones alcanzado")).toBeVisible();
+  await expect(page.getByText("Límite de peticiones alcanzado")).toHaveCount(0, { timeout: 7000 });
+  await expect(page.getByText("ACK perdido, mensaje único")).toHaveCount(1);
+  await page.route("**/ws-ticket", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "INTERNAL_ERROR", message: "WS unavailable" } }),
+    }),
+  );
+  await page.evaluate(() =>
+    (
+      window as unknown as { __agentsHubTestRealtime: { forceCloseSocketForTest(): void } }
+    ).__agentsHubTestRealtime.forceCloseSocketForTest(),
+  );
+  server.ctx.messageService.sendMessage(testProjectId, "invite-owner", {
+    body: "Recibido mediante polling",
+    channel: "general",
+    priority: "normal",
+  });
+  await expect(page.getByText("Recibido mediante polling")).toHaveCount(1, { timeout: 8000 });
+  await page.getByRole("button", { name: "Desconectar", exact: true }).click();
+  await expect
+    .poll(() =>
+      server.ctx.sessionService
+        .getActiveSessions(testProjectId)
+        .some((s) => s.agent_id === "ack-recovery"),
+    )
+    .toBe(false);
 });
 
 test.describe("Agents-Hub Web Dashboard (Producción y Resiliencia)", () => {
@@ -206,7 +317,7 @@ test.describe("Agents-Hub Web Dashboard (Producción y Resiliencia)", () => {
       .not.toBeNull();
   });
 
-  test("evita solicitudes redundantes al inbox mientras el WebSocket está conectado", async ({
+  test("evita polling periódico y recibe mensajes nuevos por WebSocket activo", async ({
     page,
   }) => {
     let inboxRequestsCount = 0;
@@ -240,5 +351,13 @@ test.describe("Agents-Hub Web Dashboard (Producción y Resiliencia)", () => {
     // Asegurarse de que MessageFeed NO está ejecutando interval polling redundante
     // No deberían haberse realizado nuevas solicitudes al inbox
     expect(inboxRequestsCount).toBe(initialCount);
+
+    server.ctx.sessionService.joinProject(testProjectId, "live-sender", testUserId);
+    server.ctx.messageService.sendMessage(testProjectId, "live-sender", {
+      channel: "general",
+      body: "Evento vivo después del recovery inicial",
+      priority: "normal",
+    });
+    await expect(page.getByText("Evento vivo después del recovery inicial")).toHaveCount(1);
   });
 });

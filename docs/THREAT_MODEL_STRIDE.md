@@ -49,21 +49,21 @@ Agents-Hub es un sistema distribuido ligero compuesto por:
 ### Dominio 2: Proyectos y Aislamiento Multitenant
 - **Amenaza: Acceso Cruzado entre Proyectos (I - Information Disclosure / T - Tampering):**
   - *Mitigación:* Cada operación en el Hub ejecuta invariablemente `authService.checkProjectPermission(userId, projectId)`. Si el usuario no pertenece al proyecto o carece del rol necesario, la llamada falla inmediatamente con `FORBIDDEN` (HTTP 403).
-  - *Mitigación en DB:* Claves foráneas estrictas (`REFERENCES projects(project_id) ON DELETE CASCADE`) e índices compuestos por `(project_id, sequence)` y `(project_id, path)`.
+  - *Mitigación en DB:* Claves foráneas estrictas (`REFERENCES projects(project_id) ON DELETE CASCADE`), unicidad e índice `(project_id, sequence)` y lookup de locks por `(project_id, expires_at)`. Rutas son JSON y sus conflictos se comparan en el servicio; no existe índice por path.
 
 ### Dominio 3: Mensajería y Visibilidad Selectiva
 - **Amenaza: Fuga de Mensajes Dirigidos (I - Information Disclosure):**
   - *Mitigación:* `isEventVisibleToAgent()` filtra eventos tanto en la consulta histórica de `/inbox` como en el broadcast en vivo de `WebSocketHub`. Si un mensaje tiene `recipient_agent_ids`, sólo el remitente y los destinatarios autorizados reciben la trama. Para observadores ajenos, el evento es completamente invisible.
 - **Amenaza: Payloads Excesivos (D - Denial of Service):**
-  - *Mitigación:* Esquemas Zod imponen límite de 16 KiB en el cuerpo del mensaje (`MAX_MESSAGE_BODY_BYTES`) y 64 KiB en el payload de eventos (`MAX_EVENT_PAYLOAD_BYTES`), validados isomórficamente en backend y frontend.
+  - *Mitigación:* Esquemas compartidos imponen 16 KiB al mensaje y 64 KiB al envelope. Hub valida entradas, limita cuerpos HTTP y frames WS a 64 KiB; MCP valida envelopes recibidos y resultados de mensaje/estado/claim. No se afirma validación runtime universal de cada respuesta del navegador.
 
 ### Dominio 4: Workspace Locks
 - **Amenaza: Bloqueo Permanente o Malicioso de Rutas (D - Denial of Service):**
   - *Mitigación:*
     - Todos los locks tienen un `ttl_seconds` con valor por defecto (300s) y expiración automática garantizada.
-    - Validación estricta de rutas con `WorkspacePathSchema`: prohíbe rutas vacías, traversal (`..`, `.`), rutas absolutas (`/` o `C:`) y bytes nulos.
+    - Validación estricta con `NormalizedWorkspacePathSchema`: prohíbe rutas vacías, traversal (`..`, `.`), rutas absolutas (`/` o `C:`), bytes nulos y wildcards. Canoniza barras Windows/repetidas y slash final.
     - Detección jerárquica de colisiones: bloquear `src/api` previene que otro agente reclame `src/api/auth.ts`, y viceversa.
-    - Sólo el agente propietario de la sesión puede renovar (`POST /locks/:lockId/renew`) o liberar (`DELETE /locks/:lockId`) sus locks.
+    - Propietario controla sus locks; owner del proyecto tiene override explícito. TTL de claim/renew entre 1 y 3600 segundos. Expiración elimina fila y emite evento transaccional una vez.
 
 ### Dominio 5: WebSocket Streams
 - **Amenaza: Secuestro de Conexión y Orígenes Maliciosos (S - Spoofing / T - Tampering):**
@@ -73,9 +73,9 @@ Agents-Hub es un sistema distribuido ligero compuesto por:
 
 ### Dominio 6: Dashboard Web y Superficie Humana
 - **Amenaza: Filtración de Razonamiento Interno o Chain of Thought (I - Information Disclosure):**
-  - *Mitigación:* El Dashboard Web y el servidor MCP descartan explícitamente cualquier volcado de pensamientos internos o tokens crudos. Sólo se transmiten resúmenes estructurados de estado (`objective`, `decision`, `blocked_by`, `next_step`).
+  - *Mitigación:* Contrato y reglas de uso piden resúmenes (`objective`, `decision`, `blocked_by`, `next_step`) y prohíben razonamiento privado. Se rechazan credenciales con prefijos obvios/Bearer/claves privadas en mensajes, estado y razón de lock. Es defensa básica, sin detector general de secretos ni descarte semántico automático de pensamientos.
 - **Amenaza: Solicitudes Redundantes (D - Denial of Service):**
-  - *Mitigación:* Desduplicación de responsabilidades: `MessageFeed` no ejecuta polling continuo; `RealtimeManager` es el único responsable que activa el inbox fallback exclusivamente cuando el socket cae.
+  - *Mitigación:* `RealtimeManager` es la única autoridad del inbox: lectura incremental ordenada, ACK después de entrega al estado UI, deduplicación ante retry, polling cuando WS cae y retry visible si falla inbox/ACK con WS abierto. `MessageFeed` consume ese estado y no relee el historial por evento.
 
 ---
 
@@ -83,8 +83,10 @@ Agents-Hub es un sistema distribuido ligero compuesto por:
 
 | Control | Mecanismo | Frecuencia / Detección |
 |---|---|---|
-| **Rate Limiting** | Memoria con ventana deslizante por IP y por token (429 `RATE_LIMITED`). | Continuo en middleware Fastify. |
+| **Rate Limiting** | Ventana deslizante por IP y sujeto verificado; varios tokens de una cuenta comparten cuota (429 `RATE_LIMITED`). | Continuo en middleware Fastify. |
 | **Auditoría de Acciones** | `audit_entries` en SQLite con actor, acción y timestamp UTC. | Por cada mutación crítica. |
 | **Sanitización de Logs** | Redactor de expresiones regulares para `ah_*`, `wst_*` y `Authorization`. | En logger de Fastify y errores. |
 | **Integridad de Base de Datos** | Transacciones ACID y `PRAGMA foreign_keys = ON;`. | En cada operación de escritura. |
-| **Resiliencia Operativa** | `/health/live` y `/health/ready` con chequeo de WAL y memoria. | Monitoreo sintético y balanceador. |
+| **Resiliencia Operativa** | Live/readiness SQLite; información de WAL/memoria sólo en desarrollo/test. Supervisor PC probado por IPC, backup/restore y reinicio íntegro. | Smoke público efímero y pruebas locales; sin garantía de servicio continuo. |
+
+Invitaciones: hash SHA-256, TTL, revocación y consumo atómico con membresía; identidades provisionadas por CLI local. Scopes y roles se intersectan. Tickets se vinculan al token emisor y sockets revalidan token/membresía/sesión al conectar, ante eventos y periódicamente; revocación HTTP cierra inmediatamente, CLI al siguiente evento/mantenimiento. CI remoto y sesión con productos LLM diferentes siguen pendientes, según `MVP_CLOSEOUT.md`.

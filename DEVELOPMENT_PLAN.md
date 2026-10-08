@@ -515,6 +515,8 @@ Commit:
 
 ## 11. Orden exacto recomendado
 
+Estado de cierre actualizado: consultar [docs/MVP_CLOSEOUT.md](docs/MVP_CLOSEOUT.md) para el orden detallado, archivos, contratos y aceptación de pendientes verificados tras Fase 6; [docs/OPERATIONS.md](docs/OPERATIONS.md) para ejecución y recuperación. Las entradas históricas de “fase completada” no sustituyen esta comprobación final de aceptación.
+
 No alterar este orden salvo una decisión registrada:
 
 1. Fase 0: monorepo y calidad.

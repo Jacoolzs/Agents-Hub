@@ -7,6 +7,7 @@ export class SqliteEventBus {
   private listeners: Set<EventListener> = new Set();
   private inTransaction = false;
   private pendingEvents: EventEnvelope[] = [];
+  private savepoint = 0;
 
   constructor(private readonly db: DatabaseSync) {}
 
@@ -37,7 +38,21 @@ export class SqliteEventBus {
   }
 
   public transaction<T>(fn: () => T): T {
-    this.db.exec("BEGIN TRANSACTION;");
+    if (this.inTransaction) {
+      const name = `nested_${++this.savepoint}`;
+      const pendingLength = this.pendingEvents.length;
+      this.db.exec(`SAVEPOINT ${name};`);
+      try {
+        const result = fn();
+        this.db.exec(`RELEASE SAVEPOINT ${name};`);
+        return result;
+      } catch (error) {
+        this.db.exec(`ROLLBACK TO SAVEPOINT ${name}; RELEASE SAVEPOINT ${name};`);
+        this.pendingEvents.length = pendingLength;
+        throw error;
+      }
+    }
+    this.db.exec("BEGIN IMMEDIATE;");
     this.beginTransaction();
     try {
       const result = fn();
@@ -67,13 +82,11 @@ export class SqliteEventBus {
     type: EventType,
     payload: Record<string, unknown>,
   ): EventEnvelope {
-    const nextSeqStmt = this.db.prepare(`
-      SELECT COALESCE(MAX(sequence), 0) + 1 AS next_seq
-      FROM events
-      WHERE project_id = ?
-    `);
-    const row = nextSeqStmt.get(projectId) as { next_seq: number };
-    const sequence = row.next_seq;
+    const row = this.db
+      .prepare(`INSERT INTO project_sequences (project_id, sequence) VALUES (?, 1)
+      ON CONFLICT(project_id) DO UPDATE SET sequence = sequence + 1 RETURNING sequence`)
+      .get(projectId) as { sequence: number };
+    const sequence = row.sequence;
     const eventId = generateId();
     const occurredAt = nowUtc();
 
@@ -113,13 +126,10 @@ export class SqliteEventBus {
   }
 
   public getMaxSequence(projectId: string): number {
-    const stmt = this.db.prepare(`
-      SELECT COALESCE(MAX(sequence), 0) AS max_seq
-      FROM events
-      WHERE project_id = ?
-    `);
-    const row = stmt.get(projectId) as { max_seq: number } | undefined;
-    return row?.max_seq ?? 0;
+    const row = this.db
+      .prepare("SELECT sequence FROM project_sequences WHERE project_id = ?")
+      .get(projectId) as { sequence: number } | undefined;
+    return row?.sequence ?? 0;
   }
 
   public getEventBySequence(projectId: string, sequence: number): EventEnvelope | undefined {

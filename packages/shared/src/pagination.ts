@@ -36,9 +36,11 @@ export function encodeCursor(sequence: number): string {
 
 export function decodeCursor(cursor: string): number | null {
   try {
+    if (!CursorSchema.safeParse(cursor).success) return null;
     const raw = fromBase64Url(cursor);
-    const num = Number.parseInt(raw, 10);
-    return Number.isSafeInteger(num) && num > 0 ? num : null;
+    if (!/^(0|[1-9][0-9]*)$/.test(raw)) return null;
+    const num = Number(raw);
+    return Number.isSafeInteger(num) && num >= 0 && encodeCursor(num) === cursor ? num : null;
   } catch {
     return null;
   }

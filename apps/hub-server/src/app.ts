@@ -1,25 +1,35 @@
+import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { EnvConfig } from "@agents-hub/config";
 import {
   AppError,
   ClaimLockInputSchema,
+  CreateProjectInputSchema,
+  JoinSessionInputSchema,
+  MAX_MESSAGE_BODY_BYTES,
   ReportStatusInputSchema,
   SendMessageInputSchema,
+  SessionActionInputSchema,
+  UuidSchema,
   decodeCursor,
   encodeCursor,
 } from "@agents-hub/shared";
 import fastifyCors from "@fastify/cors";
 import fastifyWebsocket from "@fastify/websocket";
-import fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import fastify, { LogController, type FastifyInstance, type FastifyRequest } from "fastify";
 import { isEventVisibleToAgent } from "./application/policies/event-visibility.js";
 import { AuditService } from "./application/services/audit-service.js";
+import { IdempotencyService } from "./application/services/idempotency-service.js";
 import { LockService } from "./application/services/lock-service.js";
+import { MembershipService } from "./application/services/membership-service.js";
 import { MessageService } from "./application/services/message-service.js";
 import { ProjectService } from "./application/services/project-service.js";
 import { SessionService } from "./application/services/session-service.js";
 import { StatusService } from "./application/services/status-service.js";
 import { WsTicketService } from "./application/services/ws-ticket-service.js";
 import { type AuthContext, AuthService } from "./http/auth/auth-service.js";
+import { registerMembershipRoutes } from "./http/routes/membership-routes.js";
+import { registerStaticRoutes } from "./http/routes/static-routes.js";
 import { WebSocketHub } from "./http/websocket/ws-hub.js";
 import { createDatabase } from "./infrastructure/db/database.js";
 import { SqliteEventBus } from "./infrastructure/event-bus/event-bus.js";
@@ -39,6 +49,8 @@ export interface AppContext {
   auditService: AuditService;
   wsTicketService: WsTicketService;
   rateLimiter: RateLimiter;
+  membershipService: MembershipService;
+  idempotencyService: IdempotencyService;
 }
 
 export function buildApp(
@@ -48,7 +60,7 @@ export function buildApp(
 ): FastifyInstance & { ctx: AppContext } {
   const db = customDb ?? createDatabase(config?.DATABASE_URL ?? ":memory:");
   const eventBus = new SqliteEventBus(db);
-  const wsHub = new WebSocketHub();
+  const wsHub = new WebSocketHub(1024 * 1024, config?.WS_MAX_CONNECTIONS ?? 200);
   eventBus.subscribe((event) => wsHub.broadcast(event));
 
   const authService = new AuthService(db);
@@ -59,11 +71,13 @@ export function buildApp(
   const lockService = new LockService(db, eventBus);
   const auditService = new AuditService(db);
   const wsTicketService = new WsTicketService(db);
+  const membershipService = new MembershipService(db, eventBus, authService, auditService);
+  const idempotencyService = new IdempotencyService(db, eventBus);
   const rateLimiter =
     customRateLimiter ??
     new RateLimiter({
-      ipRule: { windowMs: 60_000, max: 300 },
-      identityRule: { windowMs: 60_000, max: 250 },
+      ipRule: { windowMs: 60_000, max: config?.RATE_LIMIT_IP_PER_MINUTE ?? 60000 },
+      identityRule: { windowMs: 60_000, max: config?.RATE_LIMIT_USER_PER_MINUTE ?? 3000 },
     });
 
   const ctx: AppContext = {
@@ -79,10 +93,30 @@ export function buildApp(
     auditService,
     wsTicketService,
     rateLimiter,
+    membershipService,
+    idempotencyService,
   };
 
   const app = fastify({
-    logger: false,
+    logger: {
+      level: config?.LOG_LEVEL ?? "silent",
+      redact: {
+        paths: [
+          "req.headers.authorization",
+          "req.headers.cookie",
+          "token",
+          "ticket",
+          "AGENTS_HUB_TOKEN",
+          "body",
+        ],
+        censor: "[REDACTED]",
+      },
+      serializers: {
+        req: (req) => ({ method: req.method, url: req.url.split("?")[0] ?? "/" }),
+        err: (err) => ({ type: err.name, message: "Request failed", stack: "", code: err.code }),
+      },
+    },
+    logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 64 * 1024, // 64 KiB
   });
 
@@ -90,34 +124,106 @@ export function buildApp(
   (app as unknown as { ctx: AppContext }).ctx = ctx;
 
   // CORS
-  const corsOrigins = (config?.CORS_ORIGINS ?? "http://localhost:5173").split(",");
+  const corsOrigins = (config?.CORS_ORIGINS ?? "http://localhost:5173")
+    .split(",")
+    .map((origin) => origin.trim());
+  if (corsOrigins.includes("*") && config?.NODE_ENV === "production")
+    throw new Error("Production requires an exact CORS allowlist");
   void app.register(fastifyCors, {
     origin: corsOrigins,
-    credentials: true,
+    credentials: !corsOrigins.includes("*"),
   });
 
   // WebSocket
-  void app.register(fastifyWebsocket);
+  void app.register(fastifyWebsocket, {
+    options: { maxPayload: 64 * 1024, perMessageDeflate: false },
+  });
 
   // Hook to handle requestId, rate limiting and header security
   app.addHook("onRequest", async (req, reply) => {
-    const reqId = (req.headers["x-request-id"] as string) || crypto.randomUUID();
+    const inputId = req.headers["x-request-id"];
+    const reqId =
+      typeof inputId === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(inputId)
+        ? inputId
+        : crypto.randomUUID();
     reply.header("x-request-id", reqId);
+    req.id = reqId;
 
     // Apply rate limiting on non-health endpoints
     if (!req.url.startsWith("/health")) {
-      const authHeader = req.headers.authorization;
-      const authIdentity = authHeader?.startsWith("Bearer ")
-        ? authHeader.substring(7).trim()
-        : undefined;
+      let authIdentity: string | undefined;
+      if (req.headers.authorization) {
+        try {
+          authIdentity = getAuth(req).userId;
+        } catch (error) {
+          rateLimiter.check(req, reply);
+          throw error;
+        }
+      }
       rateLimiter.check(req, reply, authIdentity);
     }
   });
 
+  app.addHook("onResponse", async (req, reply) => {
+    const auth = authCache.get(req);
+    app.log.info(
+      {
+        request_id: reply.getHeader("x-request-id"),
+        method: req.method,
+        path: req.routeOptions.url ?? "/unmatched",
+        status: reply.statusCode,
+        ...(auth
+          ? { actor_id: createHash("sha256").update(auth.userId).digest("hex").slice(0, 16) }
+          : {}),
+        ...((req.params as { projectId?: string })?.projectId
+          ? {
+              project_id: createHash("sha256")
+                .update((req.params as { projectId: string }).projectId)
+                .digest("hex")
+                .slice(0, 16),
+            }
+          : {}),
+      },
+      "request.completed",
+    );
+  });
+
+  const maintenance = setInterval(
+    () => {
+      try {
+        lockService.expireLocks();
+        sessionService.expireSessions(config?.SESSION_IDLE_SECONDS, config?.SESSION_EXPIRE_SECONDS);
+        wsTicketService.cleanup();
+        wsHub.revalidate();
+        const before = new Date(
+          Date.now() - (config?.EVENT_RETENTION_DAYS ?? 30) * 86400000,
+        ).toISOString();
+        eventBus.transaction(() => {
+          db.prepare("DELETE FROM events WHERE occurred_at < ?").run(before);
+          db.prepare("DELETE FROM messages WHERE created_at < ?").run(before);
+          db.prepare(
+            "DELETE FROM status_reports WHERE reported_at < ? AND status_id NOT IN (SELECT status_id FROM status_reports s WHERE reported_at = (SELECT MAX(reported_at) FROM status_reports WHERE project_id = s.project_id AND agent_id = s.agent_id))",
+          ).run(before);
+          db.prepare("DELETE FROM idempotency_records WHERE expires_at <= ?").run(
+            new Date().toISOString(),
+          );
+        });
+      } catch (error) {
+        app.log.error({ err: error }, "maintenance.failed");
+      }
+    },
+    (config?.MAINTENANCE_INTERVAL_SECONDS ?? 15) * 1000,
+  );
+  maintenance.unref();
+
+  app.addHook("preClose", async () => {
+    wsHub.closeAll(1001, "Server shutting down");
+  });
   // Graceful shutdown hook
   app.addHook("onClose", async () => {
     wsHub.closeAll(1001, "Server shutting down");
     rateLimiter.destroy();
+    clearInterval(maintenance);
   });
 
   app.setErrorHandler((error, req, reply) => {
@@ -135,8 +241,22 @@ export function buildApp(
         SESSION_EXPIRED: 401,
         RATE_LIMITED: 429,
         INTERNAL_ERROR: 500,
+        IDEMPOTENCY_CONFLICT: 409,
+        STATE_CONFLICT: 409,
       };
       const statusCode = statusMap[error.code] ?? 500;
+      const rejectedAuth = authCache.get(req);
+      if (rejectedAuth && ["POST", "PATCH", "DELETE"].includes(req.method)) {
+        const rejectedProject = (req.params as { projectId?: string })?.projectId;
+        auditService.logAction(
+          rejectedAuth.userId,
+          "request.reject",
+          req.routeOptions.url ?? "unknown",
+          "failure",
+          requestId,
+          UuidSchema.safeParse(rejectedProject).success ? rejectedProject : undefined,
+        );
+      }
       return reply.status(statusCode).send({
         error: {
           code: error.code,
@@ -151,21 +271,36 @@ export function buildApp(
     const err = error as { statusCode?: number; message?: string };
     return reply.status(err.statusCode ?? 500).send({
       error: {
-        code: "INTERNAL_ERROR",
-        message: (redactSecrets(err.message) as string) || "An unexpected error occurred",
+        code:
+          err.statusCode === 413
+            ? "MESSAGE_TOO_LARGE"
+            : err.statusCode === 400
+              ? "INVALID_INPUT"
+              : "INTERNAL_ERROR",
+        message:
+          err.statusCode === 413
+            ? "Request body too large"
+            : err.statusCode === 400
+              ? "Invalid request"
+              : "An unexpected error occurred",
         request_id: requestId,
       },
       request_id: requestId,
     });
   });
 
+  const authCache = new WeakMap<FastifyRequest, AuthContext>();
   function getAuth(req: FastifyRequest): AuthContext {
+    const cached = authCache.get(req);
+    if (cached) return cached;
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       throw new AppError("UNAUTHENTICATED", "Missing or malformed Authorization header");
     }
     const token = authHeader.substring(7).trim();
-    return authService.verifyToken(token);
+    const auth = authService.verifyToken(token);
+    authCache.set(req, auth);
+    return auth;
   }
 
   function requireScope(auth: AuthContext, requiredScope: string): void {
@@ -184,7 +319,53 @@ export function buildApp(
     if (requiredScope) {
       requireScope(auth, requiredScope);
     }
+    const params = req.params as { projectId?: string };
+    const body = req.body as { project_id?: string } | undefined;
+    const requestedProject = params?.projectId ?? body?.project_id;
+    if (auth.projectId && requestedProject && auth.projectId !== requestedProject)
+      throw new AppError("FORBIDDEN", "Token is bound to another project");
+    if (
+      params?.projectId &&
+      requiredScope?.endsWith(":write") &&
+      requiredScope !== "sessions:write"
+    ) {
+      authService.checkProjectPermission(auth.userId, params.projectId, true);
+    }
     return auth.userId;
+  }
+
+  function command<T>(
+    req: FastifyRequest,
+    userId: string,
+    projectId: string,
+    operation: string,
+    payload: unknown,
+    fn: () => T,
+    bodyKey?: unknown,
+  ): T {
+    return idempotencyService.execute(
+      userId,
+      projectId,
+      operation,
+      bodyKey ?? req.headers["idempotency-key"],
+      payload,
+      () =>
+        eventBus.transaction(() => {
+          const result = fn();
+          if (operation === "message.create" || operation === "status.report") {
+            const entity = result as { message_id?: string; status_id?: string };
+            auditService.logAction(
+              userId,
+              operation,
+              entity.message_id ?? entity.status_id ?? projectId,
+              "success",
+              String(req.id),
+              projectId,
+            );
+          }
+          return result;
+        }),
+    );
   }
 
   // --- HEALTH ENDPOINTS ---
@@ -196,6 +377,8 @@ export function buildApp(
       if (!dbCheck || dbCheck.ready !== 1) {
         throw new Error("SQLite readiness check failed");
       }
+      if (config?.NODE_ENV === "production")
+        return { status: "ready", request_id: reply.getHeader("x-request-id") };
 
       const journalMode = (
         db.prepare("PRAGMA journal_mode;").get() as { journal_mode?: string } | undefined
@@ -231,14 +414,17 @@ export function buildApp(
   });
 
   // --- V1 ROUTES ---
+  registerMembershipRoutes(app, ctx, getAuthenticatedUserId);
+  if (config?.WEB_STATIC_DIR) registerStaticRoutes(app, config.WEB_STATIC_DIR);
 
   // Projects
   app.post("/v1/projects", async (req, reply) => {
     const userId = getAuthenticatedUserId(req, "projects:write");
-    const body = req.body as { name?: string; username?: string };
-    if (!body?.name) {
-      throw new AppError("INVALID_INPUT", "Project name is required");
-    }
+    if (getAuth(req).projectId)
+      throw new AppError("FORBIDDEN", "Project-bound tokens cannot create projects");
+    const parsed = CreateProjectInputSchema.safeParse(req.body);
+    if (!parsed.success) throw new AppError("INVALID_INPUT", "Invalid project name or username");
+    const body = parsed.data;
     const result = projectService.createProject(body.name, userId, body.username ?? "user");
     const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
     auditService.logAction(
@@ -265,10 +451,9 @@ export function buildApp(
     const userId = getAuthenticatedUserId(req, "sessions:write");
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
-    const body = req.body as { agent_id?: string };
-    if (!body?.agent_id) {
-      throw new AppError("INVALID_INPUT", "agent_id is required");
-    }
+    const parsed = JoinSessionInputSchema.safeParse(req.body);
+    if (!parsed.success) throw new AppError("INVALID_INPUT", "Invalid agent ID");
+    const body = parsed.data;
     const session = sessionService.joinProject(projectId, body.agent_id, userId);
     const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
     auditService.logAction(
@@ -284,23 +469,48 @@ export function buildApp(
 
   app.post("/v1/sessions/:sessionId/heartbeat", async (req, reply) => {
     const userId = getAuthenticatedUserId(req, "sessions:write");
-    const body = req.body as { project_id?: string; agent_id?: string };
-    if (!body?.project_id || !body?.agent_id) {
-      throw new AppError("INVALID_INPUT", "project_id and agent_id are required");
-    }
+    const parsed = SessionActionInputSchema.safeParse(req.body);
+    if (!parsed.success) throw new AppError("INVALID_INPUT", "Invalid session heartbeat");
+    const body = parsed.data;
     authService.checkProjectPermission(userId, body.project_id);
-    sessionService.heartbeat(body.project_id, body.agent_id);
+    const { sessionId } = req.params as { sessionId: string };
+    const session = sessionService.validateSessionForUser(sessionId, userId, body.project_id);
+    if (body.agent_id !== session.agent_id) {
+      throw new AppError("FORBIDDEN", "Agent does not match session");
+    }
+    sessionService.heartbeat(session.project_id, session.agent_id);
+    auditService.logAction(
+      userId,
+      "session.heartbeat",
+      sessionId,
+      "success",
+      String(reply.getHeader("x-request-id")),
+      session.project_id,
+    );
     return { data: { status: "ok" }, request_id: reply.getHeader("x-request-id") };
   });
 
   app.delete("/v1/sessions/:sessionId", async (req, reply) => {
     const userId = getAuthenticatedUserId(req, "sessions:write");
-    const body = req.body as { project_id?: string; agent_id?: string };
-    if (!body?.project_id || !body?.agent_id) {
-      throw new AppError("INVALID_INPUT", "project_id and agent_id are required");
-    }
+    const parsed = SessionActionInputSchema.safeParse(req.body);
+    if (!parsed.success) throw new AppError("INVALID_INPUT", "Invalid session disconnect");
+    const body = parsed.data;
     authService.checkProjectPermission(userId, body.project_id);
-    sessionService.disconnect(body.project_id, body.agent_id);
+    const { sessionId } = req.params as { sessionId: string };
+    const session = sessionService.validateSessionForUser(sessionId, userId, body.project_id);
+    if (body.agent_id !== session.agent_id) {
+      throw new AppError("FORBIDDEN", "Agent does not match session");
+    }
+    sessionService.disconnect(session.project_id, session.agent_id);
+    auditService.logAction(
+      userId,
+      "session.disconnect",
+      sessionId,
+      "success",
+      String(reply.getHeader("x-request-id")),
+      session.project_id,
+    );
+    wsHub.revalidate();
     return { data: { status: "disconnected" }, request_id: reply.getHeader("x-request-id") };
   });
 
@@ -317,7 +527,13 @@ export function buildApp(
 
     sessionService.validateSessionForUser(body.session_id, userId, projectId);
 
-    const ticket = wsTicketService.createTicket(userId, projectId, body.session_id, 30);
+    const ticket = wsTicketService.createTicket(
+      userId,
+      projectId,
+      body.session_id,
+      30,
+      getAuth(req).tokenId,
+    );
     const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
     auditService.logAction(userId, "ws_ticket.issue", body.session_id, "success", reqId, projectId);
     return reply.status(201).send({
@@ -349,10 +565,25 @@ export function buildApp(
       afterSequence = decoded;
     }
 
-    const limit = Math.min(Math.max(Number.parseInt(query.limit ?? "50", 10), 1), 100);
-    // Fetch events and filter by agent visibility
-    const rawEvents = eventBus.getEventsAfter(projectId, afterSequence, limit * 2);
-    const visibleEvents = rawEvents.filter((ev) => isEventVisibleToAgent(ev, requestingAgentId));
+    const requestedLimit = Number(query.limit ?? "50");
+    if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100) {
+      throw new AppError("INVALID_INPUT", "limit must be an integer between 1 and 100");
+    }
+    const limit = requestedLimit;
+    // Scan in bounded batches until there is a full visible page plus lookahead.
+    // Hidden messages must not strand the cursor before later visible events.
+    const visibleEvents = [];
+    let scanAfter = afterSequence;
+    while (visibleEvents.length <= limit) {
+      const batch = eventBus.getEventsAfter(projectId, scanAfter, 200);
+      for (const event of batch) {
+        if (isEventVisibleToAgent(event, requestingAgentId)) visibleEvents.push(event);
+        if (visibleEvents.length > limit) break;
+      }
+      const tail = batch[batch.length - 1];
+      if (!tail || batch.length < 200) break;
+      scanAfter = tail.sequence;
+    }
 
     const hasMore = visibleEvents.length > limit;
     const resultEvents = hasMore ? visibleEvents.slice(0, limit) : visibleEvents;
@@ -402,7 +633,7 @@ export function buildApp(
     // Validate that the acknowledged event is visible to this agent
     if (sequence > 0) {
       const ev = eventBus.getEventBySequence(projectId, sequence);
-      if (ev && !isEventVisibleToAgent(ev, session.agent_id)) {
+      if (!ev || !isEventVisibleToAgent(ev, session.agent_id)) {
         throw new AppError(
           "CURSOR_INVALID",
           `Cursor sequence ${sequence} points to an event not visible to agent '${session.agent_id}'`,
@@ -411,8 +642,9 @@ export function buildApp(
     }
 
     sessionService.updateCursor(projectId, session.agent_id, body.cursor);
+    const confirmed = sessionService.getSessionById(session.session_id).last_cursor;
     return {
-      data: { status: "ok", cursor: body.cursor },
+      data: { status: "ok", cursor: confirmed },
       request_id: reply.getHeader("x-request-id"),
     };
   });
@@ -423,7 +655,7 @@ export function buildApp(
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
-    const { session_id, ...messagePayload } =
+    const { session_id, idempotency_key, ...messagePayload } =
       (req.body as { session_id?: string } & Record<string, unknown>) ?? {};
     if (!session_id) {
       throw new AppError("INVALID_INPUT", "session_id is required to authenticate agent identity");
@@ -431,12 +663,25 @@ export function buildApp(
 
     const session = sessionService.validateSessionForUser(session_id, userId, projectId);
 
+    if (
+      typeof messagePayload.body === "string" &&
+      Buffer.byteLength(messagePayload.body, "utf8") > MAX_MESSAGE_BODY_BYTES
+    )
+      throw new AppError("MESSAGE_TOO_LARGE", "Message body exceeds 16 KiB");
     const parsed = SendMessageInputSchema.safeParse(messagePayload);
     if (!parsed.success) {
       throw new AppError("INVALID_INPUT", parsed.error.errors[0]?.message ?? "Invalid message");
     }
 
-    const message = messageService.sendMessage(projectId, session.agent_id, parsed.data);
+    const message = command(
+      req,
+      userId,
+      projectId,
+      "message.create",
+      { session_id, ...parsed.data },
+      () => messageService.sendMessage(projectId, session.agent_id, parsed.data),
+      idempotency_key,
+    );
     return reply.status(201).send({ data: message, request_id: reply.getHeader("x-request-id") });
   });
 
@@ -446,7 +691,7 @@ export function buildApp(
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
-    const { session_id, ...statusPayload } =
+    const { session_id, idempotency_key, ...statusPayload } =
       (req.body as { session_id?: string } & Record<string, unknown>) ?? {};
     if (!session_id) {
       throw new AppError("INVALID_INPUT", "session_id is required to authenticate agent identity");
@@ -462,7 +707,15 @@ export function buildApp(
       );
     }
 
-    const report = statusService.reportStatus(projectId, session.agent_id, parsed.data);
+    const report = command(
+      req,
+      userId,
+      projectId,
+      "status.report",
+      { session_id, ...parsed.data },
+      () => statusService.reportStatus(projectId, session.agent_id, parsed.data),
+      idempotency_key,
+    );
     return reply.status(201).send({ data: report, request_id: reply.getHeader("x-request-id") });
   });
 
@@ -481,7 +734,7 @@ export function buildApp(
     const { projectId } = req.params as { projectId: string };
     authService.checkProjectPermission(userId, projectId);
 
-    const { session_id, ...lockPayload } =
+    const { session_id, idempotency_key, ...lockPayload } =
       (req.body as { session_id?: string } & Record<string, unknown>) ?? {};
     if (!session_id) {
       throw new AppError("INVALID_INPUT", "session_id is required to authenticate agent identity");
@@ -489,12 +742,23 @@ export function buildApp(
 
     const session = sessionService.validateSessionForUser(session_id, userId, projectId);
 
-    const parsed = ClaimLockInputSchema.safeParse(lockPayload);
+    const parsed = ClaimLockInputSchema.safeParse({
+      ...lockPayload,
+      ttl_seconds: lockPayload.ttl_seconds ?? config?.LOCK_DEFAULT_TTL_SECONDS ?? 300,
+    });
     if (!parsed.success) {
       throw new AppError("INVALID_INPUT", parsed.error.errors[0]?.message ?? "Invalid lock claim");
     }
 
-    const lock = lockService.claimLock(projectId, session.agent_id, parsed.data);
+    const lock = command(
+      req,
+      userId,
+      projectId,
+      "lock.claim",
+      { session_id, ...parsed.data },
+      () => lockService.claimLock(projectId, session.agent_id, parsed.data),
+      idempotency_key,
+    );
     const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
     auditService.logAction(
       session.agent_id,
@@ -519,7 +783,17 @@ export function buildApp(
     }
 
     const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
-    const renewed = lockService.renewLock(projectId, session.agent_id, lockId, body.ttl_seconds);
+    const renewed = command(req, userId, projectId, `lock.renew:${lockId}`, body, () =>
+      lockService.renewLock(
+        projectId,
+        session.agent_id,
+        lockId,
+        body.ttl_seconds === undefined
+          ? (config?.LOCK_DEFAULT_TTL_SECONDS ?? 300)
+          : body.ttl_seconds,
+        authService.checkProjectPermission(userId, projectId) === "owner",
+      ),
+    );
     const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
     auditService.logAction(session.agent_id, "lock.renew", lockId, "success", reqId, projectId);
     return { data: renewed, request_id: reqId };
@@ -537,7 +811,15 @@ export function buildApp(
     }
 
     const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
-    lockService.releaseLockById(projectId, session.agent_id, lockId);
+    command(req, userId, projectId, `lock.release:${lockId}`, body, () => {
+      lockService.releaseLockById(
+        projectId,
+        session.agent_id,
+        lockId,
+        authService.checkProjectPermission(userId, projectId) === "owner",
+      );
+      return { released: [lockId] };
+    });
     const reqId = (reply.getHeader("x-request-id") as string) || crypto.randomUUID();
     auditService.logAction(session.agent_id, "lock.release", lockId, "success", reqId, projectId);
     return { data: { released: [lockId] }, request_id: reqId };
@@ -554,7 +836,22 @@ export function buildApp(
     }
 
     const session = sessionService.validateSessionForUser(body.session_id, userId, projectId);
-    const released = lockService.releaseLock(projectId, session.agent_id, body.paths);
+    const released = command(req, userId, projectId, "lock.releasePaths", body, () =>
+      lockService.releaseLock(
+        projectId,
+        session.agent_id,
+        body.paths ?? [],
+        authService.checkProjectPermission(userId, projectId) === "owner",
+      ),
+    );
+    auditService.logAction(
+      userId,
+      "lock.releasePaths",
+      session.session_id,
+      "success",
+      String(reply.getHeader("x-request-id")),
+      projectId,
+    );
     return { data: { released }, request_id: reply.getHeader("x-request-id") };
   });
 
@@ -683,33 +980,54 @@ export function buildApp(
         }
 
         let authenticatedUserId = "";
+        let authenticatedTokenId: string | undefined;
         if (ticket) {
           const consumed = wsTicketService.consumeTicket(ticket, projectId, sessionId);
           authenticatedUserId = consumed.userId;
+          authenticatedTokenId = consumed.tokenId;
         } else if (token) {
           const verified = authService.verifyToken(token);
           requireScope(verified, "messages:read");
           authService.checkProjectPermission(verified.userId, projectId);
           authenticatedUserId = verified.userId;
+          if (verified.projectId && verified.projectId !== projectId)
+            throw new AppError("FORBIDDEN", "Token is bound to another project");
+          authenticatedTokenId = verified.tokenId;
         } else {
           socket.close(1008, "Authentication required: missing ticket or token");
           return;
         }
 
+        authService.checkProjectPermission(authenticatedUserId, projectId);
+        if (!authenticatedTokenId || !authService.isTokenActive(authenticatedTokenId))
+          throw new AppError("UNAUTHENTICATED", "Token is no longer active");
         const session = sessionService.validateSessionForUser(
           sessionId,
           authenticatedUserId,
           projectId,
         );
 
-        wsHub.register({
+        const registered = wsHub.register({
           socket,
           projectId,
           userId: authenticatedUserId,
           agentId: session.agent_id,
+          authorized: () => {
+            try {
+              authService.checkProjectPermission(authenticatedUserId, projectId);
+              sessionService.validateSessionForUser(sessionId, authenticatedUserId, projectId);
+              return (
+                authenticatedTokenId !== undefined &&
+                authService.isTokenActive(authenticatedTokenId)
+              );
+            } catch {
+              return false;
+            }
+          },
         });
 
-        socket.send(JSON.stringify({ type: "connected", projectId, agentId: session.agent_id }));
+        if (registered)
+          socket.send(JSON.stringify({ type: "connected", projectId, agentId: session.agent_id }));
       } catch {
         socket.close(1008, "Unauthorized");
       }
