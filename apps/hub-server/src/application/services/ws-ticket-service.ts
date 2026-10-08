@@ -46,47 +46,28 @@ export class WsTicketService {
     const now = new Date().toISOString();
 
     const stmt = this.db.prepare(`
-      SELECT user_id, project_id, session_id, expires_at, used_at
-      FROM ws_tickets
+      UPDATE ws_tickets
+      SET used_at = ?
       WHERE ticket_hash = ?
+        AND used_at IS NULL
+        AND expires_at > ?
+      RETURNING user_id, project_id, session_id
     `);
 
-    const row = stmt.get(ticketHash) as
+    const row = stmt.get(now, ticketHash, now) as
       | {
           user_id: string;
           project_id: string;
           session_id: string;
-          expires_at: string;
-          used_at: string | null;
         }
       | undefined;
 
     if (!row) {
-      throw new AppError("UNAUTHENTICATED", "Invalid or unknown WebSocket ticket");
-    }
-
-    if (row.used_at !== null) {
-      throw new AppError("UNAUTHENTICATED", "WebSocket ticket has already been used");
-    }
-
-    if (row.expires_at <= now) {
-      throw new AppError("UNAUTHENTICATED", "WebSocket ticket has expired");
+      throw new AppError("UNAUTHENTICATED", "Invalid, expired, or already used WebSocket ticket");
     }
 
     if (row.project_id !== expectedProjectId || row.session_id !== expectedSessionId) {
       throw new AppError("FORBIDDEN", "WebSocket ticket does not match project or session");
-    }
-
-    // Atomically mark ticket as used
-    const updateStmt = this.db.prepare(`
-      UPDATE ws_tickets
-      SET used_at = ?
-      WHERE ticket_hash = ? AND used_at IS NULL
-    `);
-
-    const result = updateStmt.run(now, ticketHash) as { changes?: number };
-    if (!result.changes || result.changes === 0) {
-      throw new AppError("UNAUTHENTICATED", "WebSocket ticket already consumed");
     }
 
     return {

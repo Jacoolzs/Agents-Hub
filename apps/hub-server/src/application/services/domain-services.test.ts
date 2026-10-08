@@ -8,6 +8,7 @@ import { MessageService } from "./message-service.js";
 import { ProjectService } from "./project-service.js";
 import { SessionService } from "./session-service.js";
 import { StatusService } from "./status-service.js";
+import { WsTicketService } from "./ws-ticket-service.js";
 
 describe("Hub Server Domain Services (Phase 2)", () => {
   let db: DatabaseSync;
@@ -196,6 +197,84 @@ describe("Hub Server Domain Services (Phase 2)", () => {
 
       expect(lockService.getActiveLocks(proj1.project_id).length).toBe(1);
       expect(lockService.getActiveLocks(proj2.project_id).length).toBe(1);
+    });
+  });
+
+  describe("WsTicketService (Ephemeral WebSocket Tickets)", () => {
+    let wsTicketService: WsTicketService;
+    let testUserId: string;
+    let testProjectId: string;
+    let testSessionId: string;
+
+    beforeEach(() => {
+      wsTicketService = new WsTicketService(db);
+      testUserId = "user-ticket-tester";
+      db.prepare("INSERT INTO users (user_id, username, created_at) VALUES (?, ?, ?)").run(
+        testUserId,
+        "ticket-user",
+        new Date().toISOString(),
+      );
+
+      const proj = projectService.createProject("Ticket Room", testUserId).project;
+      testProjectId = proj.project_id;
+
+      const session = sessionService.joinProject(testProjectId, "ag-ticket", testUserId);
+      testSessionId = session.session_id;
+    });
+
+    it("rejects an expired ticket", () => {
+      // 1. Ticket expirado
+      const rawTicket = wsTicketService.createTicket(testUserId, testProjectId, testSessionId, -5);
+      expect(() =>
+        wsTicketService.consumeTicket(rawTicket, testProjectId, testSessionId),
+      ).toThrowError(/UNAUTHENTICATED/);
+    });
+
+    it("ensures exactly one consumer succeeds when two consume attempts happen concurrently", async () => {
+      // 2. Dos consumos simultáneos del mismo ticket: exactamente uno debe tener éxito
+      const rawTicket = wsTicketService.createTicket(testUserId, testProjectId, testSessionId, 30);
+
+      const results = await Promise.allSettled([
+        Promise.resolve().then(() =>
+          wsTicketService.consumeTicket(rawTicket, testProjectId, testSessionId),
+        ),
+        Promise.resolve().then(() =>
+          wsTicketService.consumeTicket(rawTicket, testProjectId, testSessionId),
+        ),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      if (fulfilled[0]?.status === "fulfilled") {
+        expect(fulfilled[0].value).toEqual({
+          userId: testUserId,
+          projectId: testProjectId,
+          sessionId: testSessionId,
+        });
+      }
+      if (rejected[0]?.status === "rejected") {
+        expect(rejected[0].reason).toBeInstanceOf(AppError);
+        expect((rejected[0].reason as AppError).code).toBe("UNAUTHENTICATED");
+      }
+    });
+
+    it("rejects a valid ticket when expected project_id does not match", () => {
+      // 3. Ticket válido con project_id incorrecto
+      const rawTicket = wsTicketService.createTicket(testUserId, testProjectId, testSessionId, 30);
+      expect(() =>
+        wsTicketService.consumeTicket(rawTicket, "proj-different", testSessionId),
+      ).toThrowError(/FORBIDDEN/);
+    });
+
+    it("rejects a valid ticket when expected session_id does not match", () => {
+      // 4. Ticket válido con session_id incorrecto
+      const rawTicket = wsTicketService.createTicket(testUserId, testProjectId, testSessionId, 30);
+      expect(() =>
+        wsTicketService.consumeTicket(rawTicket, testProjectId, "sess-different"),
+      ).toThrowError(/FORBIDDEN/);
     });
   });
 });

@@ -89,7 +89,10 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
     - Valida que `session_id` pertenezca al usuario autenticado y al proyecto.
     - Emite un ticket seguro prefijado `wst_<uuid>` con expiración de 30 segundos.
     - Persiste el hash SHA-256 en la tabla `ws_tickets` con índices dedicados.
-    - Consumo atómico de un solo uso en SQLite (`DELETE FROM ws_tickets WHERE ticket_hash = ? AND expires_at > ? RETURNING ...`).
+    - Consumo atómico de un solo uso en SQLite en una única operación condicionada (`UPDATE ws_tickets SET used_at = ? WHERE ticket_hash = ? AND used_at IS NULL AND expires_at > ? RETURNING user_id, project_id, session_id`).
+    - Si la consulta no devuelve filas, se rechaza de inmediato con 401 `UNAUTHENTICATED` ("Invalid, expired, or already used WebSocket ticket") sin filtrar detalles sensibles.
+    - Se valida que `project_id` y `session_id` coincidan exactamente con la conexión solicitada, rechazando con 403 `FORBIDDEN` en caso de discrepancia.
+    - Pruebas unitarias añadidas en `domain-services.test.ts` cubriendo: (1) ticket expirado, (2) dos consumos simultáneos concurrentes donde exactamente uno tiene éxito, (3) ticket con `project_id` incorrecto y (4) ticket con `session_id` incorrecto.
     - El handler de WebSocket (`/v1/projects/:projectId/events`) en producción rechaza cualquier conexión sin ticket o que intente enviar `?token=...`, consumiendo el ticket efímero de forma inmediata.
     - El Bearer token real nunca viaja en la URL de WebSocket.
 - **P1: Tokens estrictamente en memoria (Cero persistencia en Storage del navegador):**
@@ -357,6 +360,12 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - **Hallazgo P1 — E2E de reconexión insuficiente:** el test descrito como “reconexión” (`e2e/dashboard.spec.ts`) solo realiza desconexión manual y no simula caída, reconexión ni recuperación por `/inbox`. Falta una prueba que cierre/interrumpa el WebSocket, publique un evento durante la caída, compruebe polling/reconexión y verifique que el evento se recibe una sola vez y que el cursor se confirma correctamente.
 - **Observación P2 — Consulta de inbox redundante:** `MessageFeed` mantiene un `refetchInterval` de 5 segundos y además `RealtimeManager` ejecuta recuperación/polling; conviene consolidar la estrategia para evitar solicitudes duplicadas, duplicación de eventos y carga innecesaria.
 - **Estado:** Fase 5 no queda aprobada para producción ni lista para fusionarse a `main` hasta corregir el P0 y cubrir los E2E de producción/reconexión. No se inicia Fase 6 todavía; el siguiente paso es enviar estas correcciones a la rama de Fase 5 y repetir la auditoría.
+
+### [2026-10-07] — Auditoría residual de tickets WebSocket tras remediación de Fase 5
+- **Verificaciones ejecutadas:** `pnpm lint`, `pnpm typecheck`, `pnpm test` (57 tests), `pnpm test:e2e` (4 tests) y `pnpm -r build` pasan en `d34a52f`.
+- **Hallazgo P1 pendiente:** `WsTicketService.consumeTicket()` comprueba `expires_at > now` en un `SELECT`, pero el `UPDATE` que marca el ticket como usado solo condiciona `ticket_hash` y `used_at IS NULL`; no vuelve a exigir la expiración en la operación que consume el ticket. La garantía debe ser atómica también respecto al TTL: usar una única operación de actualización condicionada por `used_at IS NULL AND expires_at > now` (idealmente con `RETURNING`) y devolver el payload consumido desde esa operación.
+- **Cobertura faltante:** agregar pruebas unitarias/integración para ticket expirado, carrera de dos consumos simultáneos y rechazo de ticket con proyecto/sesión incorrectos. La prueba actual cubre emisión, un consumo y reutilización, pero no estas condiciones.
+- **Estado:** la Fase 5 queda en revisión final; no fusionar a `main` ni iniciar Fase 6 hasta corregir y verificar este hallazgo.
 
 ### [2026-10-07] — Corrección de Alcance (MVP Lean) y Reto de Recepción de Mensajes
 #### 💡 Correcciones y foco real
