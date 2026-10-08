@@ -106,4 +106,16 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
   revoked_at TEXT,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ws_tickets (
+  ticket_id TEXT PRIMARY KEY,
+  ticket_hash TEXT NOT NULL UNIQUE,
+  user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES agent_sessions(session_id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ws_tickets_hash ON ws_tickets(ticket_hash);
 `;

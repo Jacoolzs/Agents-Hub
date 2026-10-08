@@ -1,7 +1,7 @@
 import type { EventEnvelope } from "@agents-hub/shared";
 import { encodeCursor } from "@agents-hub/shared";
 import type { ConnectionStatus } from "../types/index.js";
-import { ackInbox, fetchInbox } from "./api.js";
+import { ackInbox, createWsTicket, fetchInbox } from "./api.js";
 
 export type EventListener = (event: EventEnvelope) => void;
 export type StatusListener = (status: ConnectionStatus) => void;
@@ -25,7 +25,13 @@ export class RealtimeManager {
   private lastCursor: string | null = null;
   private lastSequence = 0;
 
-  constructor(private config: RealtimeManagerConfig) {}
+  constructor(private config: RealtimeManagerConfig) {
+    if (typeof window !== "undefined") {
+      (
+        window as unknown as { __agentsHubTestRealtime?: RealtimeManager | undefined }
+      ).__agentsHubTestRealtime = this;
+    }
+  }
 
   public setConfig(config: RealtimeManagerConfig): void {
     const changed =
@@ -37,7 +43,7 @@ export class RealtimeManager {
     this.config = config;
     if (changed) {
       this.reconnectAttempts = 0;
-      this.connect();
+      void this.connect();
     }
   }
 
@@ -68,6 +74,12 @@ export class RealtimeManager {
     this.lastCursor = cursor;
   }
 
+  public forceCloseSocketForTest(): void {
+    if (this.socket) {
+      this.socket.close();
+    }
+  }
+
   private setStatus(newStatus: ConnectionStatus): void {
     if (this.status !== newStatus) {
       this.status = newStatus;
@@ -81,30 +93,50 @@ export class RealtimeManager {
     }
   }
 
-  public connect(): void {
+  public async connect(): Promise<void> {
     if (this.isDestroyed) return;
     this.cleanupSocket();
 
     this.setStatus(this.reconnectAttempts === 0 ? "connecting" : "reconnecting");
 
-    // Convert http/https baseUrl to ws/wss
+    // Obtain an ephemeral one-time WebSocket ticket via authenticated HTTPS
+    let ticket = "";
+    try {
+      const ticketRes = await createWsTicket(
+        this.config.baseUrl,
+        this.config.token,
+        this.config.projectId,
+        this.config.sessionId,
+      );
+      ticket = ticketRes.ticket;
+    } catch {
+      if (this.isDestroyed) return;
+      this.setStatus("disconnected");
+      this.startPollingFallback();
+      this.scheduleReconnect();
+      return;
+    }
+
+    if (this.isDestroyed) return;
+
+    // Convert http/https baseUrl to ws/wss using ONLY ephemeral ticket
     let wsUrl: string;
     try {
       const url = new URL(this.config.baseUrl);
       const protocol = url.protocol === "https:" ? "wss:" : "ws:";
       wsUrl = `${protocol}//${url.host}/v1/projects/${encodeURIComponent(
         this.config.projectId,
-      )}/events?session_id=${encodeURIComponent(this.config.sessionId)}&token=${encodeURIComponent(
-        this.config.token,
-      )}`;
+      )}/events?session_id=${encodeURIComponent(
+        this.config.sessionId,
+      )}&ticket=${encodeURIComponent(ticket)}`;
     } catch {
       // Relative fallback
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       wsUrl = `${protocol}//${window.location.host}/v1/projects/${encodeURIComponent(
         this.config.projectId,
-      )}/events?session_id=${encodeURIComponent(this.config.sessionId)}&token=${encodeURIComponent(
-        this.config.token,
-      )}`;
+      )}/events?session_id=${encodeURIComponent(
+        this.config.sessionId,
+      )}&ticket=${encodeURIComponent(ticket)}`;
     }
 
     try {
@@ -139,7 +171,7 @@ export class RealtimeManager {
         this.setStatus("error");
       };
 
-      this.socket.onclose = (event) => {
+      this.socket.onclose = () => {
         if (this.isDestroyed) return;
         this.cleanupSocket();
         this.setStatus("disconnected");
@@ -201,10 +233,10 @@ export class RealtimeManager {
 
   private startPollingFallback(): void {
     if (this.pollingInterval || this.isDestroyed) return;
-    // Poll inbox every 4 seconds when WS is down
+    // Poll inbox every 3 seconds ONLY when WS is down
     this.pollingInterval = setInterval(() => {
       void this.recoverMissedEvents();
-    }, 4000);
+    }, 3000);
   }
 
   private stopPollingFallback(): void {
@@ -222,7 +254,7 @@ export class RealtimeManager {
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
       if (!this.isDestroyed) {
-        this.connect();
+        void this.connect();
       }
     }, delay);
   }
@@ -244,6 +276,15 @@ export class RealtimeManager {
 
   public destroy(): void {
     this.isDestroyed = true;
+    if (
+      typeof window !== "undefined" &&
+      (window as unknown as { __agentsHubTestRealtime?: RealtimeManager | undefined })
+        .__agentsHubTestRealtime === this
+    ) {
+      (
+        window as unknown as { __agentsHubTestRealtime?: RealtimeManager | undefined }
+      ).__agentsHubTestRealtime = undefined;
+    }
     this.stopPollingFallback();
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);

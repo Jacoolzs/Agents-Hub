@@ -15,40 +15,18 @@ interface HubContextType {
 
 const HubContext = createContext<HubContextType | undefined>(undefined);
 
-const STORAGE_KEY = "agents_hub_session";
-
 export function HubProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
-  const [auth, setAuth] = useState<AuthSessionConfig | null>(() => {
-    try {
-      const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        return JSON.parse(saved) as AuthSessionConfig;
-      }
-    } catch {
-      // ignore parse or storage error
-    }
-    return null;
-  });
+  const [auth, setAuth] = useState<AuthSessionConfig | null>(null);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const realtimeRef = useRef<RealtimeManager | null>(null);
 
   const connect = (config: AuthSessionConfig) => {
-    try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    } catch {
-      // storage might fail in private browsing
-    }
     setAuth(config);
   };
 
   const disconnect = () => {
-    try {
-      sessionStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // ignore
-    }
     if (realtimeRef.current) {
       realtimeRef.current.destroy();
       realtimeRef.current = null;
@@ -105,7 +83,7 @@ export function HubProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    manager.connect();
+    void manager.connect();
 
     return () => {
       unsubStatus();

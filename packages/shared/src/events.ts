@@ -29,12 +29,14 @@ export const EventEnvelopeSchema = z
     actor_id: z.string().trim().min(1).max(100),
     occurred_at: UtcIsoDateSchema,
     payload_version: z.literal(1),
-    payload: z
-      .record(z.unknown())
-      .refine(
-        (p) => Buffer.byteLength(JSON.stringify(p), "utf8") <= MAX_EVENT_PAYLOAD_BYTES,
-        `Event payload cannot exceed ${MAX_EVENT_PAYLOAD_BYTES} bytes (64 KiB)`,
-      ),
+    payload: z.record(z.unknown()).refine((p) => {
+      const str = JSON.stringify(p);
+      const bytes =
+        typeof Buffer !== "undefined"
+          ? Buffer.byteLength(str, "utf8")
+          : new TextEncoder().encode(str).length;
+      return bytes <= MAX_EVENT_PAYLOAD_BYTES;
+    }, `Event payload cannot exceed ${MAX_EVENT_PAYLOAD_BYTES} bytes (64 KiB)`),
   })
   .strict();
 

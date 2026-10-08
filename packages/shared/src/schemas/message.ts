@@ -18,10 +18,13 @@ export const MessageSchema = z
     body: z
       .string()
       .min(1)
-      .refine(
-        (val) => Buffer.byteLength(val, "utf8") <= MAX_MESSAGE_BODY_BYTES,
-        `Message body cannot exceed ${MAX_MESSAGE_BODY_BYTES} bytes (16 KiB)`,
-      ),
+      .refine((val) => {
+        const bytes =
+          typeof Buffer !== "undefined"
+            ? Buffer.byteLength(val, "utf8")
+            : new TextEncoder().encode(val).length;
+        return bytes <= MAX_MESSAGE_BODY_BYTES;
+      }, `Message body cannot exceed ${MAX_MESSAGE_BODY_BYTES} bytes (16 KiB)`),
     priority: MessagePrioritySchema.default("normal"),
     correlation_id: z.string().trim().min(1).max(100).optional(),
     created_at: UtcIsoDateSchema,
@@ -37,10 +40,13 @@ export const SendMessageInputSchema = z
     body: z
       .string()
       .min(1)
-      .refine(
-        (val) => Buffer.byteLength(val, "utf8") <= MAX_MESSAGE_BODY_BYTES,
-        `Message body cannot exceed ${MAX_MESSAGE_BODY_BYTES} bytes (16 KiB)`,
-      ),
+      .refine((val) => {
+        const bytes =
+          typeof Buffer !== "undefined"
+            ? Buffer.byteLength(val, "utf8")
+            : new TextEncoder().encode(val).length;
+        return bytes <= MAX_MESSAGE_BODY_BYTES;
+      }, `Message body cannot exceed ${MAX_MESSAGE_BODY_BYTES} bytes (16 KiB)`),
     priority: MessagePrioritySchema.optional(),
     correlation_id: z.string().trim().min(1).max(100).optional(),
   })

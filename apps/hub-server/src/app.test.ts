@@ -708,6 +708,81 @@ describe("Hub Server Network & API (Phase 3)", () => {
         await prodApp.close();
       }
     });
+
+    it("issues and consumes ephemeral WebSocket ticket atomically in production", async () => {
+      const prodApp = buildApp(
+        { NODE_ENV: "production", CORS_ORIGINS: "http://localhost:5173" },
+        app.ctx.db,
+      );
+      await prodApp.listen({ port: 0 });
+      const addr = prodApp.server.address() as AddressInfo;
+
+      const proj = prodApp.ctx.projectService.createProject("Ticket WS Room", testUserId).project;
+      const session = prodApp.ctx.sessionService.joinProject(
+        proj.project_id,
+        "ag-ticket",
+        testUserId,
+      );
+
+      try {
+        // 1. Issue an ephemeral ticket via authenticated HTTPS POST
+        const ticketRes = await prodApp.inject({
+          method: "POST",
+          url: `/v1/projects/${proj.project_id}/ws-ticket`,
+          headers: { authorization: `Bearer ${authToken}` },
+          payload: { session_id: session.session_id },
+        });
+
+        expect(ticketRes.statusCode).toBe(201);
+        const { ticket, expires_in } = ticketRes.json().data;
+        expect(ticket).toMatch(/^wst_/);
+        expect(expires_in).toBe(30);
+
+        // 2. Connect WebSocket using ephemeral ticket in query string in production
+        const ws = new globalThis.WebSocket(
+          `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?ticket=${ticket}&session_id=${session.session_id}`,
+          { headers: { Origin: "http://localhost:5173" } },
+        );
+        openSockets.push(ws);
+
+        const connectedMsg = await new Promise<string>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("WS message timeout")), 3000);
+          ws.onmessage = (e) => {
+            clearTimeout(timeout);
+            resolve(String(e.data));
+          };
+          ws.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error("WS connection error"));
+          };
+        });
+
+        expect(JSON.parse(connectedMsg)).toEqual({
+          type: "connected",
+          projectId: proj.project_id,
+          agentId: "ag-ticket",
+        });
+
+        // 3. Attempting to reuse the exact same ticket MUST fail (single-use)
+        const wsReuse = new globalThis.WebSocket(
+          `ws://127.0.0.1:${addr.port}/v1/projects/${proj.project_id}/events?ticket=${ticket}&session_id=${session.session_id}`,
+          { headers: { Origin: "http://localhost:5173" } },
+        );
+        openSockets.push(wsReuse);
+
+        const reuseCode = await new Promise<number>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("WS close timeout")), 3000);
+          wsReuse.onclose = (e) => {
+            clearTimeout(timeout);
+            resolve(e.code);
+          };
+        });
+
+        expect(reuseCode).toBe(1008);
+      } finally {
+        await prodApp.close();
+      }
+    });
   });
 
   describe("Scope Authorization Enforcement", () => {

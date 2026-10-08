@@ -24,7 +24,6 @@ export function MessageFeed() {
       return fetchInbox(auth.baseUrl, auth.token, auth.projectId, auth.sessionId, undefined, 100);
     },
     enabled: Boolean(auth),
-    refetchInterval: 5000, // periodic inbox polling fallback
   });
 
   const sendMutation = useMutation({
@@ -64,7 +63,11 @@ export function MessageFeed() {
     const list: Message[] = [];
     for (const event of inboxQuery.data.events) {
       if (event.type === "message.created" && event.payload) {
-        list.push(event.payload as unknown as Message);
+        const payload = event.payload as Record<string, unknown>;
+        list.push({
+          ...(payload as unknown as Message),
+          created_at: ((payload.created_at as string | undefined) ?? event.occurred_at) as string,
+        });
       }
     }
     // Newest at bottom

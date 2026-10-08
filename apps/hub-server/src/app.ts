@@ -18,6 +18,7 @@ import { MessageService } from "./application/services/message-service.js";
 import { ProjectService } from "./application/services/project-service.js";
 import { SessionService } from "./application/services/session-service.js";
 import { StatusService } from "./application/services/status-service.js";
+import { WsTicketService } from "./application/services/ws-ticket-service.js";
 import { type AuthContext, AuthService } from "./http/auth/auth-service.js";
 import { WebSocketHub } from "./http/websocket/ws-hub.js";
 import { createDatabase } from "./infrastructure/db/database.js";
@@ -34,6 +35,7 @@ export interface AppContext {
   statusService: StatusService;
   lockService: LockService;
   auditService: AuditService;
+  wsTicketService: WsTicketService;
 }
 
 export function buildApp(
@@ -52,6 +54,7 @@ export function buildApp(
   const statusService = new StatusService(db, eventBus);
   const lockService = new LockService(db, eventBus);
   const auditService = new AuditService(db);
+  const wsTicketService = new WsTicketService(db);
 
   const ctx: AppContext = {
     db,
@@ -64,6 +67,7 @@ export function buildApp(
     statusService,
     lockService,
     auditService,
+    wsTicketService,
   };
 
   const app = fastify({
@@ -215,6 +219,26 @@ export function buildApp(
     authService.checkProjectPermission(userId, body.project_id);
     sessionService.disconnect(body.project_id, body.agent_id);
     return { data: { status: "disconnected" }, request_id: reply.getHeader("x-request-id") };
+  });
+
+  // Ephemeral WebSocket Ticket (Browser-safe one-time ticket)
+  app.post("/v1/projects/:projectId/ws-ticket", async (req, reply) => {
+    const userId = getAuthenticatedUserId(req, "messages:read");
+    const { projectId } = req.params as { projectId: string };
+    authService.checkProjectPermission(userId, projectId);
+
+    const body = req.body as { session_id?: string };
+    if (!body?.session_id) {
+      throw new AppError("INVALID_INPUT", "session_id is required to issue a WebSocket ticket");
+    }
+
+    sessionService.validateSessionForUser(body.session_id, userId, projectId);
+
+    const ticket = wsTicketService.createTicket(userId, projectId, body.session_id, 30);
+    return reply.status(201).send({
+      data: { ticket, expires_in: 30 },
+      request_id: reply.getHeader("x-request-id"),
+    });
   });
 
   // Inbox & Events (filtered by requesting session / agent)
@@ -497,26 +521,47 @@ export function buildApp(
         return;
       }
 
+      // Extract ticket or query token
+      let ticket: string | undefined;
+      if (req?.query && typeof req.query === "object" && "ticket" in req.query) {
+        ticket = String(req.query.ticket);
+      } else if (req?.url) {
+        try {
+          const u = new URL(req.url, "http://localhost");
+          if (u.searchParams.has("ticket")) {
+            ticket = u.searchParams.get("ticket") ?? undefined;
+          }
+        } catch {
+          // ignore URL parse error
+        }
+      }
+
+      let queryToken: string | undefined;
+      if (req?.query && typeof req.query === "object" && "token" in req.query) {
+        queryToken = String(req.query.token);
+      } else if (req?.url) {
+        try {
+          const u = new URL(req.url, "http://localhost");
+          if (u.searchParams.has("token")) {
+            queryToken = u.searchParams.get("token") ?? undefined;
+          }
+        } catch {
+          // ignore URL parse error
+        }
+      }
+
+      // Query string token is prohibited in production
+      if (queryToken && isProduction) {
+        socket.close(1008, "Token query param prohibited in production");
+        return;
+      }
+
       const authHeader = req?.headers?.authorization;
       let token = "";
       if (authHeader?.startsWith("Bearer ")) {
         token = authHeader.substring(7).trim();
-      }
-
-      // Query string token is prohibited in production
-      if (!token && !isProduction) {
-        if (req?.query && typeof req.query === "object" && "token" in req.query) {
-          token = String(req.query.token);
-        } else if (req?.url) {
-          try {
-            const u = new URL(req.url, "http://localhost");
-            if (u.searchParams.has("token")) {
-              token = u.searchParams.get("token") ?? "";
-            }
-          } catch {
-            // ignore URL parse error
-          }
-        }
+      } else if (!isProduction && queryToken) {
+        token = queryToken;
       }
 
       let sessionId: string | undefined;
@@ -534,29 +579,35 @@ export function buildApp(
       }
 
       try {
-        if (!token) {
-          socket.close(1008, "Token missing");
-          return;
-        }
         if (!sessionId) {
           socket.close(1008, "session_id is required");
           return;
         }
 
-        const verified = authService.verifyToken(token);
-        requireScope(verified, "messages:read");
-        authService.checkProjectPermission(verified.userId, projectId);
+        let authenticatedUserId = "";
+        if (ticket) {
+          const consumed = wsTicketService.consumeTicket(ticket, projectId, sessionId);
+          authenticatedUserId = consumed.userId;
+        } else if (token) {
+          const verified = authService.verifyToken(token);
+          requireScope(verified, "messages:read");
+          authService.checkProjectPermission(verified.userId, projectId);
+          authenticatedUserId = verified.userId;
+        } else {
+          socket.close(1008, "Authentication required: missing ticket or token");
+          return;
+        }
 
         const session = sessionService.validateSessionForUser(
           sessionId,
-          verified.userId,
+          authenticatedUserId,
           projectId,
         );
 
         wsHub.register({
           socket,
           projectId,
-          userId: verified.userId,
+          userId: authenticatedUserId,
           agentId: session.agent_id,
         });
 

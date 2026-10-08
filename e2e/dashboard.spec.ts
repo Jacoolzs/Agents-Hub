@@ -15,7 +15,7 @@ test.beforeAll(async () => {
     PORT,
     DATABASE_URL: ":memory:",
     CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173",
-    NODE_ENV: "development",
+    NODE_ENV: "production",
   });
 
   await server.listen({ host: "127.0.0.1", port: PORT });
@@ -34,8 +34,8 @@ test.afterAll(async () => {
   }
 });
 
-test.describe("Agents-Hub Web Dashboard", () => {
-  test("flujo principal: login, mensaje, lock, presencia y reconexión sin exponer tokens", async ({
+test.describe("Agents-Hub Web Dashboard (Producción y Resiliencia)", () => {
+  test("flujo principal en producción: conexión con ticket efímero, mensajes, locks y cero tokens en storage", async ({
     page,
   }) => {
     // 1. Acceso a la página inicial
@@ -53,14 +53,21 @@ test.describe("Agents-Hub Web Dashboard", () => {
 
     // 3. Verificación de Shell e ingreso exitoso
     await expect(page.getByText("E2E Test Space")).toBeVisible();
-    await expect(page.getByText(/Conectado/)).toBeVisible();
+    await expect(page.getByText(/Conectado \(WS\)/)).toBeVisible();
     await expect(page.getByText("e2e-agent")).toBeVisible();
 
-    // 4. Seguridad: verificar que el token NO se expone en URL ni en localStorage
+    // 4. Seguridad estricta: verificar que el token NO se expone en URL, localStorage ni sessionStorage
     expect(page.url()).not.toContain(authToken);
     expect(page.url()).not.toContain("ah_");
-    const storedToken = await page.evaluate(() => localStorage.getItem("token"));
-    expect(storedToken).toBeNull();
+
+    const storages = await page.evaluate(() => ({
+      localStorage: { ...localStorage },
+      sessionStorage: { ...sessionStorage },
+    }));
+
+    const serializedStorage = JSON.stringify(storages);
+    expect(serializedStorage).not.toContain(authToken);
+    expect(serializedStorage).not.toContain("ah_");
 
     // 5. Flujo de Mensajes: Enviar y visualizar mensaje
     await page.click("button[data-testid='tab-messages']");
@@ -142,33 +149,96 @@ test.describe("Agents-Hub Web Dashboard", () => {
     await expect(page.getByText("creador-agente")).toBeVisible();
   });
 
-  test("recuperación de mensajes de otros agentes vía inbox y actualización en tiempo real", async ({
+  test("reconexión real forzada, recuperación por inbox sin duplicados y confirmación de cursor", async ({
     page,
   }) => {
-    // 1. Ingresar con dashboard observer
+    // 1. Conectar al proyecto
     await page.goto("/");
     await page.fill("#hub-url", HUB_URL);
     await page.fill("#auth-token", authToken);
     await page.fill("#project-id", testProjectId);
-    await page.fill("#agent-id", "dashboard-observer");
+    await page.fill("#agent-id", "reconnect-test-agent");
     await page.click("button[type='submit']");
 
     await expect(page.getByText("E2E Test Space")).toBeVisible();
+    await expect(page.getByText(/Conectado \(WS\)/)).toBeVisible();
 
-    // 2. Un segundo agente (agent-charlie) publica un mensaje en el hub
-    server.ctx.sessionService.joinProject(testProjectId, "agent-charlie", testUserId);
-    server.ctx.messageService.sendMessage(testProjectId, "agent-charlie", {
-      channel: "dev",
-      body: "Mensaje asíncrono desde Agent Charlie para verificación de inbox",
-      priority: "urgent",
+    await page.click("button[data-testid='tab-messages']");
+
+    // 2. Forzar cierre del WebSocket en el cliente
+    await page.evaluate(() => {
+      const rt = (
+        window as unknown as {
+          __agentsHubTestRealtime?: { forceCloseSocketForTest: () => void };
+        }
+      ).__agentsHubTestRealtime;
+      rt?.forceCloseSocketForTest();
     });
 
-    // 3. Cambiar filtro a canal #dev o todos los canales y verificar que el dashboard recibe el mensaje
+    // 3. Confirmar que la UI detecta la caída
+    await expect(page.getByText(/Reconectando|Desconectado/)).toBeVisible();
+
+    // 4. Publicar un mensaje en el hub desde otro agente mientras el socket está cerrado
+    server.ctx.sessionService.joinProject(testProjectId, "offline-sender", testUserId);
+    server.ctx.messageService.sendMessage(testProjectId, "offline-sender", {
+      channel: "general",
+      body: "Mensaje publicado mientras el WebSocket estaba caído",
+      priority: "high",
+    });
+
+    // 5. Verificar que el cliente recupera el mensaje mediante polling o reconexión
+    const recoveredMessage = page.getByText("Mensaje publicado mientras el WebSocket estaba caído");
+    await expect(recoveredMessage).toBeVisible({ timeout: 12000 });
+
+    // 6. Confirmar que el mensaje aparece EXACTAMENTE UNA VEZ (sin duplicados)
+    await expect(recoveredMessage).toHaveCount(1);
+
+    // 7. Esperar y validar que el cursor fue confirmado (ACK) en el backend para la sesión
+    await expect
+      .poll(
+        () => {
+          const sessions = server.ctx.sessionService.getActiveSessions(testProjectId);
+          const current = sessions.find((s) => s.agent_id === "reconnect-test-agent");
+          return current?.last_cursor;
+        },
+        { timeout: 8000 },
+      )
+      .not.toBeNull();
+  });
+
+  test("evita solicitudes redundantes al inbox mientras el WebSocket está conectado", async ({
+    page,
+  }) => {
+    let inboxRequestsCount = 0;
+
+    page.on("request", (req) => {
+      if (req.url().includes("/v1/projects/") && req.url().includes("/inbox")) {
+        inboxRequestsCount++;
+      }
+    });
+
+    // 1. Conectar y esperar a que el WebSocket esté listo
+    await page.goto("/");
+    await page.fill("#hub-url", HUB_URL);
+    await page.fill("#auth-token", authToken);
+    await page.fill("#project-id", testProjectId);
+    await page.fill("#agent-id", "no-redundant-poll-agent");
+    await page.click("button[type='submit']");
+
+    await expect(page.getByText("E2E Test Space")).toBeVisible();
+    await expect(page.getByText(/Conectado \(WS\)/)).toBeVisible();
+
     await page.click("button[data-testid='tab-messages']");
-    await expect(
-      page.getByText("Mensaje asíncrono desde Agent Charlie para verificación de inbox"),
-    ).toBeVisible({ timeout: 10000 });
-    await expect(page.locator("span.font-mono:has-text('agent-charlie')")).toBeVisible();
-    await expect(page.locator("span:has-text('Urgente')")).toBeVisible();
+
+    // Registrar cantidad inicial tras carga inicial del feed
+    const initialCount = inboxRequestsCount;
+    expect(initialCount).toBeGreaterThanOrEqual(1);
+
+    // Esperar 4 segundos con WebSocket activo
+    await page.waitForTimeout(4000);
+
+    // Asegurarse de que MessageFeed NO está ejecutando interval polling redundante
+    // No deberían haberse realizado nuevas solicitudes al inbox
+    expect(inboxRequestsCount).toBe(initialCount);
   });
 });

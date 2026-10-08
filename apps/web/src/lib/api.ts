@@ -93,6 +93,20 @@ export async function joinSession(
   return handleResponse<AgentSession>(res);
 }
 
+export async function createWsTicket(
+  baseUrl: string,
+  token: string,
+  projectId: string,
+  sessionId: string,
+): Promise<{ ticket: string; expires_in: number }> {
+  const res = await fetch(`${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/ws-ticket`, {
+    method: "POST",
+    headers: makeHeaders(token),
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+  return handleResponse<{ ticket: string; expires_in: number }>(res);
+}
+
 export async function fetchInbox(
   baseUrl: string,
   token: string,

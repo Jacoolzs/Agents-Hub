@@ -44,6 +44,7 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-012 | 2026-10-07 | Uso de `@modelcontextprotocol/sdk` v1.x en MCP local | `@modelcontextprotocol/sdk` v1.6.0 es el paquete estable disponible en npm con soporte maduro de `Server` y `StdioServerTransport`. Se documenta como versión base del MVP; la migración a paquetes separados v2 (`@modelcontextprotocol/server`) se evaluará tras validar el MVP. | Aceptado |
 | ADR-013 | 2026-10-07 | Política de Origin estricta y tokens sólo por Header en producción | WebSocket rechaza orígenes no autorizados o ausentes cuando no es wildcard y prohíbe tokens en query string en entornos productivos. | Aceptado |
 | ADR-014 | 2026-10-07 | Notificación transaccional post-commit en EventBus y autorización por Scopes | SqliteEventBus despacha a listeners únicamente tras COMMIT; para evitar eventos fantasma en rollbacks. Todas las rutas aplican autorización granular por scopes. | Aceptado |
+| ADR-015 | 2026-10-07 | Autenticación WebSocket en navegador mediante tickets efímeros HTTPS | La API WebSocket nativa de navegadores no permite enviar headers `Authorization: Bearer`. Para evitar exponer tokens en URLs en producción, se implementa el endpoint `POST /ws-ticket` que emite un ticket efímero de 30s de un solo uso con hash SHA-256 consumido atómicamente. | Aceptado |
 
 ---
 
@@ -80,6 +81,44 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-07] — Remediación Completa de Auditoría Fase 5: Tickets WebSocket Efímeros, Tokens en Memoria y Reconexión Real E2E (`feat/phase-5-web-dashboard`)
+- **P0: Tickets WebSocket Efímeros de Un Solo Uso (`POST /v1/projects/:projectId/ws-ticket`):**
+  - Como la API nativa de WebSockets de navegadores no permite encabezados `Authorization: Bearer` y en producción está prohibido pasar tokens Bearer en query string, se diseñó e implementó un flujo seguro mediante tickets efímeros (ADR-015):
+    - `POST /v1/projects/:projectId/ws-ticket` (requiere `Authorization: Bearer` con scope `messages:read`).
+    - Valida que `session_id` pertenezca al usuario autenticado y al proyecto.
+    - Emite un ticket seguro prefijado `wst_<uuid>` con expiración de 30 segundos.
+    - Persiste el hash SHA-256 en la tabla `ws_tickets` con índices dedicados.
+    - Consumo atómico de un solo uso en SQLite (`DELETE FROM ws_tickets WHERE ticket_hash = ? AND expires_at > ? RETURNING ...`).
+    - El handler de WebSocket (`/v1/projects/:projectId/events`) en producción rechaza cualquier conexión sin ticket o que intente enviar `?token=...`, consumiendo el ticket efímero de forma inmediata.
+    - El Bearer token real nunca viaja en la URL de WebSocket.
+- **P1: Tokens estrictamente en memoria (Cero persistencia en Storage del navegador):**
+  - Modificado `HubContext.tsx` para eliminar completamente la serialización y almacenamiento de `AuthSessionConfig` en `sessionStorage` o `localStorage`.
+  - Las credenciales (`token`, `baseUrl`, etc.) se mantienen únicamente en el estado en memoria de React (`useState`).
+  - Al cerrar la pestaña o recargar, las credenciales no persisten.
+  - La prueba E2E inspecciona exhaustivamente tanto `localStorage` como `sessionStorage` para asegurar la ausencia total de tokens.
+- **P1: Reconexión real, recuperación por inbox sin duplicados y confirmación de cursor (E2E):**
+  - Implementada prueba E2E en Playwright (`reconexión real forzada, recuperación por inbox sin duplicados y confirmación de cursor`):
+    - Conecta el dashboard al WebSocket.
+    - Fuerza el cierre del socket del cliente mediante `forceCloseSocketForTest()`.
+    - Verifica que la UI detecta la desconexión (`Reconectando|Desconectado`).
+    - Publica un mensaje en el hub desde otro agente (`offline-sender`) mientras el socket está cerrado.
+    - Verifica que el cliente se reconecta con nuevo ticket efímero y recupera el mensaje mediante `/inbox` con cursor.
+    - Confirma que el mensaje aparece exactamente una vez (`toHaveCount(1)`).
+    - Valida que el cursor es confirmado (ACK) en el backend (`last_cursor` actualizado en `agent_sessions`).
+- **P2: Desduplicación de Polling y Responsable Único de Inbox:**
+  - Eliminado el `refetchInterval` de `MessageFeed.tsx`.
+  - Definido `RealtimeManager` como el único responsable de la sincronización y recuperación de eventos vía inbox ante caídas del socket.
+  - Añadida prueba E2E (`evita solicitudes redundantes al inbox mientras el WebSocket está conectado`) validando que mientras el WebSocket está activo no se disparan peticiones repetitivas a `/inbox`.
+- **Compatibilidad Isomórfica en `@agents-hub/shared`:**
+  - Refactorizados `encodeCursor` y `decodeCursor` en `packages/shared/src/pagination.ts` para ser universales tanto en Node.js como en navegadores (fallback a `btoa`/`atob`), solucionando el `ReferenceError: Buffer is not defined` en el navegador.
+  - Adaptada validación de tamaño de bytes en `events.ts` y `schemas/message.ts` con `TextEncoder` universal.
+- **Resultados de Validación y Calidad:**
+  - `pnpm lint`: Biome 100% limpio en todo el monorepo (72 archivos).
+  - `pnpm typecheck`: TypeScript compila limpio en modo estricto.
+  - `pnpm test`: 57 tests unitarios e integración pasando en verde (Vitest).
+  - `pnpm test:e2e`: 4 tests pasando en verde en Playwright (`NODE_ENV=production`, 14.2s).
+  - `pnpm -r build`: Compilación limpia en todos los workspaces.
 
 ### [2026-10-07] — Fase 5 Completada: Dashboard Web (`feat/phase-5-web-dashboard`)
 - **Implementación completa del Dashboard Web (`apps/web`):**
@@ -310,6 +349,14 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - Toda persona o agente debe leer completa `BITACORA.md` antes de planear, decidir arquitectura o modificar el proyecto.
 - Todo avance relevante, decisión, bloqueo, solución o cambio de alcance debe registrarse en esta bitácora durante la misma sesión.
 - Se conserva como estado vigente el alcance lean del MVP: comunicación, estado compartido y locks; orquestación activa y Docker quedan fuera hasta nueva decisión explícita.
+
+### [2026-10-07] — Auditoría de Fase 5: Dashboard Web (revisión posterior a implementación)
+- **Verificación ejecutada en `feat/phase-5-web-dashboard` (`a3c14f9`):** `pnpm lint`, `pnpm typecheck`, `pnpm test` (56 tests), `pnpm -r build` y `pnpm test:e2e` (3 tests) pasan.
+- **Hallazgo P0 — WebSocket incompatible con producción:** `apps/web/src/lib/events.ts` construye siempre la URL con `?token=...`, pero `apps/hub-server/src/app.ts` prohíbe tokens en query string cuando `NODE_ENV=production`. El dashboard no podrá establecer su canal WebSocket en producción. Debe definirse e implementarse un transporte compatible con navegador (por ejemplo, ticket efímero obtenido por HTTPS y uso único en el handshake, o autenticación por cookie segura con CSRF/origin correctamente diseñado) y probarlo en modo producción.
+- **Hallazgo P1 — El token no está solo en memoria:** `apps/web/src/context/HubContext.tsx` serializa `AuthSessionConfig`, incluido el token, en `sessionStorage`. Aunque no usa `localStorage`, sigue siendo almacenamiento accesible por JavaScript y sobrevive a recargas de la pestaña; contradice la afirmación de “token únicamente en memoria/sesión” si la intención era no persistir credenciales. La decisión debe ser explícita; preferentemente eliminar el token del almacenamiento web y exigir reconexión, o sustituirlo por una sesión/cookie segura de menor privilegio.
+- **Hallazgo P1 — E2E de reconexión insuficiente:** el test descrito como “reconexión” (`e2e/dashboard.spec.ts`) solo realiza desconexión manual y no simula caída, reconexión ni recuperación por `/inbox`. Falta una prueba que cierre/interrumpa el WebSocket, publique un evento durante la caída, compruebe polling/reconexión y verifique que el evento se recibe una sola vez y que el cursor se confirma correctamente.
+- **Observación P2 — Consulta de inbox redundante:** `MessageFeed` mantiene un `refetchInterval` de 5 segundos y además `RealtimeManager` ejecuta recuperación/polling; conviene consolidar la estrategia para evitar solicitudes duplicadas, duplicación de eventos y carga innecesaria.
+- **Estado:** Fase 5 no queda aprobada para producción ni lista para fusionarse a `main` hasta corregir el P0 y cubrir los E2E de producción/reconexión. No se inicia Fase 6 todavía; el siguiente paso es enviar estas correcciones a la rama de Fase 5 y repetir la auditoría.
 
 ### [2026-10-07] — Corrección de Alcance (MVP Lean) y Reto de Recepción de Mensajes
 #### 💡 Correcciones y foco real
