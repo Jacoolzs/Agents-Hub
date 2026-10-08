@@ -159,7 +159,7 @@ describe("Multiuser and operational acceptance", () => {
     expect(
       app.ctx.eventBus.recordEvent(project, "legacy-agent", "agent.heartbeat", {}).sequence,
     ).toBe(8);
-    expect(app.ctx.db.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get()?.n).toBe(5);
+    expect(app.ctx.db.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get()?.n).toBe(6);
   });
   it("stores only invite hashes; accepts once, expires, revokes and isolates projects", async () => {
     const { app, owner, project, token, root, provision, request } = setup();
@@ -352,7 +352,7 @@ describe("Multiuser and operational acceptance", () => {
     expect((await app.inject(request)).json().data).toEqual(original.json().data);
     expect(app.ctx.db.prepare("SELECT COUNT(*) AS n FROM messages").get()?.n).toBe(1);
     expect(app.ctx.db.prepare("PRAGMA integrity_check").get()?.integrity_check).toBe("ok");
-    expect(app.ctx.db.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get()?.n).toBe(5);
+    expect(app.ctx.db.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get()?.n).toBe(6);
     expect(app.ctx.db.prepare("PRAGMA journal_mode").get()?.journal_mode).toBe("wal");
   });
 });

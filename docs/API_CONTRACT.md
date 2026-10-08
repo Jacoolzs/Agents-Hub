@@ -21,6 +21,7 @@ Revisión de fase 8.6: contrastado con `app.ts`, `http/routes`, catálogo MCP y 
 | POST `P/inbox/ack` | `messages:read` | `session_id`, `cursor`; `accept_history_gap: true` sólo para recuperación explícita |
 | GET `P/events` (WS) | `messages:read` | Origin, sesión y token/ticket autorizado; token query prohibido en producción |
 | POST `P/messages` | `messages:write` | `SendMessageInputSchema` + sesión; destino del mismo proyecto; máx. 16 KiB |
+| GET `P/messages/history` | `messages:read` | `MessageHistoryQuerySchema`; cursor propio, visibilidad previa a paginación y cero cambios al ACK. Ver [historial](MESSAGE_HISTORY.md) |
 | POST `P/status` | `messages:write` | `ReportStatusInputSchema` + sesión |
 | GET `P/status` | `messages:read` | Último estado por agente |
 | POST `P/locks/claim` | `locks:write` | `ClaimLockInputSchema` + sesión; conflicto de rutas jerárquico |

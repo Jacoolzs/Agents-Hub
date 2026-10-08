@@ -79,6 +79,80 @@ test("dos pestañas con el mismo nombre no comparten sesión y recargar permite 
   expect(resumed?.session_id).not.toBe(original?.session_id);
 });
 
+test("historial paginado sobrevive recarga y muestra mensajes entrantes sin duplicados", async ({
+  page,
+}) => {
+  const project = server.ctx.projectService.createProject("History UI", testUserId).project
+    .project_id;
+  server.ctx.sessionService.joinProject(project, "history-sender", testUserId);
+  for (let index = 0; index < 52; index++) {
+    const message = server.ctx.messageService.sendMessage(project, "history-sender", {
+      channel: "general",
+      body: `History message ${index}`,
+      priority: "normal",
+    });
+    server.ctx.db
+      .prepare("UPDATE messages SET created_at = ? WHERE message_id = ?")
+      .run(`2026-10-08T09:00:${String(index).padStart(2, "0")}.000Z`, message.message_id);
+  }
+  await page.route(/\/v1\/projects\/[^/]+\/inbox\?/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: { events: [], next_cursor: "MA", has_more: false },
+        request_id: "history-e2e",
+      }),
+    });
+  });
+  const connect = async () => {
+    await page.fill("#hub-url", HUB_URL);
+    await page.fill("#auth-token", authToken);
+    await page.fill("#project-id", project);
+    await page.fill("#agent-id", "history-dashboard");
+    await page.click("button[type=submit]");
+    await expect(page.getByText("Conectado (WS)")).toBeVisible();
+  };
+
+  await page.goto("/");
+  await connect();
+  await expect(page.getByText("History message 51", { exact: true })).toBeVisible();
+  await expect(page.getByText("History message 0", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Cargar mensajes anteriores" }).click();
+  await expect(page.getByText("History message 0", { exact: true })).toBeVisible();
+
+  const initialSession = server.ctx.sessionService
+    .getActiveSessions(project)
+    .find((session) => session.agent_id === "history-dashboard");
+  await page.reload();
+  if (
+    server.ctx.sessionService.getSessionById(initialSession?.session_id ?? "").status !==
+    "disconnected"
+  )
+    server.ctx.sessionService.disconnect(project, "history-dashboard");
+  await connect();
+  await expect(page.getByText("History message 0", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Cargar mensajes anteriores" }).click();
+  await expect(page.getByText("History message 0", { exact: true })).toHaveCount(1);
+
+  server.ctx.messageService.sendMessage(project, "history-sender", {
+    channel: "general",
+    body: "Live message merged once",
+    priority: "high",
+  });
+  const resumedSession = server.ctx.sessionService
+    .getActiveSessions(project)
+    .find((session) => session.agent_id === "history-dashboard");
+  await page.reload();
+  if (
+    server.ctx.sessionService.getSessionById(resumedSession?.session_id ?? "").status !==
+    "disconnected"
+  )
+    server.ctx.sessionService.disconnect(project, "history-dashboard");
+  await connect();
+  await expect(page.getByText("Live message merged once", { exact: true })).toHaveCount(1);
+});
+
 test("historial vencido requiere revisión y aceptación explícita antes de recuperar mensajes retenidos", async ({
   page,
 }) => {
@@ -102,7 +176,13 @@ test("historial vencido requiere revisión y aceptación explícita antes de rec
   server.ctx.db
     .prepare("UPDATE events SET occurred_at = '2000-01-01T00:00:00.000Z' WHERE project_id = ?")
     .run(project);
+  server.ctx.db
+    .prepare("UPDATE messages SET created_at = '2000-01-01T00:00:00.000Z' WHERE project_id = ?")
+    .run(project);
   server.ctx.eventBus.pruneEventsBefore("2001-01-01T00:00:00.000Z");
+  server.ctx.db
+    .prepare("DELETE FROM messages WHERE project_id = ? AND created_at < ?")
+    .run(project, "2001-01-01T00:00:00.000Z");
   server.ctx.messageService.sendMessage(project, sender.agent_id, {
     body: "Mensaje conservado después de retención",
     channel: "general",
@@ -121,7 +201,7 @@ test("historial vencido requiere revisión y aceptación explícita antes de rec
   expect(session?.last_cursor).toBe("MA");
   await expect(
     page.getByText("Mensaje conservado después de retención", { exact: true }),
-  ).toHaveCount(0);
+  ).toHaveCount(1);
   await page.getByRole("button", { name: "Revisar estado actual" }).click();
   await expect(page.getByText(/retention-sender: Contrato vigente/)).toBeVisible();
   await expect(page.getByText(/Rutas bloqueadas: src\/current/)).toBeVisible();

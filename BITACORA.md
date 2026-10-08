@@ -20,11 +20,11 @@ Actualizado: 2026-10-08. Esta sección se actualiza al finalizar **cada tarea** 
 
 ### Objetivo y punto de corte
 
-Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](docs/ROADMAP.md), preservando alcance y aceptación, con commits y publicación progresivos desde una rama nueva. El objetivo completo sigue pendiente; el trabajo continúa ahora con 10.1.
+Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](docs/ROADMAP.md), preservando alcance y aceptación, con commits y publicación progresivos desde una rama nueva. El objetivo completo sigue pendiente; 10.1 está verificada y el trabajo continúa con 10.2.
 
 - Directorio: `C:\Users\orlan\Documents\GitHub\Agents-Hub`. Retomar en **este mismo checkout** para disponer del trabajo no publicado.
-- Rama de trabajo: `feat/phase-10-message-history`, creada desde `main` en HEAD `13a81d8ef310a3362419654e43fbd23ae9203bb0` y conservando el worktree local.
-- Hay cambios locales extensos y archivos nuevos de implementación/documentación, **sin commit ni push**. La revalidación actual observa 33 archivos rastreados modificados y 25 sin seguimiento. `git diff` no incluye el contenido de archivos sin seguimiento: inspeccionar también `git status --short` y esos archivos. Un clon nuevo de GitHub no contiene estos incrementos.
+- Rama de trabajo: `feat/phase-10-message-history`, creada desde `main` en `13a81d8`; commit base `4c5feba` publicado y rama configurada para seguir `origin/feat/phase-10-message-history`. El incremento 10.1 está verificado y preparado para su segundo commit/push.
+- No descartar ni cambiar de checkout sin revisar `git status`: el worktree contiene la documentación/relevo y el incremento 10.1 hasta completar su commit. No hay cambios ajenos detectados ni artefactos operativos añadidos.
 - Se preservaron cambios documentales que ya existían al iniciar la implementación. No descartarlos ni hacer reset/checkout/pull indiscriminado. Publicación/CI remoto de los incrementos nuevos no están verificados.
 - Las ejecuciones de verificación registradas terminaron; no hay un test pendiente que este relevo pida esperar. El estado del Hub/túnel operativo personal no se ha inspeccionado en esta tarea: no asumir que está apagado ni reiniciarlo para retomar código.
 
@@ -38,6 +38,7 @@ Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](d
 | Idempotencia tras reanudar | Huella usa payload de dominio + agente lógico validado, no session_id temporal. Registros antiguos pueden dar conflicto hasta TTL 24 h; no reemitir automáticamente con otra clave |
 | 9.1: diagnóstico | `pnpm doctor` / `--json`, sólo GET, sin datos sensibles ni mutaciones; capacidades en `/v1/capabilities`; [DOCTOR](docs/DOCTOR.md) |
 | 9.2: plantilla genérica | `pnpm mcp:config`, rutas absolutas, token placeholder, creación exclusiva `--output`; [MCP_SETUP](docs/MCP_SETUP.md). Guías y aceptación de productos concretos siguen pendientes |
+| 10.1: historial independiente | GET autorizado con cursor keyset propio, privacidad previa a paginación, migración 6, capacidad `message_history` y UI Infinite Query deduplicada; [MESSAGE_HISTORY](docs/MESSAGE_HISTORY.md), `message-history.test.ts` y E2E de recarga |
 
 Usar el stack existente: Node 24 LTS (última versión observada 24.12.0), pnpm/workspaces/lockfile, TypeScript estricto, Zod, Fastify, `node:sqlite`/WAL, MCP SDK v1, React/Vite/Tailwind/TanStack Query, Vitest, Playwright y Biome. No se añadieron dependencias en estos incrementos. No introducir otro SDK, ORM, base de datos, servicio o virtualización sin necesidad comprobada y decisión registrada.
 
@@ -45,28 +46,24 @@ Documentos de apoyo: [inventario de contratos](docs/API_CONTRACT.md), [arquitect
 
 ### Por dónde seguir y cómo: próximo incremento
 
-**Prioridad recomendada: 10.1, historial paginado independiente del inbox; preparar 10.2 sin ampliar el incremento innecesariamente.** No se ha implementado todavía. El feed actual usa eventos del inbox, por lo que un checkpoint confirmado no sirve para navegar mensajes antiguos al regresar.
+**Prioridad recomendada: 10.2, búsqueda y filtros autorizados sobre el historial ya implementado.** Mantener el mismo endpoint/cursor y no convertir la búsqueda en un consumidor del inbox.
 
-1. Inspeccionar `MessageService`, el puerto `MessageRepository` en `apps/hub-server/src/application/ports/persistence.ts`, `infrastructure/repositories/sqlite-message-repository.ts`, `http/routes/message-routes.ts` y política `application/policies/event-visibility.ts`. Revisar además los schemas de mensajes/paginación en `packages/shared/src/`.
-2. Registrar el contrato de lectura histórica antes de implementarlo: entrada/salida validada, cursor **distinto** del cursor inbox, orden determinista con desempate y límites de página. Nombre de ruta, formato del cursor e índices adicionales son propuestas por concretar, no decisiones ya aceptadas. Si hace falta migración, la siguiente versión libre observada es 6; verificarlo de nuevo, hacerla aditiva y probar upgrade/backup.
-3. Autorizar en el servidor por proyecto, token/scope `messages:read` y sesión propia vigente. Derivar agente de esa sesión. Aplicar visibilidad (broadcast, emisor o destinatario) **antes de paginar**, también al buscar y calcular has_more/conteos; owner no obtiene mensajes privados ajenos por administrar el proyecto.
-4. Atención al helper actual: `SqliteMessageRepository.listByProject()` ejecuta LIMIT y después `MessageService.getMessages()` filtra destinatarios. Es un hecho de código, no una nueva API histórica publicada. **No exponer directamente ese helper**: una página de mensajes ocultos puede impedir encontrar mensajes visibles posteriores; un agente opcional omitido tampoco es autorización.
-5. Añadir lectura histórica detrás del puerto/adaptador y la ruta modular; luego cliente en `apps/web/src/lib/api.ts` y UI en `features/messages/MessageFeed.tsx`. Integrar páginas con eventos vivos deduplicando por message_id; usar TanStack Query existente y no crear un segundo responsable del inbox. Revisar `context/HubContext.tsx` y `lib/events.ts` para conservar la recuperación ordenada/ACK actuales.
-6. Consultar historial/cargar páginas/buscar **no** debe modificar last_cursor, confirmar eventos ni ejecutar efectos otra vez. Probar recarga/reconexión con checkpoint adelantado, muchos mensajes privados antes de uno visible, proyectos/usuarios ajenos, paginación con mensajes entrantes, duplicados y cursores inválidos. Usar SQLite real y E2E de producción; nunca DB del usuario para provocar borrado/retención.
-7. Para 10.2, continuar después con búsqueda/filtrado autorizado por texto/canal/emisor/destinatario/fecha antes de paginar; registrar semántica y cubrir inferencia de privados. Mantener el historial independiente del consumo.
+1. Extender `MessageHistoryQuerySchema` con texto, canal, remitente, destinatario y rango UTC, fijando semántica exacta, límites y combinaciones antes de codificar. Evitar un segundo endpoint si el contrato actual puede evolucionar de forma compatible.
+2. Aplicar todos los filtros en `SqliteMessageRepository.listVisibleHistory()` después de la frontera de proyecto/visibilidad pero antes de orden/`LIMIT`; `has_more` y cursores sólo reflejan coincidencias visibles. No devolver conteos globales ni distinguir “no existe” de “existe pero es privado”.
+3. Destinatario significa coincidencia explícita en `recipient_agent_ids`; broadcast se obtiene sin ese filtro. El filtro no amplía la visibilidad: owner sigue sin leer privados ajenos. Texto debe tener un máximo pequeño y semántica literal documentada; no añadir FTS/dependencia sin medir necesidad.
+4. Añadir controles compactos en `MessageFeed`, incorporando filtros al query key de TanStack Query y reiniciando páginas al cambiarlos. Eventos vivos se filtran de forma coherente en cliente o fuerzan actualización sin tomar control del ACK.
+5. Probar combinaciones, fechas límite, muchos privados antes de coincidencias visibles, proyectos/sesiones ajenos, cursores usados con filtros diferentes y ausencia de inferencia. Decidir si el cursor debe quedar ligado a la huella de filtros para impedir reutilización ambigua; registrar la decisión antes de implementar.
 
 **Después: 10.5, renovación explícita de locks en MCP/UI.** Backend y `HubClient.renewLock()` ya existen; revisar `http/routes/lock-routes.ts`, `application/services/lock-service.ts`, `packages/shared/src/schemas/lock.ts`, `packages/mcp-server/src/tools/catalog.ts`/`commands.ts` y `apps/web/src/features/locks/LocksPanel.tsx`. Exponer herramienta/input/output validado y clave estable para retry; añadir acción UI y cuenta regresiva. Propietario u owner del proyecto renueva, ajenos se rechazan, lock vencido debe reclamarse de nuevo. Heartbeat no renueva locks automáticamente. Probar permisos, TTL, idempotencia y flujos MCP/UI. Actualizar capacidades/inventario/guías según corresponda.
 
 ### Verificación y evidencia disponible
 
-Última verificación funcional de la sesión de implementación (anterior a esta tarea documental):
+Verificación actual de 10.1 y del acumulado de la rama:
 
-- `pnpm check`: PASS, lint + typecheck + **130 tests en 18 suites**.
-- `pnpm -r build`: PASS.
-- `pnpm test:e2e`: **9 PASS** sobre el último cambio de Hub/MCP/UI; cubre dos procesos stdio, colisiones, fencing/rejoin, retry de comando entre generaciones, recuperación/ACK y flujos web. Cambios CLI posteriores tienen pruebas de subprocess/HTTP y preservación de archivos dentro de la suite.
-- `git diff --check` y enlaces Markdown: PASS. No hay evidencia de CI remoto para este worktree ni aceptación humana con dos productos.
-
-Verificación de la última tarea, sólo documental: contenido del relevo/regla revisado, enlaces locales de AGENTS.md/BITACORA.md y `git diff --check` PASS. No se ejecutaron de nuevo tests/build/E2E ni se modificó código de aplicación para este relevo.
+- `pnpm check`: PASS, lint + typecheck + **133 tests en 19 suites**.
+- `pnpm -r build`: PASS, incluido bundle productivo web.
+- `pnpm test:e2e`: **10 PASS**; añade historial paginado/recarga/mensaje entrante y conserva procesos stdio, fencing, recuperación/ACK, privacidad y flujos web.
+- `git diff --check`: PASS con la advertencia conocida de futura normalización CRLF→LF en README. No hay evidencia todavía de CI remoto para el commit 10.1 ni aceptación humana con dos productos.
 
 Al retomar, comprobar rama/HEAD/status/diff, Node y pnpm. Si faltan dependencias, usar `pnpm install --frozen-lockfile`; no actualizar el lockfile por defecto. Para código nuevo ejecutar:
 
@@ -96,8 +93,8 @@ Compilar antes de Playwright: sirve el bundle de producción y usa el adaptador 
 Continúa la implementación de las fases nuevas de Agents-Hub en este checkout.
 Lee AGENTS.md y BITACORA.md completas, especialmente el relevo vigente.
 Contrasta rama, commit, cambios locales y código actual; conserva lo no publicado.
-Empieza por 10.1: historial paginado autorizado, independiente del inbox/ACK,
-con pruebas de privacidad, recarga y deduplicación. Sigue los pasos y archivos
+Empieza por 10.2: filtros autorizados sobre el historial y cursor ligado a su
+semántica, con pruebas de privacidad e inferencia. Sigue los pasos y archivos
 del relevo, conserva ADR-018–021 y los límites del roadmap. Actualiza la bitácora
 y el relevo al terminar cada tarea, con lo hecho, cómo verificarlo y por dónde seguir.
 ```
@@ -182,7 +179,17 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - El usuario autoriza continuar el roadmap, hacer commits y publicar progresivamente. Se releen AGENTS.md/BITACORA.md y se crea `feat/phase-10-message-history` desde `main`/`13a81d8`, preservando los 33 archivos modificados y 25 sin seguimiento del incremento local 8.1–9.2.
 - Estrategia de entrega: verificar y publicar primero ese punto de partida como commit recuperable; después implementar 10.1 en un commit separado con contrato, backend, web, pruebas y documentación. No se amplía todavía a búsqueda 10.2.
 - Punto de partida verificado en esta sesión: `pnpm check` PASS (lint, typecheck y 130/130 pruebas en 18 suites), `pnpm -r build` PASS, `pnpm test:e2e` PASS (9/9) y `git diff --check` PASS con advertencia preexistente de normalización LF en README. No se observaron fallos que corregir.
-- Siguiente paso inmediato: crear y publicar el commit base antes de modificar el historial de mensajes.
+- Commit base `4c5feba` (`feat: harden recovery sessions and onboarding`) creado con 71 archivos y publicado en `origin/feat/phase-10-message-history`; la rama local quedó configurada para seguir esa remota. No se abrió PR todavía.
+- Siguiente paso inmediato: implementar 10.1 sobre este corte publicado y crear un segundo commit verificable.
+
+### [2026-10-08] — Contrato e implementación inicial de historial 10.1
+- Se fija `GET /v1/projects/:projectId/messages/history` con sesión propia, scope `messages:read`, límite 1–100, canal opcional y cursor keyset separado del inbox que codifica `(created_at, message_id)`. Orden descendente determinista; consultar no confirma ni modifica el checkpoint.
+- Repositorio SQLite aplica proyecto, visibilidad privada y canal antes de ordenar/paginar; owner no evita la política del agente de la sesión. Migración aditiva 6 incorpora índice `(project_id, created_at DESC, message_id DESC)`. Capabilities anuncia `message_history` sin romper los requisitos anteriores del doctor.
+- Web usa TanStack Infinite Query para cargar mensajes retenidos y los fusiona por `message_id` con eventos vivos, conservando al realtime manager como único consumidor/ACK del inbox. No se añade dependencia.
+- Typecheck pasa. La primera suite completa ejecutó 133 pruebas: 131 pasaron y dos nuevas fallaron por expectativas del test (cursor inicial ya es `encodeCursor(0)` y `CURSOR_INVALID` conserva HTTP 400); se ajustan para comparar el checkpoint anterior y el mapping público vigente antes de repetir.
+- Se documenta la interacción con retención: leer mensajes aún retenidos no acepta un `CURSOR_EXPIRED`; el aviso y checkpoint permanecen hasta la recuperación explícita. El fixture E2E de borrado elimina tanto evento como mensaje, igual que mantenimiento real.
+- Resultado final local: `pnpm check` PASS (133/133, 19 suites), `pnpm -r build` PASS, `pnpm test:e2e` PASS (10/10) y `git diff --check` PASS. El E2E aísla inbox para demostrar recarga/paginación histórica; las pruebas existentes conservan cobertura WS/ACK.
+- Siguiente paso: commit/push de 10.1 y luego 10.2, ligando el cursor a filtros si la revisión de contrato confirma que evita reutilización ambigua sin romper compatibilidad.
 
 ### [2026-10-08] — Revalidación de estado y próximo incremento
 - El usuario solicita analizar la bitácora y explicar el estado y la continuación. Se lee completa y se contrasta el relevo con el checkout actual, sin iniciar implementación funcional.

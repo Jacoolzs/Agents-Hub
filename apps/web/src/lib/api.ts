@@ -2,11 +2,16 @@ import type {
   AgentSession,
   Membership,
   Message,
+  MessageHistoryPage,
   Project,
   StatusReport,
   WorkspaceLock,
 } from "@agents-hub/shared";
-import { type InboxRecovery, InboxRecoverySchema } from "@agents-hub/shared";
+import {
+  type InboxRecovery,
+  InboxRecoverySchema,
+  MessageHistoryPageSchema,
+} from "@agents-hub/shared";
 import type { InboxResponse, TeamStatusData } from "../types/index.js";
 
 export class ApiClientError extends Error {
@@ -238,6 +243,25 @@ export async function sendMessage(
     }),
   });
   return handleResponse<Message>(res);
+}
+
+export async function fetchMessageHistory(
+  baseUrl: string,
+  token: string,
+  projectId: string,
+  sessionId: string,
+  before?: string,
+  limit = 50,
+  channel?: string,
+): Promise<MessageHistoryPage> {
+  const params = new URLSearchParams({ session_id: sessionId, limit: String(limit) });
+  if (before) params.set("before", before);
+  if (channel) params.set("channel", channel);
+  const res = await fetch(
+    `${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/messages/history?${params.toString()}`,
+    { headers: makeHeaders(token) },
+  );
+  return MessageHistoryPageSchema.parse(await handleResponse<unknown>(res));
 }
 
 export async function reportStatus(

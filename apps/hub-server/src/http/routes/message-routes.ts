@@ -1,6 +1,9 @@
 import {
   AppError,
   MAX_MESSAGE_BODY_BYTES,
+  MessageHistoryCursorSchema,
+  MessageHistoryPageSchema,
+  MessageHistoryQuerySchema,
   ReportStatusInputSchema,
   SendMessageInputSchema,
 } from "@agents-hub/shared";
@@ -15,6 +18,41 @@ export function registerMessageRoutes(
 ): void {
   const { messageService, statusService, sessionService, authService } = ctx;
   const { getAuthenticatedUserId, command } = dependencies;
+
+  app.get("/v1/projects/:projectId/messages/history", async (req, reply) => {
+    const userId = getAuthenticatedUserId(req, "messages:read");
+    const { projectId } = req.params as { projectId: string };
+    authService.checkProjectPermission(userId, projectId);
+    const rawQuery = req.query as Record<string, unknown>;
+    if (
+      rawQuery.before !== undefined &&
+      !MessageHistoryCursorSchema.safeParse(rawQuery.before).success
+    ) {
+      throw new AppError("CURSOR_INVALID", "Invalid history cursor");
+    }
+    const parsed = MessageHistoryQuerySchema.safeParse(rawQuery);
+    if (!parsed.success) {
+      throw new AppError(
+        "INVALID_INPUT",
+        parsed.error.errors[0]?.message ?? "Invalid history query",
+      );
+    }
+    const session = sessionService.validateSessionForUser(
+      parsed.data.session_id,
+      userId,
+      projectId,
+    );
+    const page = MessageHistoryPageSchema.parse(
+      messageService.getHistory(
+        projectId,
+        session.agent_id,
+        parsed.data.before,
+        parsed.data.channel,
+        parsed.data.limit,
+      ),
+    );
+    return { data: page, request_id: reply.getHeader("x-request-id") };
+  });
 
   // Messages (Identity strictly derived from validated session_id)
   app.post("/v1/projects/:projectId/messages", async (req, reply) => {

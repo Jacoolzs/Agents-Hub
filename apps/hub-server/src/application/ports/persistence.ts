@@ -6,6 +6,7 @@ import type {
   Membership,
   MembershipRole,
   Message,
+  MessageHistoryPosition,
   Project,
   StatusReport,
   WorkspaceLock,
@@ -46,6 +47,13 @@ export interface MessageRepository {
   recipientExists(projectId: string, agentId: string): boolean;
   insert(message: Message): void;
   listByProject(projectId: string, channel: string | undefined, limit: number): Message[];
+  listVisibleHistory(
+    projectId: string,
+    agentId: string,
+    before: MessageHistoryPosition | undefined,
+    channel: string | undefined,
+    limit: number,
+  ): Message[];
 }
 
 export interface SessionRepository {

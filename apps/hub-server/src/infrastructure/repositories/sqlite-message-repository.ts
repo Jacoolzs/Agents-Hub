@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { Message } from "@agents-hub/shared";
+import type { Message, MessageHistoryPosition } from "@agents-hub/shared";
 import type { MessageRepository } from "../../application/ports/persistence.js";
 
 type MessageRow = Omit<Message, "recipient_agent_ids" | "correlation_id"> & {
@@ -40,6 +40,47 @@ export class SqliteMessageRepository implements MessageRepository {
         `SELECT * FROM messages WHERE project_id = ? ${channel ? "AND channel = ?" : ""} ORDER BY created_at ASC LIMIT ?`,
       )
       .all(projectId, ...(channel ? [channel] : []), limit) as MessageRow[];
+    return rows.map(({ recipient_agent_ids, correlation_id, ...row }) => ({
+      ...row,
+      recipient_agent_ids: JSON.parse(recipient_agent_ids) as string[],
+      ...(correlation_id ? { correlation_id } : {}),
+    }));
+  }
+
+  public listVisibleHistory(
+    projectId: string,
+    agentId: string,
+    before: MessageHistoryPosition | undefined,
+    channel: string | undefined,
+    limit: number,
+  ): Message[] {
+    const clauses = [
+      "project_id = ?",
+      `(json_array_length(recipient_agent_ids) = 0
+        OR sender_id = ?
+        OR EXISTS (
+          SELECT 1 FROM json_each(messages.recipient_agent_ids) recipient
+          WHERE recipient.value = ?
+        ))`,
+    ];
+    const parameters: Array<string | number> = [projectId, agentId, agentId];
+    if (channel) {
+      clauses.push("channel = ?");
+      parameters.push(channel);
+    }
+    if (before) {
+      clauses.push("(created_at < ? OR (created_at = ? AND message_id < ?))");
+      parameters.push(before.created_at, before.created_at, before.message_id);
+    }
+    parameters.push(limit);
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE ${clauses.join(" AND ")}
+         ORDER BY created_at DESC, message_id DESC
+         LIMIT ?`,
+      )
+      .all(...parameters) as MessageRow[];
     return rows.map(({ recipient_agent_ids, correlation_id, ...row }) => ({
       ...row,
       recipient_agent_ids: JSON.parse(recipient_agent_ids) as string[],

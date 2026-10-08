@@ -210,7 +210,12 @@ describe("Exclusive agent instances", () => {
         expect(replacement).not.toBe(oldId);
         expect(session.last_cursor).toBe(encodeCursor(4));
         expect(app.ctx.eventBus.getRetentionBoundary(project)).toBe(2);
-        expect(app.ctx.db.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get()?.n).toBe(5);
+        expect(app.ctx.db.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get()?.n).toBe(6);
+        expect(
+          app.ctx.db
+            .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'index' AND name = ?")
+            .get("idx_messages_history")?.present,
+        ).toBe(1);
       } finally {
         await app.close();
         app.ctx.db.close();

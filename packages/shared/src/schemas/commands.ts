@@ -61,7 +61,13 @@ export const HubCapabilitiesSchema = z
     api_version: z.literal("v1"),
     contract_revision: z.literal(1),
     features: z.array(
-      z.enum(["exclusive_instances", "cursor_recovery", "explicit_ack", "idempotent_commands"]),
+      z.enum([
+        "exclusive_instances",
+        "cursor_recovery",
+        "explicit_ack",
+        "idempotent_commands",
+        "message_history",
+      ]),
     ),
   })
   .strict();

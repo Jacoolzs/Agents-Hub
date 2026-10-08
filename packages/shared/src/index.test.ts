@@ -6,6 +6,7 @@ import {
   CursorSchema,
   EventEnvelopeSchema,
   MAX_MESSAGE_BODY_BYTES,
+  MessageHistoryPageSchema,
   MessageSchema,
   NormalizedWorkspacePathSchema,
   ProjectSchema,
@@ -13,7 +14,9 @@ import {
   UtcIsoDateSchema,
   UuidSchema,
   decodeCursor,
+  decodeMessageHistoryCursor,
   encodeCursor,
+  encodeMessageHistoryCursor,
   generateId,
   nowUtc,
 } from "./index.js";
@@ -48,6 +51,23 @@ describe("Shared Contracts & Validation (Phase 1)", () => {
     it("returns null for invalid/malformed cursors", () => {
       expect(decodeCursor("invalid-base64---")).toBe(null);
       expect(decodeCursor(encodeCursor(-5))).toBe(null);
+    });
+
+    it("keeps history keyset cursors canonical and distinct from inbox cursors", () => {
+      const position = {
+        created_at: "2026-10-08T12:00:00.000Z",
+        message_id: generateId(),
+      };
+      const cursor = encodeMessageHistoryCursor(position);
+      expect(decodeMessageHistoryCursor(cursor)).toEqual(position);
+      expect(decodeMessageHistoryCursor(encodeCursor(42))).toBe(null);
+      expect(
+        MessageHistoryPageSchema.safeParse({
+          messages: [],
+          next_cursor: null,
+          has_more: false,
+        }).success,
+      ).toBe(true);
     });
   });
 

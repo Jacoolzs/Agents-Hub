@@ -139,7 +139,7 @@ La validación completa de inputs/outputs es un requisito del diseño. El adapta
 ## 7. Rendimiento y resiliencia
 
 - Operaciones normales O(1) o indexadas por `project_id`, `sequence`, destinatario y expiración.
-- La consulta de inbox usa paginación/cursor, no carga todo el historial.
+- Inbox y [historial de mensajes](docs/MESSAGE_HISTORY.md) usan cursores distintos: el primero gobierna consumo/ACK y el segundo sólo navegación paginada autorizada.
 - WebSocket sólo distribuye eventos compactos; el cliente pide detalle bajo demanda.
 - Backpressure: límites por conexión, cola máxima y desconexión controlada de consumidores lentos.
 - Reintentos con backoff y jitter sólo para operaciones idempotentes.

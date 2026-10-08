@@ -173,4 +173,8 @@ export const MIGRATIONS = [
     version: 5,
     sql: "ALTER TABLE agent_sessions ADD COLUMN instance_id TEXT;",
   },
+  {
+    version: 6,
+    sql: "CREATE INDEX idx_messages_history ON messages(project_id, created_at DESC, message_id DESC);",
+  },
 ];

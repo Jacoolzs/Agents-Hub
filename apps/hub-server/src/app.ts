@@ -418,7 +418,13 @@ export function buildApp(
     data: HubCapabilitiesSchema.parse({
       api_version: "v1",
       contract_revision: 1,
-      features: ["exclusive_instances", "cursor_recovery", "explicit_ack", "idempotent_commands"],
+      features: [
+        "exclusive_instances",
+        "cursor_recovery",
+        "explicit_ack",
+        "idempotent_commands",
+        "message_history",
+      ],
     }),
     request_id: reply.getHeader("x-request-id"),
   }));

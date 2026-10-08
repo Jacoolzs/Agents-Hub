@@ -2,9 +2,13 @@ import {
   AppError,
   MAX_MESSAGE_BODY_BYTES,
   type Message,
+  type MessageHistoryPage,
+  type MessageHistoryPosition,
   type SendMessageInput,
   SendMessageInputSchema,
   containsObviousSecret,
+  decodeMessageHistoryCursor,
+  encodeMessageHistoryCursor,
   generateId,
   nowUtc,
 } from "@agents-hub/shared";
@@ -70,5 +74,35 @@ export class MessageService {
           message.sender_id === agentId ||
           message.recipient_agent_ids.includes(agentId),
       );
+  }
+
+  public getHistory(
+    projectId: string,
+    agentId: string,
+    beforeCursor?: string,
+    channel?: string,
+    limit = 50,
+  ): MessageHistoryPage {
+    let before: MessageHistoryPosition | undefined;
+    if (beforeCursor) {
+      const decoded = decodeMessageHistoryCursor(beforeCursor);
+      if (!decoded) throw new AppError("CURSOR_INVALID", "Invalid history cursor");
+      before = decoded;
+    }
+    const rows = this.repository.listVisibleHistory(projectId, agentId, before, channel, limit + 1);
+    const hasMore = rows.length > limit;
+    const messages = hasMore ? rows.slice(0, limit) : rows;
+    const oldest = messages[messages.length - 1];
+    return {
+      messages,
+      next_cursor:
+        hasMore && oldest
+          ? encodeMessageHistoryCursor({
+              created_at: oldest.created_at,
+              message_id: oldest.message_id,
+            })
+          : null,
+      has_more: hasMore,
+    };
   }
 }

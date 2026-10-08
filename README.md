@@ -8,7 +8,7 @@ Mensajes, estado compartido y locks para equipos que trabajan con agentes de des
 
 ## Qué permite
 
-- Enviar mensajes al equipo o a agentes concretos y recuperar novedades mediante inbox y confirmación de cursor.
+- Enviar mensajes al equipo o a agentes concretos, navegar el historial retenido y recuperar novedades mediante inbox y confirmación de cursor.
 - Compartir objetivos, avances, decisiones y bloqueos.
 - Reclamar archivos o módulos con TTL y detectar conflictos entre rutas y subdirectorios.
 - Ver presencia, mensajes, estados y locks desde el navegador.
@@ -110,7 +110,7 @@ Antes de E2E, compila y ejecuta `pnpm exec playwright install chromium`. El serv
 - [Operación](docs/OPERATIONS.md): instalación, invitaciones, backups, restauración y límites.
 - [Cierre del MVP](docs/MVP_CLOSEOUT.md): evidencia y pendientes reales.
 - [Plan de evolución](docs/ROADMAP.md): fases 7–15 propuestas, prioridades, dependencias, entregables y criterios de aceptación.
-- [Aceptación humana](docs/acceptance/pilot.md), [clientes](docs/compatibility/clients.md) y [recuperación tras retención](docs/RECOVERY.md): protocolo del piloto y contrato implementado de historial vencido.
+- [Aceptación humana](docs/acceptance/pilot.md), [clientes](docs/compatibility/clients.md), [historial](docs/MESSAGE_HISTORY.md) y [recuperación tras retención](docs/RECOVERY.md): protocolo del piloto y contratos de lectura/recuperación.
 - [Contratos vigentes](docs/API_CONTRACT.md): rutas, scopes, herramientas, errores, eventos y límites de validación.
 - [Sesiones e instancias](docs/SESSIONS.md): colisiones de nombres, reintentos, vencimiento y reanudación del checkpoint.
 - [Diagnóstico](docs/DOCTOR.md): errores de instalación/acceso y salida JSON sin credenciales.
