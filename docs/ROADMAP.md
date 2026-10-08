@@ -274,6 +274,7 @@ El usuario autoriza implementar la evolución. El alcance y las condiciones ante
 | 9.1: doctor | Verificada localmente | [Diagnóstico](DOCTOR.md), capacidades, CLI/GET reales, errores, no mutación y redacción |
 | 9.2: configuración | Preparación genérica verificada | [Plantilla](MCP_SETUP.md) con rutas absolutas/token de ejemplo y creación exclusiva; guías/aceptación de productos específicos pendientes |
 | 10.1: historial paginado | Verificada localmente | [Contrato](MESSAGE_HISTORY.md), cursor keyset separado, privacidad previa a paginación, UI infinita, 133 pruebas y 10 E2E; CI remoto pendiente |
+| 10.2: búsqueda y filtros | Verificada localmente | Filtros literales/autorizados antes de paginar, cursor ligado a huella, controles web, 134 pruebas y 10 E2E; CI remoto pendiente |
 | 9.3–14 | Pendientes | Conservar dependencias/aceptación del plan; no declarar entregadas |
 | 15 | Investigaciones condicionadas | Sin nuevos servicios, Docker ni orquestación |
 

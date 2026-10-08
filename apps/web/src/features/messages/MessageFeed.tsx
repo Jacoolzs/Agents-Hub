@@ -1,4 +1,4 @@
-import type { Message, MessagePriority } from "@agents-hub/shared";
+import type { Message, MessageHistoryFilters, MessagePriority } from "@agents-hub/shared";
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import type React from "react";
 import { useMemo, useState } from "react";
@@ -6,10 +6,29 @@ import { EmptyState, ErrorBanner } from "../../components/States.js";
 import { useHub } from "../../context/HubContext.js";
 import { fetchMessageHistory, sendMessage } from "../../lib/api.js";
 
+function matchesHistoryFilters(message: Message, filters: MessageHistoryFilters): boolean {
+  return (
+    (!filters.text || message.body.toLowerCase().includes(filters.text.toLowerCase())) &&
+    (!filters.channel || message.channel === filters.channel) &&
+    (!filters.sender || message.sender_id === filters.sender) &&
+    (!filters.recipient || message.recipient_agent_ids.includes(filters.recipient)) &&
+    (!filters.from || message.created_at >= filters.from) &&
+    (!filters.to || message.created_at < filters.to)
+  );
+}
+
 export function MessageFeed() {
   const { auth, events, syncError, realtimeManager } = useHub();
 
-  const [channelFilter, setChannelFilter] = useState<string>("all");
+  const [filterDraft, setFilterDraft] = useState({
+    text: "",
+    channel: "",
+    sender: "",
+    recipient: "",
+    from: "",
+    to: "",
+  });
+  const [historyFilters, setHistoryFilters] = useState<MessageHistoryFilters>({});
   const [newChannel, setNewChannel] = useState("general");
   const [newPriority, setNewPriority] = useState<MessagePriority>("normal");
   const [newRecipients, setNewRecipients] = useState("");
@@ -17,18 +36,15 @@ export function MessageFeed() {
   const [formError, setFormError] = useState<unknown | null>(null);
 
   const historyQuery = useInfiniteQuery({
-    queryKey: ["message-history", auth?.projectId, auth?.sessionId],
+    queryKey: ["message-history", auth?.projectId, auth?.sessionId, historyFilters],
     enabled: auth !== null,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => {
       if (!auth) throw new Error("No auth");
-      return fetchMessageHistory(
-        auth.baseUrl,
-        auth.token,
-        auth.projectId,
-        auth.sessionId,
-        pageParam ?? undefined,
-      );
+      return fetchMessageHistory(auth.baseUrl, auth.token, auth.projectId, auth.sessionId, {
+        ...historyFilters,
+        ...(pageParam ? { before: pageParam } : {}),
+      });
     },
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? (lastPage.next_cursor ?? undefined) : undefined,
@@ -65,6 +81,24 @@ export function MessageFeed() {
     sendMutation.mutate();
   };
 
+  const applyFilters = (event: React.FormEvent) => {
+    event.preventDefault();
+    const clean = (value: string) => value.trim() || undefined;
+    setHistoryFilters({
+      ...(clean(filterDraft.text) ? { text: clean(filterDraft.text) } : {}),
+      ...(clean(filterDraft.channel) ? { channel: clean(filterDraft.channel) } : {}),
+      ...(clean(filterDraft.sender) ? { sender: clean(filterDraft.sender) } : {}),
+      ...(clean(filterDraft.recipient) ? { recipient: clean(filterDraft.recipient) } : {}),
+      ...(filterDraft.from ? { from: new Date(filterDraft.from).toISOString() } : {}),
+      ...(filterDraft.to ? { to: new Date(filterDraft.to).toISOString() } : {}),
+    });
+  };
+
+  const clearFilters = () => {
+    setFilterDraft({ text: "", channel: "", sender: "", recipient: "", from: "", to: "" });
+    setHistoryFilters({});
+  };
+
   // Merge independent history pages with live inbox/WS events by domain identity.
   const messages: Message[] = useMemo(() => {
     const byId = new Map<string, Message>();
@@ -78,7 +112,8 @@ export function MessageFeed() {
           ...(payload as unknown as Message),
           created_at: ((payload.created_at as string | undefined) ?? event.occurred_at) as string,
         };
-        if (!byId.has(message.message_id)) byId.set(message.message_id, message);
+        if (matchesHistoryFilters(message, historyFilters) && !byId.has(message.message_id))
+          byId.set(message.message_id, message);
       }
     }
     // Newest at bottom
@@ -86,20 +121,7 @@ export function MessageFeed() {
       (a, b) =>
         a.created_at.localeCompare(b.created_at) || a.message_id.localeCompare(b.message_id),
     );
-  }, [events, historyQuery.data]);
-
-  const uniqueChannels = useMemo(() => {
-    const set = new Set<string>();
-    for (const m of messages) {
-      if (m.channel) set.add(m.channel);
-    }
-    return Array.from(set);
-  }, [messages]);
-
-  const filteredMessages = useMemo(() => {
-    if (channelFilter === "all") return messages;
-    return messages.filter((m) => m.channel === channelFilter);
-  }, [messages, channelFilter]);
+  }, [events, historyFilters, historyQuery.data]);
 
   const renderPriorityBadge = (priority?: MessagePriority) => {
     switch (priority) {
@@ -132,26 +154,77 @@ export function MessageFeed() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] space-y-4">
-      {/* Top Filter Bar */}
-      <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-400">Canal:</span>
-          <select
-            value={channelFilter}
-            onChange={(e) => setChannelFilter(e.target.value)}
-            className="px-2.5 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-          >
-            <option value="all">Todos los canales</option>
-            {uniqueChannels.map((c) => (
-              <option key={c} value={c}>
-                #{c}
-              </option>
-            ))}
-          </select>
-        </div>
-        <span className="text-xs text-slate-500">
-          {filteredMessages.length} {filteredMessages.length === 1 ? "mensaje" : "mensajes"}
-        </span>
+      {/* Authorized server-side history filters */}
+      <div className="pb-3 border-b border-slate-800 space-y-2">
+        <form onSubmit={applyFilters} className="grid grid-cols-2 lg:grid-cols-6 gap-2">
+          {(["text", "channel", "sender", "recipient"] as const).map((field) => (
+            <input
+              key={field}
+              aria-label={`Filtro ${
+                field === "text"
+                  ? "texto"
+                  : field === "channel"
+                    ? "canal"
+                    : field === "sender"
+                      ? "remitente"
+                      : "destinatario"
+              }`}
+              value={filterDraft[field]}
+              onChange={(event) =>
+                setFilterDraft((current) => ({ ...current, [field]: event.target.value }))
+              }
+              placeholder={
+                field === "text"
+                  ? "Buscar texto"
+                  : field === "channel"
+                    ? "Canal"
+                    : field === "sender"
+                      ? "Remitente"
+                      : "Destinatario"
+              }
+              maxLength={field === "text" ? 200 : 100}
+              className="px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+            />
+          ))}
+          <input
+            type="datetime-local"
+            aria-label="Filtro desde"
+            value={filterDraft.from}
+            onChange={(event) =>
+              setFilterDraft((current) => ({ ...current, from: event.target.value }))
+            }
+            className="px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+          />
+          <input
+            type="datetime-local"
+            aria-label="Filtro hasta"
+            value={filterDraft.to}
+            onChange={(event) =>
+              setFilterDraft((current) => ({ ...current, to: event.target.value }))
+            }
+            className="px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+          />
+          <div className="col-span-2 lg:col-span-6 flex items-center justify-between gap-2">
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-xs font-medium text-white"
+              >
+                Aplicar filtros
+              </button>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white"
+              >
+                Limpiar
+              </button>
+            </div>
+            <span className="text-xs text-slate-500">
+              {messages.length} {messages.length === 1 ? "mensaje" : "mensajes"}
+            </span>
+          </div>
+        </form>
       </div>
 
       {/* Messages List Area */}
@@ -170,7 +243,7 @@ export function MessageFeed() {
             </button>
           </div>
         )}
-        {filteredMessages.length === 0 ? (
+        {messages.length === 0 ? (
           <EmptyState
             title={historyQuery.isPending ? "Cargando historial" : "No hay mensajes en este canal"}
             description={
@@ -180,7 +253,7 @@ export function MessageFeed() {
             }
           />
         ) : (
-          filteredMessages.map((msg) => (
+          messages.map((msg) => (
             <div
               key={msg.message_id}
               className={`p-3.5 rounded-xl border transition-all ${

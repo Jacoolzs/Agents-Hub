@@ -95,6 +95,11 @@ test("historial paginado sobrevive recarga y muestra mensajes entrantes sin dupl
       .prepare("UPDATE messages SET created_at = ? WHERE message_id = ?")
       .run(`2026-10-08T09:00:${String(index).padStart(2, "0")}.000Z`, message.message_id);
   }
+  server.ctx.messageService.sendMessage(project, "history-sender", {
+    channel: "releases",
+    body: "Unique release filter target",
+    priority: "normal",
+  });
   await page.route(/\/v1\/projects\/[^/]+\/inbox\?/, async (route) => {
     await route.fulfill({
       status: 200,
@@ -134,6 +139,15 @@ test("historial paginado sobrevive recarga y muestra mensajes entrantes sin dupl
   await expect(page.getByText("History message 0", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Cargar mensajes anteriores" }).click();
   await expect(page.getByText("History message 0", { exact: true })).toHaveCount(1);
+
+  await page.getByLabel("Filtro texto").fill("unique release");
+  await page.getByLabel("Filtro canal").fill("releases");
+  await page.getByLabel("Filtro remitente").fill("history-sender");
+  await page.getByRole("button", { name: "Aplicar filtros" }).click();
+  await expect(page.getByText("Unique release filter target", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("History message 51", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Limpiar" }).click();
+  await expect(page.getByText("History message 51", { exact: true })).toHaveCount(1);
 
   server.ctx.messageService.sendMessage(project, "history-sender", {
     channel: "general",

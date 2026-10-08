@@ -11,7 +11,10 @@ Parámetros de query:
 - `session_id`: obligatorio; determina el agente cuya visibilidad se aplica.
 - `before`: cursor histórico opaco opcional.
 - `limit`: entero entre 1 y 100; predeterminado 50.
-- `channel`: filtro exacto opcional.
+- `text`: subcadena literal opcional, 1–200 caracteres; comparación sin distinguir mayúsculas ASCII.
+- `channel`, `sender`, `recipient`: coincidencia exacta opcional, 1–100 caracteres. `recipient` sólo coincide con destinatarios explícitos, no con broadcast.
+- `from`: instante UTC inclusivo opcional.
+- `to`: instante UTC exclusivo opcional y posterior a `from` cuando ambos existen.
 
 La respuesta `data` sigue `MessageHistoryPageSchema`:
 
@@ -27,9 +30,9 @@ Los mensajes se devuelven del más reciente al más antiguo. Si `has_more` es ve
 
 ## Orden, privacidad y concurrencia
 
-El cursor representa la clave `(created_at, message_id)` y es distinto del cursor secuencial del inbox. El orden usa ambos campos en sentido descendente, por lo que dos mensajes con la misma fecha no se duplican ni se omiten entre páginas.
+El cursor representa la clave `(created_at, message_id)` y es distinto del cursor secuencial del inbox. El orden usa ambos campos en sentido descendente, por lo que dos mensajes con la misma fecha no se duplican ni se omiten entre páginas. Cuando hay filtros, el cursor incorpora una huella FNV-1a de 64 bits de sus valores normalizados; no incluye texto en claro. Reutilizarlo con otra combinación devuelve `CURSOR_INVALID`. Los cursores 10.1 sin filtros siguen siendo válidos para consultas sin filtros.
 
-La consulta aplica antes de `LIMIT` estas reglas: broadcast, mensaje enviado por el agente de la sesión o mensaje que lo incluye como destinatario. El rol owner no concede acceso a privados ajenos. Proyecto, canal y posición del cursor también se filtran antes de paginar; `has_more` no cuenta mensajes ocultos.
+La consulta aplica antes de `LIMIT` estas reglas: broadcast, mensaje enviado por el agente de la sesión o mensaje que lo incluye como destinatario. El rol owner no concede acceso a privados ajenos. Proyecto, filtros y posición del cursor también se aplican antes de paginar; `has_more` no cuenta mensajes ocultos ni coincidencias fuera del filtro. Una búsqueda sin resultados tiene la misma forma tanto si no existen coincidencias como si sólo existen mensajes privados ajenos.
 
 La paginación keyset evita el desplazamiento propio de `OFFSET` cuando llegan mensajes. Los empates usan `message_id` y el cliente combina páginas y eventos vivos por esa misma identidad; una nueva consulta inicial permite ver la cabeza actual sin duplicar elementos ya recibidos.
 

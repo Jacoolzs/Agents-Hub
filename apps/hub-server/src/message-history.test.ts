@@ -160,4 +160,104 @@ describe("Authorized message history", () => {
       app.ctx.db.close();
     }
   });
+
+  it("combines literal filters before pagination without revealing private matches", async () => {
+    const app = buildApp();
+    try {
+      const owner = crypto.randomUUID();
+      const token = app.ctx.authService.createToken(owner, "agents-hub");
+      const project = app.ctx.projectService.createProject("Filtered history", owner).project
+        .project_id;
+      app.ctx.sessionService.joinProject(project, "alice", owner);
+      app.ctx.sessionService.joinProject(project, "bob", owner);
+      const charlie = app.ctx.sessionService.joinProject(project, "charlie", owner);
+      const add = (
+        sender: string,
+        body: string,
+        channel: string,
+        createdAt: string,
+        recipients: string[] = [],
+      ) => {
+        const message = app.ctx.messageService.sendMessage(project, sender, {
+          body,
+          channel,
+          recipient_agent_ids: recipients,
+        });
+        app.ctx.db
+          .prepare("UPDATE messages SET created_at = ? WHERE message_id = ?")
+          .run(createdAt, message.message_id);
+        return message;
+      };
+      const literal = add(
+        "alice",
+        "Deploy 100%_safe release",
+        "releases",
+        "2026-10-08T10:00:00.000Z",
+      );
+      const visible = add(
+        "alice",
+        "Needle implementation plan",
+        "plans",
+        "2026-10-08T11:00:00.000Z",
+        ["charlie"],
+      );
+      add("alice", "Needle private for Bob", "plans", "2026-10-08T12:00:00.000Z", ["bob"]);
+      add("charlie", "Needle public follow-up", "plans", "2026-10-08T11:30:00.000Z");
+
+      const get = async (filters: Record<string, string>) => {
+        const params = new URLSearchParams({ session_id: charlie.session_id, ...filters });
+        return app.inject({
+          method: "GET",
+          url: `/v1/projects/${project}/messages/history?${params.toString()}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+      };
+      const combined = MessageHistoryPageSchema.parse(
+        (
+          await get({
+            text: "needle",
+            channel: "plans",
+            sender: "alice",
+            recipient: "charlie",
+            from: "2026-10-08T10:30:00.000Z",
+            to: "2026-10-08T11:30:00.000Z",
+          })
+        ).json().data,
+      );
+      expect(combined.messages.map((message) => message.message_id)).toEqual([visible.message_id]);
+      expect(combined.has_more).toBe(false);
+
+      const literalResult = MessageHistoryPageSchema.parse(
+        (await get({ text: "%_safe" })).json().data,
+      );
+      expect(literalResult.messages.map((message) => message.message_id)).toEqual([
+        literal.message_id,
+      ]);
+      const hiddenOnly = MessageHistoryPageSchema.parse(
+        (await get({ text: "private for bob", recipient: "bob" })).json().data,
+      );
+      expect(hiddenOnly).toEqual({ messages: [], next_cursor: null, has_more: false });
+
+      const first = MessageHistoryPageSchema.parse(
+        (await get({ text: "needle", limit: "1" })).json().data,
+      );
+      expect(first.has_more).toBe(true);
+      const mismatched = await get({
+        text: "release",
+        before: first.next_cursor as string,
+      });
+      expect(mismatched.statusCode).toBe(400);
+      expect(mismatched.json().error.code).toBe("CURSOR_INVALID");
+
+      const invalidRange = await get({
+        from: "2026-10-08T12:00:00.000Z",
+        to: "2026-10-08T11:00:00.000Z",
+      });
+      expect(invalidRange.statusCode).toBe(422);
+      expect(invalidRange.json().error.code).toBe("INVALID_INPUT");
+    } finally {
+      await app.close();
+      app.ctx.db.close();
+    }
+  });
 });

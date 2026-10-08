@@ -2,6 +2,7 @@ import type {
   AgentSession,
   Membership,
   Message,
+  MessageHistoryFilters,
   MessageHistoryPage,
   Project,
   StatusReport,
@@ -250,13 +251,16 @@ export async function fetchMessageHistory(
   token: string,
   projectId: string,
   sessionId: string,
-  before?: string,
-  limit = 50,
-  channel?: string,
+  options: MessageHistoryFilters & { before?: string | undefined; limit?: number | undefined } = {},
 ): Promise<MessageHistoryPage> {
-  const params = new URLSearchParams({ session_id: sessionId, limit: String(limit) });
-  if (before) params.set("before", before);
-  if (channel) params.set("channel", channel);
+  const params = new URLSearchParams({
+    session_id: sessionId,
+    limit: String(options.limit ?? 50),
+  });
+  for (const key of ["before", "text", "channel", "sender", "recipient", "from", "to"] as const) {
+    const value = options[key];
+    if (value !== undefined) params.set(key, String(value));
+  }
   const res = await fetch(
     `${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/messages/history?${params.toString()}`,
     { headers: makeHeaders(token) },

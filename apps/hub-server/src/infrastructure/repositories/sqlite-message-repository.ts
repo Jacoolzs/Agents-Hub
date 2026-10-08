@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { Message, MessageHistoryPosition } from "@agents-hub/shared";
+import type { Message, MessageHistoryFilters, MessageHistoryPosition } from "@agents-hub/shared";
 import type { MessageRepository } from "../../application/ports/persistence.js";
 
 type MessageRow = Omit<Message, "recipient_agent_ids" | "correlation_id"> & {
@@ -51,7 +51,7 @@ export class SqliteMessageRepository implements MessageRepository {
     projectId: string,
     agentId: string,
     before: MessageHistoryPosition | undefined,
-    channel: string | undefined,
+    filters: MessageHistoryFilters,
     limit: number,
   ): Message[] {
     const clauses = [
@@ -64,9 +64,32 @@ export class SqliteMessageRepository implements MessageRepository {
         ))`,
     ];
     const parameters: Array<string | number> = [projectId, agentId, agentId];
-    if (channel) {
+    if (filters.text) {
+      clauses.push("instr(lower(body), lower(?)) > 0");
+      parameters.push(filters.text);
+    }
+    if (filters.channel) {
       clauses.push("channel = ?");
-      parameters.push(channel);
+      parameters.push(filters.channel);
+    }
+    if (filters.sender) {
+      clauses.push("sender_id = ?");
+      parameters.push(filters.sender);
+    }
+    if (filters.recipient) {
+      clauses.push(`EXISTS (
+        SELECT 1 FROM json_each(messages.recipient_agent_ids) filtered_recipient
+        WHERE filtered_recipient.value = ?
+      )`);
+      parameters.push(filters.recipient);
+    }
+    if (filters.from) {
+      clauses.push("created_at >= ?");
+      parameters.push(filters.from);
+    }
+    if (filters.to) {
+      clauses.push("created_at < ?");
+      parameters.push(filters.to);
     }
     if (before) {
       clauses.push("(created_at < ? OR (created_at = ? AND message_id < ?))");

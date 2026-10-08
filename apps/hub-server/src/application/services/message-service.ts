@@ -2,11 +2,13 @@ import {
   AppError,
   MAX_MESSAGE_BODY_BYTES,
   type Message,
+  type MessageHistoryFilters,
   type MessageHistoryPage,
   type MessageHistoryPosition,
   type SendMessageInput,
   SendMessageInputSchema,
   containsObviousSecret,
+  createMessageHistoryFilterKey,
   decodeMessageHistoryCursor,
   encodeMessageHistoryCursor,
   generateId,
@@ -80,16 +82,19 @@ export class MessageService {
     projectId: string,
     agentId: string,
     beforeCursor?: string,
-    channel?: string,
+    filters: MessageHistoryFilters = {},
     limit = 50,
   ): MessageHistoryPage {
+    const filterKey = createMessageHistoryFilterKey(filters);
     let before: MessageHistoryPosition | undefined;
     if (beforeCursor) {
       const decoded = decodeMessageHistoryCursor(beforeCursor);
       if (!decoded) throw new AppError("CURSOR_INVALID", "Invalid history cursor");
+      if ((decoded.filter_key ?? "") !== filterKey)
+        throw new AppError("CURSOR_INVALID", "History cursor does not match the active filters");
       before = decoded;
     }
-    const rows = this.repository.listVisibleHistory(projectId, agentId, before, channel, limit + 1);
+    const rows = this.repository.listVisibleHistory(projectId, agentId, before, filters, limit + 1);
     const hasMore = rows.length > limit;
     const messages = hasMore ? rows.slice(0, limit) : rows;
     const oldest = messages[messages.length - 1];
@@ -97,10 +102,13 @@ export class MessageService {
       messages,
       next_cursor:
         hasMore && oldest
-          ? encodeMessageHistoryCursor({
-              created_at: oldest.created_at,
-              message_id: oldest.message_id,
-            })
+          ? encodeMessageHistoryCursor(
+              {
+                created_at: oldest.created_at,
+                message_id: oldest.message_id,
+              },
+              filterKey,
+            )
           : null,
       has_more: hasMore,
     };

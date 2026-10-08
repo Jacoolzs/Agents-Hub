@@ -42,14 +42,17 @@ export function registerMessageRoutes(
       userId,
       projectId,
     );
+    const { before, limit } = parsed.data;
+    const filters = {
+      ...(parsed.data.text ? { text: parsed.data.text } : {}),
+      ...(parsed.data.channel ? { channel: parsed.data.channel } : {}),
+      ...(parsed.data.sender ? { sender: parsed.data.sender } : {}),
+      ...(parsed.data.recipient ? { recipient: parsed.data.recipient } : {}),
+      ...(parsed.data.from ? { from: parsed.data.from } : {}),
+      ...(parsed.data.to ? { to: parsed.data.to } : {}),
+    };
     const page = MessageHistoryPageSchema.parse(
-      messageService.getHistory(
-        projectId,
-        session.agent_id,
-        parsed.data.before,
-        parsed.data.channel,
-        parsed.data.limit,
-      ),
+      messageService.getHistory(projectId, session.agent_id, before, filters, limit),
     );
     return { data: page, request_id: reply.getHeader("x-request-id") };
   });

@@ -13,6 +13,7 @@ import {
   StatusReportSchema,
   UtcIsoDateSchema,
   UuidSchema,
+  createMessageHistoryFilterKey,
   decodeCursor,
   decodeMessageHistoryCursor,
   encodeCursor,
@@ -68,6 +69,20 @@ describe("Shared Contracts & Validation (Phase 1)", () => {
           has_more: false,
         }).success,
       ).toBe(true);
+
+      const filterKey = createMessageHistoryFilterKey({
+        text: "contract",
+        channel: "general",
+      });
+      const filteredCursor = encodeMessageHistoryCursor(position, filterKey);
+      expect(decodeMessageHistoryCursor(filteredCursor)).toEqual({
+        ...position,
+        filter_key: filterKey,
+      });
+      expect(createMessageHistoryFilterKey({ channel: "general", text: "contract" })).toBe(
+        filterKey,
+      );
+      expect(createMessageHistoryFilterKey({ text: "other" })).not.toBe(filterKey);
     });
   });
 

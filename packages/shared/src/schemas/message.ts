@@ -62,6 +62,45 @@ export const MessageHistoryPositionSchema = z
   .strict();
 export type MessageHistoryPosition = z.infer<typeof MessageHistoryPositionSchema>;
 
+const HistoryTextFilterSchema = z.string().trim().min(1).max(200);
+const HistoryAgentFilterSchema = z.string().trim().min(1).max(100);
+const HistoryChannelFilterSchema = z.string().trim().min(1).max(100);
+
+export const MessageHistoryFiltersSchema = z
+  .object({
+    text: HistoryTextFilterSchema.optional(),
+    channel: HistoryChannelFilterSchema.optional(),
+    sender: HistoryAgentFilterSchema.optional(),
+    recipient: HistoryAgentFilterSchema.optional(),
+    from: UtcIsoDateSchema.optional(),
+    to: UtcIsoDateSchema.optional(),
+  })
+  .strict()
+  .refine((filters) => !filters.from || !filters.to || filters.from < filters.to, {
+    message: "from must be earlier than to",
+    path: ["to"],
+  });
+export type MessageHistoryFilters = z.infer<typeof MessageHistoryFiltersSchema>;
+
+export function createMessageHistoryFilterKey(rawFilters: MessageHistoryFilters): string {
+  const filters = MessageHistoryFiltersSchema.parse(rawFilters);
+  const values = [
+    filters.text ?? "",
+    filters.channel ?? "",
+    filters.sender ?? "",
+    filters.recipient ?? "",
+    filters.from ?? "",
+    filters.to ?? "",
+  ];
+  if (values.every((value) => value === "")) return "";
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(JSON.stringify(values))) {
+    hash ^= BigInt(byte);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
 export const MessageHistoryCursorSchema = z
   .string()
   .min(1)
@@ -80,22 +119,37 @@ function decodeBase64Url(value: string): string {
   return atob(base64);
 }
 
-export function encodeMessageHistoryCursor(position: MessageHistoryPosition): string {
+export function encodeMessageHistoryCursor(
+  position: MessageHistoryPosition,
+  filterKey = "",
+): string {
   const parsed = MessageHistoryPositionSchema.parse(position);
-  return encodeBase64Url(JSON.stringify([parsed.created_at, parsed.message_id]));
+  if (filterKey && !/^[0-9a-f]{16}$/.test(filterKey)) throw new Error("Invalid filter key");
+  return encodeBase64Url(
+    JSON.stringify(
+      filterKey
+        ? [parsed.created_at, parsed.message_id, filterKey]
+        : [parsed.created_at, parsed.message_id],
+    ),
+  );
 }
 
-export function decodeMessageHistoryCursor(cursor: string): MessageHistoryPosition | null {
+export function decodeMessageHistoryCursor(
+  cursor: string,
+): (MessageHistoryPosition & { filter_key?: string | undefined }) | null {
   try {
     if (!MessageHistoryCursorSchema.safeParse(cursor).success) return null;
     const tuple = JSON.parse(decodeBase64Url(cursor)) as unknown;
-    if (!Array.isArray(tuple) || tuple.length !== 2) return null;
+    if (!Array.isArray(tuple) || (tuple.length !== 2 && tuple.length !== 3)) return null;
     const parsed = MessageHistoryPositionSchema.safeParse({
       created_at: tuple[0],
       message_id: tuple[1],
     });
-    if (!parsed.success || encodeMessageHistoryCursor(parsed.data) !== cursor) return null;
-    return parsed.data;
+    const filterKey = tuple[2];
+    if (!parsed.success || (filterKey !== undefined && !/^[0-9a-f]{16}$/.test(filterKey)))
+      return null;
+    if (encodeMessageHistoryCursor(parsed.data, filterKey) !== cursor) return null;
+    return { ...parsed.data, ...(filterKey ? { filter_key: filterKey } : {}) };
   } catch {
     return null;
   }
@@ -106,9 +160,18 @@ export const MessageHistoryQuerySchema = z
     session_id: UuidSchema,
     before: MessageHistoryCursorSchema.optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
-    channel: z.string().trim().min(1).max(100).optional(),
+    text: HistoryTextFilterSchema.optional(),
+    channel: HistoryChannelFilterSchema.optional(),
+    sender: HistoryAgentFilterSchema.optional(),
+    recipient: HistoryAgentFilterSchema.optional(),
+    from: UtcIsoDateSchema.optional(),
+    to: UtcIsoDateSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine((query) => !query.from || !query.to || query.from < query.to, {
+    message: "from must be earlier than to",
+    path: ["to"],
+  });
 export type MessageHistoryQuery = z.infer<typeof MessageHistoryQuerySchema>;
 
 export const MessageHistoryPageSchema = z

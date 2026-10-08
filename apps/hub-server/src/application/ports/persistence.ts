@@ -6,6 +6,7 @@ import type {
   Membership,
   MembershipRole,
   Message,
+  MessageHistoryFilters,
   MessageHistoryPosition,
   Project,
   StatusReport,
@@ -51,7 +52,7 @@ export interface MessageRepository {
     projectId: string,
     agentId: string,
     before: MessageHistoryPosition | undefined,
-    channel: string | undefined,
+    filters: MessageHistoryFilters,
     limit: number,
   ): Message[];
 }
