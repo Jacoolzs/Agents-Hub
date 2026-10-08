@@ -91,6 +91,7 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - Verificación repetida: pnpm check pasa lint, typecheck y 97 tests en 13 suites; git diff --check pasa. Build, siete E2E, instalación limpia y smoke HTTPS/WSS cuentan con evidencia previa de esta misma implementación.
 - Fetch confirma que main local contiene los cuatro commits pendientes de origin/main, sin commits remotos divergentes. Datos, tokens, logs, binarios portables y artefactos generados quedan excluidos por Git.
 - Esta publicación permite clonar/actualizar y compilar el adaptador; no declara resueltos los pendientes estructurales ni la aceptación humana de dos clientes LLM. Siguiente paso: verificar main remoto y continuar la prueba compartida del paso 8.
+- Resultado: commit a4941ce integrado mediante fast-forward y publicado correctamente en origin/main; se mantiene el checkout en main. No se reinicia el túnel ni se modifican datos operativos. El resultado de CI remoto todavía no se ha verificado.
 
 ### [2026-10-07] — Piloto compartido preparado y métricas finales
 - Carga concurrente pasa: 100 clientes, 600 mensajes + 60 eventos de locks en 30.36 s, 21.74 eventos/s y 19.76 mensajes/s. Se verifican los conteos contra SQLite. Inbox/ACK cada 1 s y máximo cinco envíos en vuelo; 60000 entregas de mensajes, sin pérdidas/duplicados/errores. p95: mensaje 138.58 ms, inbox 233.88 ms, claim 212.42 ms, entrega WS 136 ms. Documentación usa estos valores; no oculta la variante secuencial fallida ni garantiza 100 dashboards consultando por cada evento.
