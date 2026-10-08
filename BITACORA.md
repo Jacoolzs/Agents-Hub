@@ -20,12 +20,12 @@ Actualizado: 2026-10-08. Esta sección se actualiza al finalizar **cada tarea** 
 
 ### Objetivo y punto de corte
 
-Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](docs/ROADMAP.md), preservando alcance y aceptación, con commits y publicación progresivos desde una rama nueva. El objetivo completo sigue pendiente; 10.1/10.2/10.5 están verificadas localmente. Sigue 10.3 (respuestas/destinatarios) y después 10.4 (presencia).
+Objetivo global del usuario: implementar las fases nuevas de [docs/ROADMAP.md](docs/ROADMAP.md), preservando alcance y aceptación, con commits y publicación progresivos desde una rama nueva. El objetivo completo sigue pendiente; 10.1/10.2/10.5 están publicadas y el CI del acumulado está aprobado. Por instrucción del usuario, detenerse tras cerrar 10.5 y **no iniciar 10.3** hasta nueva autorización.
 
-- Directorio: `C:\Users\orlan\Documents\GitHub\Agents-Hub`. Retomar en **este mismo checkout** para disponer del trabajo no publicado.
+- Directorio: `C:\Users\orlan\Documents\GitHub\Agents-Hub`. Retomar en este checkout y comprobar HEAD/status contra la rama remota.
 - Rama de trabajo: `feat/phase-10-message-history`, creada desde `main` en `13a81d8`; commits `4c5feba` (base 8.1–9.2), `28f9638` (10.1) y `9c33fa2` (10.2) publicados en `origin/feat/phase-10-message-history`.
-- Incremento 10.5 preparado para commit/push en esta tarea. Revalidar HEAD y `git status` antes de continuar; los tres commits anteriores están publicados. No hay cambios ajenos detectados ni artefactos operativos añadidos.
-- Se preservaron cambios documentales que ya existían al iniciar la implementación. No descartarlos ni hacer reset/checkout/pull indiscriminado. Publicación/CI remoto de los incrementos nuevos no están verificados.
+- Incremento 10.5 publicado en `3c0ba1b` (`feat: expose explicit lock renewal in MCP and dashboard`). Revalidar HEAD y `git status` antes de continuar; rama remota actualizada sin merge a main. No hay cambios ajenos detectados ni artefactos operativos añadidos.
+- Se preservaron y publicaron los cambios documentales previos. CI de `3c0ba1b` aprobado en Windows/Ubuntu: [Quality 37832515313](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37832515313). El último cierre añade sólo documentación; distinguir su commit posterior de la evidencia funcional del SHA citado.
 - Las ejecuciones de verificación registradas terminaron; no hay un test pendiente que este relevo pida esperar. El estado del Hub/túnel operativo personal no se ha inspeccionado en esta tarea: no asumir que está apagado ni reiniciarlo para retomar código.
 
 ### Lo implementado y con qué
@@ -48,7 +48,7 @@ Documentos de apoyo: [inventario de contratos](docs/API_CONTRACT.md), [arquitect
 
 ### Por dónde seguir y cómo: próximo incremento
 
-**Prioridad recomendada: 10.3, respuestas correlacionadas y selección de destinatarios.** Registrar contrato antes de implementar. `correlation_id` ya existe como campo libre; decidir compatibilidad de clientes anteriores y referencia canónica sin tratar cualquier string previo como UUID de mensaje.
+**Trabajo detenido por instrucción del usuario; no iniciar 10.3.** Los pasos siguientes son el relevo propuesto para cuando el usuario autorice continuar: respuestas correlacionadas y selección de destinatarios. Registrar contrato antes de implementar. `correlation_id` ya existe como campo libre; decidir compatibilidad de clientes anteriores y referencia canónica sin tratar cualquier string previo como UUID de mensaje.
 
 1. Revisar `MessageFeed`, `SendMessageInputSchema`/`MessageSchema`, `MessageService`, puerto/adaptador de mensajes y rutas. Añadir selección por lista de agentes existentes (team-status), conservando destinatarios válidos aunque estén desconectados; no depender exclusivamente de presencia activa.
 2. Definir regla de respuesta que nunca amplíe la visibilidad original. Una referencia al mensaje padre sólo puede comprobarse después de autorizar proyecto/sesión y visibilidad; rechazar privado ajeno sin inferir existencia ni contenido. No confiar en correlation_id enviado como prueba de autorización.
@@ -64,7 +64,7 @@ Verificación actual de 10.1/10.2/10.5 y del acumulado de la rama:
 - `pnpm check`: PASS, lint + typecheck + **135 tests en 19 suites**.
 - `pnpm -r build`: PASS, incluido bundle productivo web.
 - `pnpm test:e2e`: **10 PASS**; renovación MCP stdio y respuesta perdida UI con misma clave añadidas, conservando historial/filtros/recovery/ACK.
-- `git diff --check`: PASS. CI `4c5feba`/`28f9638` aprobado; CI `9c33fa2` falló por dos timeouts 5 s en backup Windows (run 37804381985). Presupuesto acotado de esos tests ampliado a 15 s conservando aserciones; verificar CI del nuevo commit. Piloto humano aún pendiente.
+- `git diff --check`: PASS. CI `3c0ba1b` PASS Windows/Ubuntu (run 37832515313), incluidos instalación frozen, check, build, auditoría producción y 10 E2E. El fallo anterior de `9c33fa2` por timeout de backup Windows quedó corregido con presupuesto acotado 15 s, conservando aserciones. Piloto humano aún pendiente.
 
 Al retomar, comprobar rama/HEAD/status/diff, Node y pnpm. Si faltan dependencias, usar `pnpm install --frozen-lockfile`; no actualizar el lockfile por defecto. Para código nuevo ejecutar:
 
@@ -91,7 +91,8 @@ Compilar antes de Playwright: sirve el bundle de producción y usa el adaptador 
 ### Mensaje sugerido para el chat nuevo
 
 ```text
-Continúa la implementación de las fases nuevas de Agents-Hub en este checkout.
+El trabajo se detuvo tras 10.5 por solicitud del usuario. No iniciar 10.3
+ni otras fases hasta nueva autorización. Si el usuario autoriza continuar:
 Lee AGENTS.md y BITACORA.md completas, especialmente el relevo vigente.
 Contrasta rama, commit, cambios locales y código actual; conserva lo no publicado.
 Empieza por 10.3: respuestas correlacionadas y selector de destinatarios,
@@ -176,12 +177,20 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-08] — Cierre de 10.5 y detención solicitada
+- El usuario solicita aviso al terminar y prohíbe iniciar 10.3. Se limita el cierre a evidencia CI y registro documental; no se empieza ninguna otra funcionalidad.
+- CI `37832515313` del commit publicado `3c0ba1b` terminó success en Windows y Ubuntu. Ambas plataformas aprobaron frozen install, 135 pruebas/check, build, audit producción e instalación Chromium/10 E2E. La evidencia funcional corresponde a ese SHA, no al commit documental posterior.
+- Observador local `gh run watch` (handle 28129) finalizado con exit 0; no quedan procesos de prueba/observación en curso. Verificación del cierre documental: contenido, `git diff --check` y estado revisados; sólo documentación se incorpora al commit de cierre.
+- Se actualiza este relevo con la detención explícita y se publica el cierre en la misma rama. No hay merge a main ni procesos operativos intervenidos. Próxima acción: esperar nueva instrucción del usuario; 10.3 queda sólo como propuesta de continuación.
+
 ### [2026-10-08] — Reanudación y renovación explícita 10.5
 - El usuario solicita retomar tras el corte de cuota. Se contrasta la rama `feat/phase-10-message-history`, HEAD `9c33fa2` publicado y los cambios locales de 10.5; no hay procesos de prueba pendientes que esperar.
 - MCP incorpora `renew_module_lock` con input estricto, TTL 1–3600, clave estable y salida WorkspaceLock validada. UI añade acción, TTL y cuenta regresiva cada segundo; retry transitorio conserva clave y payload del clic. Owner se obtiene del listado autorizado de miembros; el servidor sigue siendo autoridad de permisos.
 - Ruta HTTP valida UUID, payload/TTL y salida; admite clave en body o header. Se preserva la huella anterior del comando (lock_id ya pertenece a operation), evitando conflictos artificiales de registros existentes. `null` sigue siendo TTL inválido; sólo campo ausente usa default. Heartbeat no renueva.
 - Se añaden regresiones de respuesta perdida HTTP/UI, ownership, owner y vencimiento, además del pipeline MCP y stdio. Gates completos pendientes tras la reanudación; no declarar 10.5 entregada hasta observar sus resultados y publicar.
 - Verificación local observada: `pnpm check` PASS (135 tests, 19 suites), build PASS y 10 E2E PASS, con retry UI de respuesta perdida y renovación MCP real. CI histórico de `4c5feba` y `28f9638` aprobado; `9c33fa2` falló en Windows por timeout 5 s de dos tests de upgrade/backup en disco (5.44/5.61 s), sin aserciones funcionales fallidas. Se ajustará sólo el presupuesto de esas pruebas de I/O a 15 s, conservando integridad/upgrade/reapertura y comprobando el nuevo CI.
+- Ajuste de timeout aplicado a esas dos pruebas y check completo repetido: 135 PASS. Commit `3c0ba1b` creado y push confirmado; CI del nuevo SHA se observa antes de cerrar el relevo. Próximo incremento 10.3; objetivo global sigue pendiente.
+- Estado al solicitar el usuario un resumen: ejecución CI `37832515313` de `3c0ba1b`, Ubuntu aprobado y Windows en E2E después de aprobar instalación/check/build/auditoría/Chromium. Sólo BITACORA.md tiene cambios locales de registro pendientes de commit/push; la funcionalidad 10.5 está publicada. El observador `gh run watch` puede seguir activo tras interrumpir el turno; comprobar run con `gh run view 37832515313` y el handle local 28129 antes de esperar o cerrar el observador.
 
 ### [2026-10-08] — Inicio de implementación continua en rama nueva
 - El usuario autoriza continuar el roadmap, hacer commits y publicar progresivamente. Se releen AGENTS.md/BITACORA.md y se crea `feat/phase-10-message-history` desde `main`/`13a81d8`, preservando los 33 archivos modificados y 25 sin seguimiento del incremento local 8.1–9.2.
