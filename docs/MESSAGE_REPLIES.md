@@ -26,4 +26,6 @@ UI: selección múltiple etiquetada, público/privado explícitos, Responder con
 
 Migración 7 añade columnas nullable reply_to_message_id/thread_id e índice de hilo. No usa FK al padre: la retención puede borrar el original sin borrar respuestas retenidas. Mensajes anteriores mantienen correlaciones y no se transforman en respuestas. Clientes anteriores siguen enviando mensajes sin campos nuevos; clientes con esquemas de salida estrictos deben actualizarse para leer respuestas. Capacidad anunciada: message_replies.
 
+Para actualizar un Hub con datos, preparar un backup según [operación](OPERATIONS.md) antes de abrir la base con el binario nuevo. Para volver al Hub anterior, restaurar el backup de esquema 6 a una ruta nueva; no ejecutar ese binario contra la base migrada porque sus SELECT * y salidas estrictas no reconocen las columnas nuevas. Conservar una copia de la base 7 para no perder las respuestas recibidas después del backup; el rollback no las transfiere automáticamente.
+
 Validar: privados→broadcast/terceros, parent inexistente/cruzado/privado, descendientes restringidos, lectores y scopes, destinatarios desconectados/revocados, paginación/cursor de hilo sin ACK, rollback/idempotencia, migración 6→7, HTTP/MCP stdio/UI y diseño responsive.

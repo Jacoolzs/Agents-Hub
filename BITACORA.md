@@ -22,12 +22,12 @@ Actualizado: 2026-10-08. Leer AGENTS.md y toda la bitácora al retomar; comproba
 
 Implementar el roadmap 7–15 mediante incrementos verificables, commits y publicación progresivos, conservando comunicación, estado y locks como foco. El objetivo global sigue pendiente; no equivaler entrega de 10.3 a cierre de todo el roadmap.
 
-El usuario aceptó la renovación UI/UX, pidió aplicarla y autorizó 10.3. La pausa anterior de 10.3 queda revocada. Rediseño publicado en a99b634 sobre feat/phase-10-message-history, sin merge a main: [CI Windows/Ubuntu aprobado](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37838420802). 10.3 implementado y probado localmente; publicación y CI de ese incremento se están cerrando. No iniciar 10.4 en esta tarea.
+El usuario aceptó la renovación UI/UX, pidió aplicarla y autorizó 10.3. La pausa anterior de 10.3 queda revocada. Rediseño publicado en a99b634 sobre feat/phase-10-message-history, sin merge a main: [CI Windows/Ubuntu aprobado](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37838420802). 10.3 terminado y publicado en f5cff7d; [CI Windows/Ubuntu aprobado](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37840440650). El cierre documental posterior conserva la evidencia funcional de ese SHA. No iniciar 10.4 en esta tarea.
 
 - Checkout: C:/Users/orlan/Documents/GitHub/Agents-Hub.
-- Rama: feat/phase-10-message-history, desde main/13a81d8. Referencia actual publicada a99b634; comprobar el SHA posterior del cierre de 10.3.
+- Rama: feat/phase-10-message-history, desde main/13a81d8. Referencia funcional publicada f5cff7d; el cierre documental posterior no cambia código. Comprobar HEAD/status contra origin al retomar.
 - Antecedentes publicados: 4c5feba (8.1–9.2), 28f9638 (10.1), 9c33fa2 (10.2), 3c0ba1b (10.5), 7780d6d (registro de detención) y a99b634 (UI/UX).
-- Cambios locales de 10.3: shared/Hub/MCP/web, pruebas y documentación. No hay dependencias/lockfile nuevos; preservar todo lo no publicado y verificar status.
+- 10.3 publicado: shared/Hub/MCP/web, pruebas y documentación. El cierre añade sólo registro/guía; verificar status después de su commit/push. No hay dependencias/lockfile nuevos.
 - No se inspeccionó ni reinició el Hub/túnel personal ni se modificó su DB. Las pruebas locales usaron datos efímeros y finalizaron. No inventar procesos operativos activos/apagados.
 
 ### Entregables y contratos vigentes
@@ -51,14 +51,14 @@ Stack existente: Node 24 LTS/pnpm/TypeScript estricto/Zod 3/Fastify/node:sqlite 
 - pnpm build PASS. Tras ajuste visual móvil y lookup de contexto con Map, build monorepo repetido PASS y E2E dirigido de respuestas/renovación 2/2 PASS.
 - Suite pnpm test:e2e: 12/12 PASS antes de ese ajuste visual, incluye stdio real, privacidad, múltiples destinatarios, original fuera de página, navegación, historial/recovery/ACK/locks y respuestas.
 - Capturas reply-mobile.png/thread-desktop.png reproducibles bajo test-results mediante E2E de respuestas; revisadas. Datos ficticios sin secretos. Desktop captura desde scroll inicial para evitar artefactos de elementos sticky en fullPage.
-- git diff --check PASS; verificar de nuevo antes de commit. CI a99b634 PASS; no atribuirlo a 10.3 hasta observar su propio run.
+- git diff --check PASS; verificar de nuevo antes de commit. CI a99b634 y f5cff7d PASS Windows/Ubuntu; run 37840440650 del código final ejecutó los 141 tests y 12 E2E en ambas plataformas. La evidencia corresponde a f5cff7d, no al commit documental posterior.
 - Correcciones encontradas por pruebas: enum de capability omitido (doctor fallaba) y fixture de inbox vacío que impedía entrega viva; ambas corregidas manteniendo aserciones y contratos.
 
 Comandos de aceptación: pnpm check, pnpm build, pnpm test:e2e, git diff --check. Compilar antes de Playwright (bundle productivo/dist MCP); frozen install si faltan dependencias. No actualizar lockfile por defecto. Cambios documentales se revisan por contenido/enlaces/diff; no afirmar pruebas históricas como nuevas.
 
 ### Próximo paso concreto
 
-Cerrar publicación y comprobar CI de 10.3 en esta rama, registrando SHA/run/Windows/Ubuntu y estado limpio. Si un check falla, reproducir y corregir sin quitar aserciones; después actualizar este relevo y entrada histórica.
+10.3 está publicado y aprobado. Al retomar comprobar rama/HEAD/status y conservar commits; el cierre documental posterior puede disparar otro run, que debe distinguirse del CI funcional aprobado de f5cff7d. El observador local 63209 terminó exit 0 y no quedan verificaciones locales esperando. No hay merge a main ni PR creado. Siguiente tarea propuesta: 10.4, cuando se solicite continuar; no rehacer 10.3 ni la renovación.
 
 Después de cerrar 10.3, la siguiente propuesta es 10.4, todavía sin implementar: distinguir conexión del adaptador, heartbeat y actividad reportada, sin prometer despertar agentes ni inferir trabajo por conectividad. Empezar por docs/ROADMAP.md, AgentsPanel, SessionService y reportes existentes; documentar semántica antes de código y probar activo/idle/desconectado/reconexión. No añadir daemon ni nuevas señales sin decisión. 10.6 accesibilidad y 8.6 validación exhaustiva siguen pendientes.
 
@@ -143,6 +143,12 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-08] — Cierre verificado y publicado de 10.3
+- Rediseño publicado en a99b634 y respuestas/destinatarios en f5cff7d, ambos sobre feat/phase-10-message-history. CI 37840440650 del código f5cff7d termina success en Windows/Ubuntu: frozen install, lint/tipos/141 pruebas, build, audit producción, Chromium y 12 E2E. Observador gh run watch local 63209 finaliza exit 0. No queda un test/observador local pendiente.
+- 10.3 terminado: Responder/cancelar/contexto, directorio con agentes desconectados vigentes, selección múltiple y Ver conversación; HTTP/MCP validan padre visible y audiencia sin ampliación. Legacy correlation_id no se reinterpreta; migración 7/retención/retry/privacidad y original fuera de página verificados. Se preservan inbox/ACK, roles/scopes, ADR-006 y stack/dependencias existentes.
+- Cierre añade sólo documentación de evidencia/relevo y rollback con backup/restauración a ruta nueva. Se revisa diff/enlaces y se publica en la misma rama; el commit documental posterior no sustituye la evidencia funcional de f5cff7d y puede disparar un nuevo CI. Sin merge a main, PR, DB personal o procesos operativos intervenidos.
+- Próxima tarea propuesta: 10.4 presencia comprensible con conexión/heartbeat/actividad diferenciados, sin prometer despertar agentes. No se inicia aquí. Objetivo global, piloto humano, 8.6 y fases restantes siguen pendientes.
+
 ### [2026-10-08] — Rediseño aplicado y comienzo autorizado de 10.3
 - El usuario acepta la renovación, solicita aplicarla y comenzar 10.3; queda revocada la pausa de ese incremento. Se conserva el checkout y se verifica fetch: HEAD/origin coinciden antes del cambio, sólo están los archivos del rediseño ya probados. Commit a99b634 creado y push confirmado en feat/phase-10-message-history; sin merge a main ni intervención del servicio personal. CI de ese SHA aún no observado.
 - Se registra docs/MESSAGE_REPLIES.md antes de implementar: reply_to_message_id canónico, thread_id derivado, correlation_id legacy libre, audiencia privada limitada por padre inmediato y error indistinguible para referencias ausentes/ajenas. Historial de hilo reutiliza filtros/keyset sin ACK. Migración 7 aditiva y known_agents de miembros vigentes para selección incluyendo desconectados; sin dependencias nuevas.
@@ -151,6 +157,7 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - Se exige messages:read además de messages:write al responder para no usar la audiencia/correlación del padre sin scope de lectura. Se amplía el escenario MCP stdio y E2E UI con original fuera de página, selección offline y hilo privado; gates completos de 10.3 todavía pendientes.
 - Primera aceptación completa: 140/141 pruebas pasan; doctor detecta /capabilities inválido porque faltaba message_replies en el enum compartido. Se añade la capacidad al esquema, sin cambiar los requisitos básicos del doctor. E2E conserva 11 flujos aprobados (incluido stdio); el nuevo test UI no recibe su respuesta porque su fixture vaciaba permanentemente inbox. Se restaura el inbox real después de probar la consulta del original, manteniendo verificación de entrega/ACK. Se repiten check/build/E2E antes de publicar.
 - Aceptación local final: check PASS (141/141, 20 suites), build PASS y E2E 12/12 PASS. Revisión visual real de respuesta móvil/hilo desktop; se mejora el contexto en columna móvil y lookup de originales por Map, y se repiten build monorepo y dos E2E UI dirigidos (2/2 PASS). Docs de contratos/historial/UI/README/roadmap actualizadas. Sin dependencias ni procesos personales intervenidos. Siguiente paso: diff/commit/push y CI del incremento 10.3; no comenzar 10.4.
+- Commit f5cff7d creado y push confirmado; worktree limpio al publicar. CI 37840440650: Ubuntu aprobado, Windows check/build/audit aprobados y preparación de Chromium en curso; observador gh run watch local 63209 activo hasta terminar. Se añade guía documental de actualización/rollback a esquema 6: backup antes de abrir DB con el nuevo Hub, restore a ruta nueva y conservar copia v7; no se interviene DB personal. Siguiente paso: observar Windows y registrar cierre documental, sin declarar CI completo antes de su resultado.
 
 ### [2026-10-08] — Renovación UI/UX autorizada e instalación de skills
 - El usuario autoriza instalar ambas skills y realizar la renovación antes de 10.3. Se conserva el cambio documental previo en BITACORA.md sobre `feat/phase-10-message-history`/`7780d6d`; no se inicia 10.3.
