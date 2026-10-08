@@ -12,16 +12,19 @@ pnpm test:e2e
 pnpm audit --prod
 ```
 
-E2E utiliza el bundle estático de Vite. CI está preparado para Linux y Windows; la ejecución remota queda pendiente hasta publicar los cambios.
+E2E utiliza el bundle estático de Vite; en una máquina nueva instalar antes Chromium con `pnpm exec playwright install chromium`. CI pasó en Linux y Windows para `8870c28`: [ejecución verificada](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37722402150). El código está publicado en `main`.
 
 ## Compartir por Internet
 
 En la primera terminal, crear tu identidad (una sola vez) y arrancar:
 
 ```powershell
+$env:AUTH_TOKEN_TTL_SECONDS = "28800"
 pnpm admin create-user orlando
 pnpm share
 ```
+
+La variable del ejemplo emite tokens de ocho horas y usa sintaxis de PowerShell. Si ya existe el usuario, emitir otro token con `issue-token` en lugar de repetir `create-user`.
 
 `create-user` imprime `user_id` y un token personal sólo en esa salida. Conservarlo por privado; el Hub guarda su hash. El token vence en una hora por defecto. Para otra duración, establecer `AUTH_TOKEN_TTL_SECONDS` antes de emitirlo. `pnpm admin list-users` permite recuperar IDs y `pnpm admin issue-token <user-id>` emite otro token.
 
@@ -44,6 +47,8 @@ pnpm test:share
 El script usa el puerto 8790. No ejecutar sobre otro servicio que ya ocupe ese puerto.
 
 ## MCP local de cada persona
+
+Cada participante que conecte un agente debe clonar o actualizar `main`, ejecutar `pnpm install --frozen-lockfile` y `pnpm build` en su propia máquina con Node 24. Sólo el anfitrión ejecuta `pnpm share`; para usar únicamente el dashboard basta el navegador. Hay un ejemplo de configuración JSON en el [README](../README.md#4-conectar-los-agentes-por-mcp).
 
 Configurar el cliente MCP con `command: node`, `args: [ruta-absoluta/packages/mcp-server/dist/main.js]` y variables `AGENTS_HUB_URL` (URL HTTPS compartida), `AGENTS_HUB_TOKEN` (token personal), `AGENTS_HUB_PROJECT_ID` y `AGENTS_HUB_AGENT_NAME` (nombre propio, distinto por proceso). Ejecutar `join_project` antes de trabajar.
 

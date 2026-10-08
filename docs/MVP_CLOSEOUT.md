@@ -13,7 +13,7 @@ Fecha: 2026-10-07. Se corrigieron defectos de locks, cursor/ACK, autorización W
 
 ## Límites y pendientes explícitos
 
-CI Linux/Windows está preparado; no se ha publicado esta rama ni ejecutado el workflow remoto. Falta una sesión humana con dos productos de agente/LLM distintos. La prueba stdio acredita el protocolo/adaptador, no un agente dormido ni el comportamiento del LLM.
+El piloto está publicado en `main`. CI Linux/Windows pasó para `8870c28`, incluida instalación frozen, check, build, auditoría y E2E: [ejecución verificada](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37722402150). Falta una sesión humana con dos productos de agente/LLM distintos. La prueba stdio acredita el protocolo/adaptador, no un agente dormido ni el comportamiento del LLM.
 
 Los servicios mantienen SQL directo sobre SQLite; el plan propone repositorios abstractos, todavía pendiente como refactor estructural. No bloquea los controles funcionales del piloto, pero impide afirmar que todos los entregables arquitectónicos 0–6 están terminados. Quick Tunnel es temporal y requiere PC/terminal activos; operación permanente necesita dominio/túnel estable y supervisor persistente. El benchmark es local y no fija un SLO de Internet.
 

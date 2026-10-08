@@ -1,5 +1,7 @@
 # Revisión de implementación — Fases 0 a 4
 
+**Informe histórico previo a las correcciones.** La remediación y sus verificaciones están registradas en [BITACORA.md](BITACORA.md). Para el estado vigente y los pendientes, consultar [docs/MVP_CLOSEOUT.md](docs/MVP_CLOSEOUT.md).
+
 Fecha: 2026-10-07  
 Estado: **NO APROBADA para iniciar Fase 5**
 

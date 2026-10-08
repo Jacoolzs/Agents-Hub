@@ -86,6 +86,14 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 
 ## 📋 Entradas Cronológicas de la Bitácora
 
+### [2026-10-07] — Actualización documental y limpieza de ramas integradas
+- El usuario solicita actualizar el repositorio desde el README hasta las ramas sobrantes. Tras fetch, main está limpio y sincronizado; ocho ramas locales y seis remotas son ancestros de main, sin trabajo exclusivo ni otros worktrees.
+- CI remoto comprobado para 8870c28: ejecución 37722402150 aprobada en ubuntu-latest y windows-latest, incluyendo instalación frozen, check, build, auditoría de producción y siete E2E. Se retira ese pendiente documental con enlace a la evidencia.
+- README reorganizado con arranque desde cero en PowerShell, identidades, invitaciones, instalación de cada adaptador MCP, comandos, estructura y límites. Operación y cierre reflejan publicación/CI; plan e informe 0–4 distinguen estado vigente e historia.
+- Se conservará toda la historia de commits en main y se eliminarán únicamente referencias de ramas ya integradas. Sin dependencias nuevas ni cambios de aplicación, datos o procesos del piloto. Siguiente paso: verificar enlaces/diff, limpiar referencias y publicar documentación.
+- Resultado: eliminadas ocho ramas locales y seis remotas integradas; sólo queda main. Remotas retiradas mediante operación atómica con verificación de SHA para evitar borrar avances concurrentes; locales con git branch -d. No había PR abiertos. Todos sus commits permanecen alcanzables desde main.
+- Verificación documental: enlaces relativos existentes, pnpm lint y git diff --check aprobados. No se repiten pruebas funcionales por cambios exclusivamente Markdown; la evidencia de CI anterior corresponde al mismo código de aplicación. Siguiente paso: publicar este registro y continuar la prueba humana compartida.
+
 ### [2026-10-07] — Publicación del piloto en main autorizada
 - El usuario solicita pasar todos los cambios a main para desbloquear la instalación MCP de su amigo desde GitHub. Se prepara commit del cierre multiusuario, locks, cursores, operación y documentación; después se integrará en main y se publicará sin reescribir historia.
 - Verificación repetida: pnpm check pasa lint, typecheck y 97 tests en 13 suites; git diff --check pasa. Build, siete E2E, instalación limpia y smoke HTTPS/WSS cuentan con evidencia previa de esta misma implementación.
