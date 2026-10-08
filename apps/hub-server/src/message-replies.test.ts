@@ -216,10 +216,12 @@ describe("Authorized correlated replies", () => {
       url: `/v1/projects/${project}/team-status`,
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(team.json().data.known_agents).toContainEqual({
-      agent_id: "bob",
-      status: "disconnected",
-    });
+    expect(team.json().data.known_agents).toContainEqual(
+      expect.objectContaining({
+        agent_id: "bob",
+        status: "disconnected",
+      }),
+    );
     expect(
       (await send("alice", { body: "For offline Bob", recipient_agent_ids: ["bob"] })).statusCode,
     ).toBe(201);

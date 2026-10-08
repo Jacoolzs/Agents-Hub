@@ -59,7 +59,9 @@ export interface MessageRepository {
 }
 
 export interface SessionRepository {
-  knownByProject(projectId: string): Array<{ agent_id: string; status: AgentSessionStatus }>;
+  knownByProject(
+    projectId: string,
+  ): Array<{ agent_id: string; status: AgentSessionStatus; last_seen_at: string }>;
   findByAgent(projectId: string, agentId: string): AgentSession | undefined;
   findById(sessionId: string): AgentSession | undefined;
   insert(session: AgentSession, instanceId?: string): void;

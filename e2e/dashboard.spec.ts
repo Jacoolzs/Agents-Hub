@@ -35,6 +35,88 @@ test.afterAll(async () => {
   }
 });
 
+test("presencia separa contacto, reporte histórico y espera con recuperación de una lectura fallida", async ({
+  page,
+}, testInfo) => {
+  const project = server.ctx.projectService.createProject("Señales del equipo", testUserId).project
+    .project_id;
+  for (const name of ["waiting-agent", "quiet-agent", "offline-agent"])
+    server.ctx.sessionService.joinProject(project, name, testUserId);
+  const report = server.ctx.statusService.reportStatus(project, "waiting-agent", {
+    objective: "Esperar revisión del contrato",
+    progress: "blocked",
+    blocked_by: "Revisión humana pendiente",
+  });
+  server.ctx.db
+    .prepare("UPDATE status_reports SET reported_at = ? WHERE status_id = ?")
+    .run("2026-10-07T08:00:00.000Z", report.status_id);
+  server.ctx.db
+    .prepare(
+      "UPDATE agent_sessions SET last_seen_at = ? WHERE project_id = ? AND agent_id = 'quiet-agent'",
+    )
+    .run(new Date(Date.now() - 90_000).toISOString(), project);
+  server.ctx.sessionService.disconnect(project, "offline-agent");
+  await page.goto("/");
+  await page.fill("#hub-url", HUB_URL);
+  await page.fill("#auth-token", authToken);
+  await page.fill("#project-id", project);
+  await page.fill("#agent-id", "presence-dashboard");
+  await page.click("button[type=submit]");
+  await expect(page.getByText("Conexión de esta vista", { exact: true })).toBeVisible();
+  await page.getByTestId("tab-agents").click();
+  const waiting = page.getByRole("article", { name: "Estado de waiting-agent", exact: true });
+  const quiet = page.getByRole("article", { name: "Estado de quiet-agent", exact: true });
+  const offline = page.getByRole("article", { name: "Estado de offline-agent", exact: true });
+  await expect(waiting.getByText("Contacto reciente", { exact: true })).toBeVisible();
+  await expect(waiting.getByText("Bloqueado", { exact: true })).toBeVisible();
+  await expect(waiting.getByText("Bloqueo / espera declarada:", { exact: true })).toBeVisible();
+  await expect(waiting.locator("time[datetime='2026-10-07T08:00:00.000Z']")).toBeVisible();
+  await expect(quiet.getByText("Sin contacto reciente", { exact: true })).toBeVisible();
+  await expect(
+    quiet.getByText("Sin reporte de actividad. No se sabe si está trabajando o esperando.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(offline.getByText("Desconectado", { exact: true })).toBeVisible();
+  server.ctx.sessionService.heartbeat(project, "quiet-agent");
+  server.ctx.sessionService.joinProject(project, "offline-agent", testUserId);
+  server.ctx.sessionService.heartbeat(project, "waiting-agent");
+  await page.getByRole("button", { name: "Actualizar equipo", exact: true }).click();
+  await expect(quiet.getByText("Contacto reciente", { exact: true })).toBeVisible();
+  await expect(offline.getByText("Contacto reciente", { exact: true })).toBeVisible();
+  await expect(waiting.locator("time[datetime='2026-10-07T08:00:00.000Z']")).toBeVisible();
+  const teamRoute = /\/v1\/projects\/[^/]+\/team-status$/;
+  await page.route(teamRoute, (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: { code: "INTERNAL_ERROR", message: "No se puede actualizar el equipo" },
+      }),
+    }),
+  );
+  await page.getByRole("button", { name: "Actualizar equipo", exact: true }).click();
+  await expect(
+    page.getByText("No se pudo actualizar. Mostrando la última lectura disponible.", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await expect(waiting).toBeVisible();
+  await page.unroute(teamRoute);
+  await page.getByRole("button", { name: "Actualizar equipo", exact: true }).click();
+  await expect(page.getByText("No se pudo actualizar.", { exact: false })).toHaveCount(0);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page
+    .locator("#section-agents")
+    .screenshot({ path: testInfo.outputPath("presence-mobile.png") });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath("presence-desktop.png"), fullPage: true });
+});
+
 test("respuestas privadas conservan audiencia, seleccionan agentes desconectados y cargan el original", async ({
   page,
 }, testInfo) => {

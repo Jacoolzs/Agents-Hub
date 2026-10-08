@@ -97,12 +97,16 @@ export class SqliteSessionRepository implements SessionRepository {
   }
   public knownByProject(
     projectId: string,
-  ): Array<{ agent_id: string; status: AgentSessionStatus }> {
+  ): Array<{ agent_id: string; status: AgentSessionStatus; last_seen_at: string }> {
     return this.db
-      .prepare(`SELECT s.agent_id, s.status FROM agent_sessions s
+      .prepare(`SELECT s.agent_id, s.status, s.last_seen_at FROM agent_sessions s
       JOIN memberships m ON m.project_id = s.project_id AND m.user_id = s.user_id
       WHERE s.project_id = ? ORDER BY s.agent_id`)
-      .all(projectId) as Array<{ agent_id: string; status: AgentSessionStatus }>;
+      .all(projectId) as Array<{
+      agent_id: string;
+      status: AgentSessionStatus;
+      last_seen_at: string;
+    }>;
   }
   public connected(): AgentSession[] {
     return (

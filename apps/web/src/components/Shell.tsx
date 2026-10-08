@@ -144,10 +144,16 @@ export function Shell({ children }: ShellProps) {
             </div>
           </div>
           <div className="header-session">
-            <output className={`connection-badge connection-${connectionStatus}`}>
-              <span aria-hidden="true" />
-              {connectionLabel}
-            </output>
+            <div className="view-connection">
+              <small>Conexión de esta vista</small>
+              <output
+                className={`connection-badge connection-${connectionStatus}`}
+                aria-label={`Conexión de esta vista: ${connectionLabel}`}
+              >
+                <span aria-hidden="true" />
+                {connectionLabel}
+              </output>
+            </div>
             <span className="session-name">
               <Icon name="agents" />
               <span>{auth.agentId}</span>

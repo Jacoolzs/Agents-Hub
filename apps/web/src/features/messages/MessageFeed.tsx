@@ -505,8 +505,8 @@ export function MessageFeed({ active = true }: { active?: boolean }) {
                       {status === "disconnected"
                         ? "Desconectado"
                         : status === "idle"
-                          ? "Sin actividad reciente"
-                          : "Conectado"}
+                          ? "Sin contacto reciente"
+                          : "Contacto reciente"}
                     </small>
                   </span>
                 </label>

@@ -14,6 +14,52 @@
   font-family: "Segoe UI", system-ui, sans-serif;
 }
 
+.view-connection {
+  display: grid;
+  gap: 4px;
+}
+.view-connection > small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.presence-explanation {
+  background: #edf3fd;
+  border-left: 3px solid #b5c7e9;
+  padding: 16px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.presence-explanation p {
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.presence-refresh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.presence-refresh button {
+  padding: 8px 12px;
+  color: var(--action);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.declared-progress {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.declared-progress small,
+.reported-time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 body {
   margin: 0;
   min-height: 100vh;

@@ -113,6 +113,7 @@ Antes de E2E, compila y ejecuta `pnpm exec playwright install chromium`. El serv
 - [Aceptación humana](docs/acceptance/pilot.md), [clientes](docs/compatibility/clients.md), [historial](docs/MESSAGE_HISTORY.md) y [recuperación tras retención](docs/RECOVERY.md): protocolo del piloto y contratos de lectura/recuperación.
 - [Contratos vigentes](docs/API_CONTRACT.md): rutas, scopes, herramientas, errores, eventos y límites de validación.
 - [Respuestas y destinatarios](docs/MESSAGE_REPLIES.md): conversaciones por UI/MCP y audiencia privada limitada al original.
+- [Presencia](docs/PRESENCE.md): conexión de la vista, último contacto del agente y actividad declarada son señales distintas.
 - [Sesiones e instancias](docs/SESSIONS.md): colisiones de nombres, reintentos, vencimiento y reanudación del checkpoint.
 - [Diagnóstico](docs/DOCTOR.md): errores de instalación/acceso y salida JSON sin credenciales.
 - [Plantilla MCP](docs/MCP_SETUP.md): configuración local genérica y creación de archivo nuevo.

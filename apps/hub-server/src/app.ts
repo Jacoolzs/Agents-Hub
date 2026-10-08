@@ -81,6 +81,7 @@ export function buildApp(
     new SqliteSessionRepository(db),
     eventBus,
     config?.SESSION_EXPIRE_SECONDS,
+    config?.SESSION_IDLE_SECONDS,
   );
   const messageService = new MessageService(new SqliteMessageRepository(db), eventBus);
   const statusService = new StatusService(new SqliteStatusRepository(db), eventBus);

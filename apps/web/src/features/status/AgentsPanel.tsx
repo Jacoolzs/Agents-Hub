@@ -26,6 +26,7 @@ export function AgentsPanel({ active = true }: { active?: boolean }) {
       return fetchTeamStatus(auth.baseUrl, auth.token, auth.projectId);
     },
     enabled: Boolean(auth) && active,
+    retry: false,
     refetchInterval: 5000,
   });
 
@@ -70,7 +71,24 @@ export function AgentsPanel({ active = true }: { active?: boolean }) {
     return map;
   }, [teamQuery.data?.statuses]);
 
-  const agents = teamQuery.data?.active_agents ?? [];
+  const activeAgents = new Map(
+    (teamQuery.data?.active_agents ?? []).map((agent) => [agent.agent_id, agent]),
+  );
+  const agents = (teamQuery.data?.known_agents ?? teamQuery.data?.active_agents ?? []).map(
+    (agent) => ({
+      ...agent,
+      last_seen_at: agent.last_seen_at ?? activeAgents.get(agent.agent_id)?.last_seen_at,
+    }),
+  );
+  const formatDate = (date: string) =>
+    new Date(date).toLocaleString("es", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
 
   const renderProgressBadge = (prog?: string) => {
     switch (prog) {
@@ -107,14 +125,14 @@ export function AgentsPanel({ active = true }: { active?: boolean }) {
         return (
           <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            Activo
+            Contacto reciente
           </span>
         );
       case "idle":
         return (
           <span className="inline-flex items-center gap-1 text-xs text-amber-700">
             <span className="w-2 h-2 rounded-full bg-amber-400" />
-            Inactivo
+            Sin contacto reciente
           </span>
         );
       default:
@@ -131,14 +149,43 @@ export function AgentsPanel({ active = true }: { active?: boolean }) {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Left 2 Cols: Agents & Statuses */}
       <div className="lg:col-span-2 space-y-4">
+        <div className="presence-explanation">
+          <strong>Contacto y actividad son señales distintas</strong>
+          <p>
+            Un heartbeat confirma contacto con el Hub, no que el modelo esté trabajando. Puede estar
+            esperando instrucciones. El Hub no despierta agentes inactivos.
+          </p>
+        </div>
         <div className="flex items-center justify-between pb-2 border-b border-slate-200">
           <h2 className="text-base font-bold text-slate-900">Presencia y Estados del Equipo</h2>
           <span className="text-xs text-slate-600">{agents.length} agentes registrados</span>
         </div>
+        {teamQuery.data && (
+          <div className="presence-refresh">
+            <p>
+              {teamQuery.isError
+                ? "No se pudo actualizar. Mostrando la última lectura disponible."
+                : teamQuery.isFetching
+                  ? "Actualizando el estado del equipo…"
+                  : "Última lectura del equipo:"}{" "}
+              <time dateTime={new Date(teamQuery.dataUpdatedAt).toISOString()}>
+                {formatDate(new Date(teamQuery.dataUpdatedAt).toISOString())}
+              </time>
+            </p>
+            <button
+              type="button"
+              disabled={teamQuery.isFetching}
+              onClick={() => void teamQuery.refetch()}
+            >
+              Actualizar equipo
+            </button>
+          </div>
+        )}
+        {teamQuery.isError && teamQuery.data && <ErrorBanner error={teamQuery.error} />}
 
         {teamQuery.isLoading ? (
           <LoadingSpinner message="Cargando estado del equipo..." />
-        ) : teamQuery.isError ? (
+        ) : teamQuery.isError && !teamQuery.data ? (
           <ErrorBanner error={teamQuery.error} />
         ) : agents.length === 0 ? (
           <EmptyState
@@ -150,8 +197,9 @@ export function AgentsPanel({ active = true }: { active?: boolean }) {
             {agents.map((agent) => {
               const status = agentStatusMap.get(agent.agent_id);
               return (
-                <div
-                  key={agent.session_id}
+                <article
+                  key={agent.agent_id}
+                  aria-label={`Estado de ${agent.agent_id}`}
                   className="bg-white/60 border border-slate-200 rounded-xl p-4 space-y-3"
                 >
                   <div className="flex items-center justify-between flex-wrap gap-2">
@@ -160,23 +208,41 @@ export function AgentsPanel({ active = true }: { active?: boolean }) {
                         {agent.agent_id.slice(0, 2).toUpperCase()}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold text-slate-900 font-mono text-sm">
                             {agent.agent_id}
                           </span>
+                          <span className="text-xs text-slate-600">Contacto con el Hub:</span>
                           {renderPresenceBadge(agent.status)}
                         </div>
                         <p className="text-xs text-slate-600 font-mono">
-                          Último contacto: {new Date(agent.last_seen_at).toLocaleTimeString()}
+                          Último contacto:{" "}
+                          {agent.last_seen_at ? (
+                            <time dateTime={agent.last_seen_at}>
+                              {formatDate(agent.last_seen_at)}
+                            </time>
+                          ) : (
+                            "Fecha no disponible"
+                          )}
                         </p>
                       </div>
                     </div>
 
-                    {status && renderProgressBadge(status.progress)}
+                    {status && (
+                      <div className="declared-progress">
+                        <small>Actividad declarada</small>
+                        {renderProgressBadge(status.progress)}
+                      </div>
+                    )}
                   </div>
 
                   {status ? (
                     <div className="bg-slate-50/60 border border-slate-200/80 rounded-lg p-3 space-y-2 text-xs">
+                      <p className="reported-time">
+                        Último reporte:{" "}
+                        <time dateTime={status.reported_at}>{formatDate(status.reported_at)}</time>.
+                        Declaración histórica; el contacto no actualiza este reporte.
+                      </p>
                       <div>
                         <span className="text-slate-600 font-medium">Objetivo: </span>
                         <span className="text-slate-800">{status.objective}</span>
@@ -191,7 +257,7 @@ export function AgentsPanel({ active = true }: { active?: boolean }) {
 
                       {status.blocked_by && (
                         <div className="p-2 rounded bg-rose-50/40 border border-rose-200 text-rose-700">
-                          <span className="font-bold">Bloqueado por: </span>
+                          <span className="font-bold">Bloqueo / espera declarada: </span>
                           <span>{status.blocked_by}</span>
                         </div>
                       )}
@@ -205,10 +271,10 @@ export function AgentsPanel({ active = true }: { active?: boolean }) {
                     </div>
                   ) : (
                     <p className="text-xs text-slate-600 italic">
-                      Sin reporte de estado registrado aún.
+                      Sin reporte de actividad. No se sabe si está trabajando o esperando.
                     </p>
                   )}
-                </div>
+                </article>
               );
             })}
           </div>

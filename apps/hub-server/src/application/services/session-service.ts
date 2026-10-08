@@ -14,6 +14,7 @@ export class SessionService {
     private readonly repository: SessionRepository,
     private readonly eventBus: DomainEvents,
     private readonly expireSeconds = 180,
+    private readonly idleSeconds = 60,
   ) {}
 
   public joinProject(
@@ -122,7 +123,17 @@ export class SessionService {
     return this.repository.activeByProject(projectId);
   }
   public getKnownAgents(projectId: string) {
-    return this.repository.knownByProject(projectId);
+    const now = Date.now();
+    return this.repository.knownByProject(projectId).map((agent) => {
+      const age = now - Date.parse(agent.last_seen_at);
+      const status =
+        agent.status === "disconnected" || age >= this.expireSeconds * 1000
+          ? ("disconnected" as const)
+          : age >= this.idleSeconds * 1000
+            ? ("idle" as const)
+            : agent.status;
+      return { ...agent, status };
+    });
   }
 
   private isExpired(session: AgentSession): boolean {

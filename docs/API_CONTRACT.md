@@ -30,7 +30,7 @@ Revisión de fase 8.6: contrastado con `app.ts`, `http/routes`, catálogo MCP y 
 | DELETE `P/locks/:lockId` | `locks:write` | Sesión; propietario u owner |
 | DELETE `P/locks` | `locks:write` | Sesión y rutas canónicas; compatibilidad de liberación por paths |
 | GET `P/locks` | `locks:read` | Locks activos; expiración transaccional |
-| GET `P/team-status` | `projects:read` | Resumen de agentes, estados y locks; known_agents añade nombres/estado de miembros vigentes, incluidos desconectados |
+| GET `P/team-status` | `projects:read` | Resumen de agentes, estados y locks; known_agents incluye nombre/estado efectivo/last_seen_at de miembros vigentes, incluidos desconectados. Umbrales existentes, sin mutaciones. Ver [presencia](PRESENCE.md) |
 | POST `P/invitations` | `members:write` | `CreateInvitationInputSchema`; owner/maintainer, límites de rol |
 | GET `P/invitations` | `members:read` | Administración; no devuelve secreto almacenado |
 | DELETE `P/invitations/:invitationId` | `members:write` | Revocación administrativa |
