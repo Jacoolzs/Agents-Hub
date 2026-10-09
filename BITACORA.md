@@ -66,7 +66,7 @@ Estado de 10.4: 1bb95f6 publicado en feat/phase-10-message-history; CI 378623909
 
 ### Límites y pendientes globales
 
-Esta tarea no cambia el siguiente incremento: sólo deja documentado el flujo de uso multiusuario para el piloto. El estado operativo de referencia sigue siendo la rama `feat/phase-10-message-history`, HEAD `6977387`, limpia y alineada con su remoto; no se iniciaron procesos Hub/túnel ni se modificaron datos o credenciales.
+Esta tarea no cambia el siguiente incremento: deja validado en la práctica el flujo de colaboración multi-agente y multiusuario para el piloto (Windows y Linux conectados mediante túnel Cloudflare, intercambio de mensajes con hilos y exclusión mutua de locks verificados). El estado operativo de referencia sigue siendo la rama `feat/phase-10-message-history`, con evidencia funcional previa aprobada en CI.
 
 Siguiente tarea concreta cuando se solicite: 10.6. Revisar teclado/foco/semántica, reflow/zoom y estados vacíos/errores de permisos/red/cuota en los flujos actuales, conservando UI_DESIGN y ambas skills. Empezar por Shell, States y formularios/paneles web; usar Playwright y corregir problemas reproducidos sin ampliar a infraestructura. Criterio: todos los flujos centrales operables con teclado y móvil, errores distinguibles y regresiones actuales aprobadas. 10.6 no está iniciado; mejoras previas no equivalen a auditoría completa de accesibilidad.
 
@@ -828,3 +828,40 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - Confirmado: los mensajes se consumen con `check_inbox`/ACK o `wait_for_messages` durante una llamada activa; un agente completamente inactivo no se despierta solo. Los locks coordinan intención, pero no bloquean físicamente Git.
 - Evidencia de esta revisión: `git status --short --branch` limpio y `HEAD`/`origin/feat/phase-10-message-history` en `69773878b207f878595c43234a94b5152be56eeb`. No se iniciaron procesos Hub/túnel ni se modificaron datos, código o credenciales.
 - Próximo paso si se solicita implementación: no cambiar código por esta guía; para un piloto real seguir el README/OPERATIONS y registrar los dos clientes MCP concretos en `docs/compatibility/clients.md`.
+### [2026-10-08] — Aclaración de compatibilidad para amigo en Linux
+- Confirmado: el amigo puede usar el dashboard desde Linux sin instalar el repositorio.
+- Para conectar su agente por MCP, debe instalar Node 24, pnpm y Git, clonar/compilar el repositorio y usar su token personal. La limitación de Windows x64 aplica al `pnpm share` del anfitrión actual, no al dashboard ni al adaptador MCP del participante.
+- Diagnóstico posterior: en `main`/`13a81d8` no existen `scripts/mcp-config.mjs` ni el script `mcp:config`; el adaptador compilado sí existe. La configuración MCP debe hacerse manualmente o desde una rama que incluya esa plantilla.
+- Verificación posterior: en `feat/phase-10-message-history`, `pnpm mcp:config` generó correctamente `mcp-orlando.json` con la URL del túnel, el proyecto `602f135d-1b46-4f42-b619-d9228b782cd0` y el placeholder de token; el archivo es local y no debe publicarse.
+- Nueva guía solicitada: procedimiento completo para un participante Linux, cubriendo instalación de Node 24/pnpm/Git, clonación de `feat/phase-10-message-history`, aceptación de invitación en dashboard, diagnóstico y generación de configuración MCP con token propio.
+- El usuario confirmó que el agente del amigo ya se conectó. Siguiente validación operativa: iniciar una conversación dirigida entre `orlando-agente` y `jare-agente` mediante `send_team_message`, `check_inbox` y respuesta explícita; recordar que una IA inactiva no se despierta automáticamente.
+- Diagnóstico operativo: `pnpm admin create-user orlando` falló porque `orlando` ya existe; `pnpm admin list-users` lo confirmó. `jare` fue creado correctamente. No se modificó código ni se inició Hub/túnel.
+
+### [2026-10-08] — Guía completa desde cero para anfitrión Windows y participante Linux
+- Se solicitó reordenar el procedimiento operativo completo desde la instalación inicial hasta el uso del dashboard y la conexión MCP, asumiendo que el anfitrión ejecuta `pnpm share` en Windows y el amigo participa desde Linux.
+- Alcance de la guía: no cambia código ni contratos; conserva tokens personales, invitaciones de un solo uso, URL temporal del túnel y la limitación de que un agente inactivo no se despierta automáticamente.
+
+### [2026-10-08] — Validación operativa: comunicación bidireccional Windows/Linux exitosa
+- `orlando-agente` se unió al proyecto (`join_project`), reportó estado (`report_status`) y envió el mensaje público inicial al canal `general`: `"Hola jare-agente, soy orlando-agente. Confirmemos que podemos comunicarnos mediante Agents-Hub."` (`b1c1fdf8-9b23-4f2c-8741-a5c9e551a956`).
+- Se mantuvo escucha y revisión del inbox (`wait_for_messages` / `check_inbox`).
+- Se recibió y confirmó (`ack_inbox` hasta seq 209) la respuesta de `jare-agente`:
+  - **Mensaje:** `"Hola orlando-agente, recibido correctamente desde Linux."`
+  - **ID:** `ee162ddb-8430-4ebd-b948-b10af359a98e`
+  - **Thread / Reply to:** `b1c1fdf8-9b23-4f2c-8741-a5c9e551a956`
+- Posteriormente (seq 216), `jare-agente` envió un nuevo mensaje al canal `general`:
+  - **Mensaje:** `"¡Hola equipo! ¿Qué objetivo o archivo priorizamos para trabajar ahora? Quedo en escucha activa en la sala."`
+  - **ID:** `be50c28b-206a-4b95-b3e9-95b34d9c28b7`
+  - Confirmado con `ack_inbox` hasta seq 219.
+- `orlando-agente` respondió en el hilo (seq 228, ID `20c638ef-16d0-4a1a-b599-e62d748fc527`) proponiendo probar locks de coordinación o consultar status del equipo.
+- **Ciclo completo de coordinación y concurrencia multi-agente validado exitosamente:**
+  1. `jare-agente` adquirió lock en `test/collab.txt` (`fbb7ddeb-fd9f-4bd2-a3fb-3bbe4005e913`, seq 244) y notificó por chat (seq 249).
+  2. `orlando-agente` intentó deliberadamente colisionar adquiriendo `test/collab.txt`; el Hub rechazó con `[LOCK_CONFLICT]` (409) informando que estaba retenido por `jare-agente`.
+  3. `orlando-agente` notificó el resultado exitoso de la prueba de colisión por chat (seq 255).
+  4. `jare-agente` liberó el lock (`lock.released`, seq 259) y notificó por chat (seq 261).
+  5. `orlando-agente` tomó inmediatamente el lock disponible (`d18fde0e-78b3-4e60-b33d-6c3b02c34971`, seq 263), notificó por chat (seq 265) y lo liberó de forma limpia (seq 269).
+  6. Inbox confirmado con `ack_inbox` hasta la secuencia 271.
+- **Resultado:** coordinación de locks distribuidos, hilos de conversación, exclusión mutua y reactividad de eventos multi-agente verificados en producción entre dos instancias físicas en Windows y Linux.
+
+
+
+
