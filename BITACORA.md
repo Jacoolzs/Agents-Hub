@@ -22,11 +22,11 @@ Actualizado: 2026-10-09. Leer AGENTS.md y toda la bitácora; contrastar rama/HEA
 
 El usuario autorizó implementar cinco incrementos en orden: (1) panel local + arranque/parada Hub/túnel, (2) invitación/identidad/acceso web simplificados, (3) compañero instalable + conexión MCP guiada común con adaptadores opcionales, (4) listener background común + integración de activación sólo cuando el cliente lo soporte, (5) operación estable/URL/backups/actualizaciones y eventual hosting. Pausa breve revocada; objetivo activo y global incompleto. No equivaler un incremento a terminar todo.
 
-Primer incremento implementado y en verificación final: panel web local reutilizado para crear/listar personas, emitir/listar/revocar accesos, proyectos/invitaciones y gestionar el Hub propio. Arranque de desarrollo con pnpm companion después de build; NO instalador final ni invitación única ni listener nuevo todavía. Compartir inicialmente Windows x64; panel/Hub loopback no requieren túnel.
+Primer incremento implementado, verificado localmente y publicado en 001e0bc: panel web local reutilizado para crear/listar personas, emitir/listar/revocar accesos, proyectos/invitaciones y gestionar el Hub propio. Arranque de desarrollo con pnpm companion después de build; NO instalador final ni invitación única ni listener nuevo todavía. Compartir inicialmente Windows x64; panel/Hub loopback no requieren túnel.
 
 ### Estado del repositorio/publicación
 
-- Checkout C:/Users/orlan/Documents/GitHub/Agents-Hub, rama feat/easy-onboarding creada desde eba6b1f89360270feaaf110ed83de4d496c2eac1. Sin commit/push de implementación al escribir este relevo; consultar estado real antes de seguir.
+- Checkout C:/Users/orlan/Documents/GitHub/Agents-Hub, rama feat/easy-onboarding creada desde eba6b1f89360270feaaf110ed83de4d496c2eac1. Implementación 001e0bcb8846ecea9a574c88cfccc8059b93528a commit/push observado, rama con upstream. Este cierre documental posterior debe publicarse separado; consultar estado real antes de seguir.
 - Base remota feat/phase-10-message-history comprobada en eba6b1f; main remoto 13a81d8. Nuevos incrementos no integrados en main. CI 37862390949 PASS Windows/Ubuntu para 1bb95f6 es evidencia histórica de presencia, NO del panel nuevo.
 - BITACORA.md/docs/compatibility/clients.md ya eran cambios locales de la discusión; conservados. mcp-orlando.json privado sin seguimiento preservado SIN leer, añadir ni publicar. No hubo dependencias/lockfile nuevos.
 - No se inspeccionó/reinició Hub/túnel personal ni DB del piloto. Pruebas nuevas usan DB efímera. No inferir estado de procesos personales.
@@ -57,13 +57,15 @@ Primer incremento implementado y en verificación final: panel web local reutili
 - pnpm test:e2e PASS: 14/14 incluyendo panel real (companion compilado, teclado/móvil375, token oculto/sin storage, proyectos/invitaciones, stop/restart/revocar/logout). Capturas desktop/móvil finales revisadas; se separó TTL de emisión y espaciado del botón. Repetición dirigida encontró carrera de prueba: disabled también significa operación pendiente; se espera confirmación Hub iniciado/detenido antes del HTTP, sin sleeps ni relajar condición de éxito. Dirigido repetido 3/3 PASS.
 - git diff --check PASS antes del cierre documental; repetir después. Fallos intermedios: CSS sin formatear, fixture LOG_LEVEL=silent no admitido, non-null assertion lint; corregidos sin relajar aserciones.
 - Experimento de túnel real aislado: primer intento health local200 pero público ENOTFOUND. Tras esperar Registered tunnel connection, sondeo final PASS: DNS sistema/1.1.1.1 resuelve, health público200, administración pública404, unshare conserva Hub local running y finally cierra procesos propios/DB efímera. No se diagnostica con certeza la causa del DNS inicial; no confundir URL anunciada con conexión registrada.
-- No CI actual del panel, publicación, instalador limpio Windows/Linux ni activación de agente inactivo verificados.
+- CI del panel 37975579153 para 001e0bc: Ubuntu PASS observado, Windows ejecutando E2E, run todavía sin conclusión. Observador local gh run watch, sesión 67837 en curso; consultar con write_stdin o gh run view 37975579153. No confundir observador con Hub operativo; sólo lee GitHub. Instalador limpio Windows/Linux y activación de agente inactivo siguen sin verificar.
 
 ### Próxima tarea concreta
 
-Sondeo real de transporte/DNS terminado PASS y cleanup observado. Revisar diff/contratos de primer incremento, capturas finales y gates tras último ajuste; commit acotado sin archivo privado y publicación progresiva sólo del código/documentos autorizados.
+Primer incremento publicado y sondeo real terminado PASS con cleanup observado. Revisar CI 37975579153 de 001e0bc y corregir fallos reproducidos si los hay; documentación de cierre no sustituye run funcional. No hay tests locales esperando; sólo observador de CI 67837. No crear PR/merge a main implícitamente.
 
 Después iniciar incremento 2: diseñar/registrar ADR y contratos de canje explícito de invitación de uso/TTL limitado para identidad/membresía + sesión humana separada de credencial MCP. Reusar membresía/auditoría/roles, evitar token duradero en URL, web storage o logs. Debe permitir anfitrión invitar y participante entrar sin copiar UUID/token; probar expiración/reuso/carreras/privacidad/revocación/Origin/cookies y E2E real. No saltar directamente al instalador ni prometer soporte cualquier versión.
+
+Pregunta de producto enviada sin bloquear el trabajo: reentrada por cuenta usuario/contraseña local en el propio Hub (opción recomendada, sin correo/servicio externo) o sólo enlaces emitidos desde panel. Usuario pide explicación porque no entendió; todavía NO eligió alternativa. Explicar con ejemplo de primera invitación vs reentrada después de salir/vencer sesión, recomendar cuenta para independencia del anfitrión y no pedir respuesta técnica. Debe resolverse o explicitar supuesto antes de implementar autenticación humana. Inspección preliminar de seguridad consultó OWASP Password Storage y Session Management; si se elige contraseña, usar hash lento con sal única, límites de recursos/intentos y recuperación explícita, no SHA-256 ni identidad deducida por nombre. No se implementó hash/tabla/cookie pública todavía.
 
 Roadmap original sigue parcial: 10.3 respuestas, 10.4 presencia y 10.5 renovación publicados; 10.6 accesibilidad completa, fase7 productos/versiones distintos, 8.6 contratos restantes, distribución/credenciales y fase11 operación siguen pendientes. La nueva secuencia autorizada prioriza facilidad; no rehacer funcionalidades cerradas ni fusionar todo a main implícitamente.
 
@@ -143,6 +145,14 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-09] — Primer incremento publicado; siguiente flujo pendiente
+- Panel/control local publicado en feat/easy-onboarding, 001e0bcb8846ecea9a574c88cfccc8059b93528a. Push/upstream observado; sin PR/merge a main. mcp-orlando.json permanece privado sin seguimiento y sin lectura.
+- Gates locales finales: pnpm check 148/148, build PASS, E2E completo repetido 14/14 PASS, dirigido del panel repetido 3/3 PASS y diff --check PASS. Compartir real aislado PASS tras exigir conexión registrada; Hub/túnel de prueba cerrados. CI 37975579153 iniciado, sin conclusión todavía.
+- Próximo incremento aún no implementado: canje/invitación y cuenta/sesión humana separados de credencial MCP. Inspección preliminar: API web usa bearer en makeHeaders, tokenProject en membership-routes también lo asume, WS isTokenActive limita audiencia agents-hub. Esas fronteras deben contemplarse al añadir cookie humana; no hacer bypass global ni reutilizar una cookie como credencial MCP. Relevo vigente concentra objetivo/estado actual y conserva decisiones anteriores en entradas cronológicas.
+- Se consulta preferencia no bloqueante de reentrada (usuario/contraseña local vs enlaces desde panel); pendiente de respuesta, no decisión de arquitectura. Referencias de seguridad consultadas: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html y https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html. Sin nueva dependencia ni cambio funcional del incremento 2.
+- Usuario responde que no entendió la pregunta y solicita explicación; no autoriza ninguna de las dos alternativas todavía. Se explica por primera invitación/creación de cuenta y vuelta posterior, evitando jerga; implementación de autenticación pública sigue pendiente de concretar ese flujo.
+- CI funcional 37975579153: Ubuntu PASS, Windows en E2E al último sondeo; observador gh run watch sesión 67837 en curso. Cierre documental separado; no se atribuye aprobación conjunta todavía.
 
 ### [2026-10-09] — Panel administrativo local implementado y regresiones
 - Primer incremento implementado: autoridad loopback separada, bootstrap/sesión local, servicios/puerto/adaptador administrativo transaccional, UI personas/accesos/proyectos/invitaciones y companion que controla sólo Hub/túnel propios. No dependencias nuevas; no modificación de DB/credenciales del piloto. Tokens emitidos sólo en memoria y TTL separado para nuevo acceso.
