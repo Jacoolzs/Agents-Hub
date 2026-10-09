@@ -2,6 +2,8 @@
 
 Requiere Windows x64, Node 24 y pnpm. El servidor no carga `.env` automáticamente: establecer variables en PowerShell o arrancar Node con `--env-file`. El directorio de arranque debe ser la raíz del repositorio.
 
+Alternativa gráfica en desarrollo, rama `feat/easy-onboarding`: [panel local del anfitrión](LOCAL_CONTROL.md), `pnpm companion` después de compilar. Permite administración y arranque/parada sin los comandos de usuarios siguientes. Comparte por Internet inicialmente en Windows x64; no ejecutar ambos launchers sobre la misma DB. El instalador guiado y la invitación con acceso simplificado siguen pendientes.
+
 ## Instalar y comprobar
 
 ```powershell

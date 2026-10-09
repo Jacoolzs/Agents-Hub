@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "share": "node scripts/share.mjs",
+    "companion": "node apps/hub-server/dist/companion.js",
     "doctor": "node scripts/doctor.mjs",
     "mcp:config": "node scripts/mcp-config.mjs",
     "test:share": "node scripts/share-smoke.mjs",

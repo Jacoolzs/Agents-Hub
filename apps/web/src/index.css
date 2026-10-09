@@ -14,6 +14,221 @@
   font-family: "Segoe UI", system-ui, sans-serif;
 }
 
+.local-header {
+  background: var(--navy);
+  color: white;
+  padding: 24px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.local-header strong {
+  font-size: 20px;
+}
+.local-header p {
+  color: #bdcde0;
+  margin-top: 4px;
+}
+.local-header button {
+  padding: 8px 16px;
+  border: 1px solid #bdcde0;
+  border-radius: 8px;
+}
+.local-main {
+  max-width: 1200px;
+  margin: auto;
+  padding: 32px;
+}
+.local-main h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+.local-main h3 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 20px 0 12px;
+}
+.local-main button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+.local-main button:hover {
+  background: #edf3fd;
+}
+.local-main button:disabled {
+  background: #e8edf4;
+  color: var(--muted);
+}
+.local-main .local-primary {
+  background: var(--action);
+  color: white;
+  border-color: var(--action);
+}
+.local-main .local-primary:disabled {
+  background: #e8edf4;
+  border-color: var(--line);
+  color: var(--muted);
+}
+.local-main p {
+  line-height: 1.65;
+}
+.local-runtime {
+  background: white;
+  border-left: 4px solid var(--action);
+  padding: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+}
+.local-runtime > div:first-child {
+  flex: 1;
+  min-width: 180px;
+}
+.local-runtime > p {
+  flex-basis: 100%;
+}
+.local-runtime a {
+  display: inline-block;
+  padding: 10px 0;
+  color: var(--action);
+  text-decoration: underline;
+}
+.local-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.local-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 28px 0 20px;
+}
+.local-tabs button[aria-current] {
+  background: var(--navy);
+  color: white;
+}
+.local-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.local-section {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 24px;
+  min-width: 0;
+}
+.local-section > p {
+  color: var(--muted);
+  margin: 8px 0 16px;
+}
+.local-main label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 6px;
+}
+.local-main form > button {
+  margin-top: 20px;
+}
+.local-form > button {
+  margin-top: 12px;
+}
+.local-main details {
+  margin-top: 12px;
+}
+.local-main summary {
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.local-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+}
+.local-list > li {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.local-list strong {
+  margin-right: auto;
+}
+.local-access > div:first-child {
+  flex: 1;
+  min-width: 160px;
+}
+.local-access p,
+.local-access small {
+  color: var(--muted);
+  font-size: 13px;
+}
+.local-confirm {
+  width: 100%;
+  background: #fff8e7;
+  padding: 16px;
+  border-radius: 8px;
+}
+.local-confirm button {
+  margin: 8px 8px 0 0;
+}
+.local-secret {
+  background: #edf3fd;
+  border: 1px solid #b5c7e9;
+  padding: 24px;
+  margin-top: 24px;
+  border-radius: 10px;
+}
+.local-secret .local-actions {
+  margin-top: 16px;
+}
+.local-error {
+  background: #fff0f1;
+  color: #aa3545;
+  border-left: 3px solid #aa3545;
+  padding: 16px;
+  margin: 16px 0;
+}
+.local-notice {
+  display: block;
+  color: #17694c;
+  background: #eaf7f2;
+  padding: 16px;
+  margin: 16px 0;
+}
+@media (max-width: 767px) {
+  .local-header {
+    padding: 20px 16px;
+    flex-wrap: wrap;
+  }
+  .local-main {
+    padding: 24px 16px;
+  }
+  .local-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .local-section,
+  .local-runtime,
+  .local-secret {
+    padding: 20px;
+  }
+  .local-main input,
+  .local-main select {
+    font-size: 16px;
+  }
+}
+
 .view-connection {
   display: grid;
   gap: 4px;

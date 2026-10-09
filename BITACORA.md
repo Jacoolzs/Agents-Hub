@@ -16,63 +16,57 @@ Cada avance, idea, decisión de diseño, bloqueo y solución debe registrarse aq
 
 ## Relevo vigente para el siguiente chat
 
-Actualizado: 2026-10-08. Leer AGENTS.md y toda la bitácora al retomar; comprobar rama/HEAD/status, remoto y evidencia antes de actuar.
+Actualizado: 2026-10-09. Leer AGENTS.md y toda la bitácora; contrastar rama/HEAD/status/remoto y evidencia al retomar.
 
 ### Objetivo completo y estado
 
-Implementar el roadmap 7–15 mediante incrementos verificables, commits y publicación progresivos, conservando comunicación, estado y locks como foco. El objetivo global sigue pendiente; no equivaler entrega de 10.3 a cierre de todo el roadmap.
+El usuario autorizó implementar cinco incrementos en orden: (1) panel local + arranque/parada Hub/túnel, (2) invitación/identidad/acceso web simplificados, (3) compañero instalable + conexión MCP guiada común con adaptadores opcionales, (4) listener background común + integración de activación sólo cuando el cliente lo soporte, (5) operación estable/URL/backups/actualizaciones y eventual hosting. Pausa breve revocada; objetivo activo y global incompleto. No equivaler un incremento a terminar todo.
 
-El usuario aceptó la renovación UI/UX, pidió aplicarla y autorizó 10.3. La pausa anterior de 10.3 queda revocada. Rediseño publicado en a99b634 sobre feat/phase-10-message-history, sin merge a main: [CI Windows/Ubuntu aprobado](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37838420802). 10.3 terminado y publicado en f5cff7d; [CI Windows/Ubuntu aprobado](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37840440650). El cierre documental posterior conserva la evidencia funcional de ese SHA. 10.4 terminado y publicado en 1bb95f6; [CI Windows/Ubuntu aprobado](https://github.com/Jacoolzs/Agents-Hub/actions/runs/37862390949). El cierre documental posterior conserva la evidencia de ese código. 10.6 permanece pendiente. 10.6 permanece pendiente.
+Primer incremento implementado y en verificación final: panel web local reutilizado para crear/listar personas, emitir/listar/revocar accesos, proyectos/invitaciones y gestionar el Hub propio. Arranque de desarrollo con pnpm companion después de build; NO instalador final ni invitación única ni listener nuevo todavía. Compartir inicialmente Windows x64; panel/Hub loopback no requieren túnel.
 
-- Checkout: C:/Users/orlan/Documents/GitHub/Agents-Hub.
-- Rama: feat/phase-10-message-history, desde main/13a81d8. Referencia funcional publicada 1bb95f6 (10.4); el cierre documental posterior no cambia código. Comprobar HEAD/status contra origin al retomar.
-- Antecedentes publicados: 4c5feba (8.1–9.2), 28f9638 (10.1), 9c33fa2 (10.2), 3c0ba1b (10.5), 7780d6d (registro de detención) y a99b634 (UI/UX).
-- 10.3 publicado: shared/Hub/MCP/web, pruebas y documentación. El cierre añade sólo registro/guía; verificar status después de su commit/push. No hay dependencias/lockfile nuevos.
-- No se inspeccionó ni reinició el Hub/túnel personal ni se modificó su DB. Las pruebas locales usaron datos efímeros y finalizaron. No inventar procesos operativos activos/apagados.
+### Estado del repositorio/publicación
 
-### Entregables y contratos vigentes
+- Checkout C:/Users/orlan/Documents/GitHub/Agents-Hub, rama feat/easy-onboarding creada desde eba6b1f89360270feaaf110ed83de4d496c2eac1. Sin commit/push de implementación al escribir este relevo; consultar estado real antes de seguir.
+- Base remota feat/phase-10-message-history comprobada en eba6b1f; main remoto 13a81d8. Nuevos incrementos no integrados en main. CI 37862390949 PASS Windows/Ubuntu para 1bb95f6 es evidencia histórica de presencia, NO del panel nuevo.
+- BITACORA.md/docs/compatibility/clients.md ya eran cambios locales de la discusión; conservados. mcp-orlando.json privado sin seguimiento preservado SIN leer, añadir ni publicar. No hubo dependencias/lockfile nuevos.
+- No se inspeccionó/reinició Hub/túnel personal ni DB del piloto. Pruebas nuevas usan DB efímera. No inferir estado de procesos personales.
 
-- 8.1–8.3: servicios usan puertos/nueve adaptadores SQLite; unidad de trabajo síncrona/savepoints y eventos post-commit. HTTP en http/routes y MCP en tools.
-- 8.4/8.5: [recuperación](docs/RECOVERY.md) y [sesiones](docs/SESSIONS.md), ADR-020/021; instancia exclusiva, generación nueva y checkpoint conservado. Idempotencia por payload de dominio/agente lógico, no session_id temporal.
-- 9.1/9.2: [doctor](docs/DOCTOR.md) y [plantilla genérica](docs/MCP_SETUP.md), sólo lectura/archivo nuevo/token placeholder; clientes concretos y distribución pendientes.
-- 10.1/10.2: [historial](docs/MESSAGE_HISTORY.md) autorizado antes de paginar, keyset independiente de inbox/ACK, búsqueda literal y cursor ligado a filtros.
-- 10.3: [respuestas](docs/MESSAGE_REPLIES.md). reply_to_message_id UUID explícito; thread_id derivado por servidor; correlation_id legacy permanece libre y no autoriza ni determina hilo. Privado no se vuelve broadcast ni incorpora terceros; se restringe por padre inmediato. Padre ausente/ajeno/cruzado produce igual INVALID_INPUT sin detalles.
-- Migración 7 aditiva: columnas nullable de referencia/hilo e índice; sin FK al padre para conservar respuestas retenidas al borrar originales. No reinterpretar correlaciones anteriores. Clientes con esquemas de salida estrictos deben actualizarse para leer respuestas.
-- Historial thread y GET de referencia exigen sesión propia/messages:read y no hacen ACK. Responder requiere messages:write + messages:read y membresía/rol. known_agents del team-status incluye registrados con membresía vigente, incluso desconectados; el servidor revalida destinatarios al enviar.
-- UI: Responder/cancelar, contexto, Ver conversación, selección múltiple sin copiar IDs y público/privado explícito. Original fuera de página se consulta al expandirlo; no se promete reconstruir contenido eliminado.
-- 10.5: renovación explícita MCP/UI, UUID/TTL/claves/salidas validados, retry estable, cuenta regresiva y permisos del servidor. Heartbeat no renueva.
-- [UI_DESIGN](docs/UI_DESIGN.md): navegación marina/superficies claras, controles responsive/foco/reduced-motion, borradores/filtros conservados; consultas de secciones ocultas pausadas. frontend-design y ui-ux-pro-max instaladas bajo C:/Users/orlan/.codex/skills.
+### Decisiones, restricciones y contratos
 
-Stack existente: Node 24 LTS/pnpm/TypeScript estricto/Zod 3/Fastify/node:sqlite WAL/MCP SDK v1/React-Vite-Tailwind-TanStack Query/Vitest/Playwright/Biome. Usar [API_CONTRACT](docs/API_CONTRACT.md), ARCHITECTURE.md y docs/OPERATIONS.md. No introducir SDK, ORM, servicios o dependencias sin necesidad registrada.
+- ADR-022 aceptada: administración de instancia en listener separado 127.0.0.1:8791; NO montada en Hub público/puerto 8787/túnel. Owner de proyecto != administrador global.
+- Bootstrap aleatorio por fragmento, retirado de URL antes del canje, un uso/5min; sesión cookie local HttpOnly/Strict, 8h, memoria del proceso. Host/Origin/IP exactos, sin CORS ni confianza forwarded; comparación de secretos base64url válida. Rutas protegidas identificadas por ruta resuelta, no sólo URL cruda. Tokens emitidos visibles una vez en memoria, sin web storage.
+- Servicios transaccionales/puertos, SQLite/node:sqlite y auditoría existentes; control sólo de hijos propios, DB preservada al reiniciar. Compartir cambia CORS y puede reconectar sesiones. Túnel verificado por checksum oficial y espera conexión registrada, no sólo URL anunciada.
+- Después de logout/8h todavía hay que reiniciar compañero para nuevo bootstrap. Reapertura de instancia existente y distribución sin Git/pnpm/build pendientes del empaquetado. No ocultar esta limitación.
+- ADR-006 permanece: llegada en background NO garantiza despertar un LLM inactivo. Sin daemon de prompts/orquestación compleja/Docker/servicios nuevos. Recepción/avisos no deben ACK antes de consumo ni renovar locks.
+- Dirección universal del usuario: núcleo MCP común, integraciones por cliente opcionales. Ambos participantes del piloto usaron Antigravity CLI; agy local 1.3.2 verificado, versión Linux desconocida. Stream-json print permite evaluar proceso propio; no acredita controlar TUI existente. docs/compatibility/clients.md conserva evidencia parcial.
 
-### Evidencia de esta tarea
+### Archivos/herramientas existentes
 
-- pnpm check PASS: lint/typecheck + 141 pruebas en 20 suites.
-- pnpm build PASS. Tras ajuste visual móvil y lookup de contexto con Map, build monorepo repetido PASS y E2E dirigido de respuestas/renovación 2/2 PASS.
-- Suite pnpm test:e2e: 12/12 PASS antes de ese ajuste visual, incluye stdio real, privacidad, múltiples destinatarios, original fuera de página, navegación, historial/recovery/ACK/locks y respuestas.
-- Capturas reply-mobile.png/thread-desktop.png reproducibles bajo test-results mediante E2E de respuestas; revisadas. Datos ficticios sin secretos. Desktop captura desde scroll inicial para evitar artefactos de elementos sticky en fullPage.
-- git diff --check PASS; verificar de nuevo antes de commit. CI a99b634 y f5cff7d PASS Windows/Ubuntu; run 37840440650 del código final ejecutó los 141 tests y 12 E2E en ambas plataformas. La evidencia corresponde a f5cff7d, no al commit documental posterior.
-- Correcciones encontradas por pruebas: enum de capability omitido (doctor fallaba) y fixture de inbox vacío que impedía entrega viva; ambas corregidas manteniendo aserciones y contratos.
+- docs/LOCAL_CONTROL.md: contrato/lifecycle/uso/aceptación; ADR-022 en esta bitácora.
+- packages/shared/src/schemas/local-control.ts y export index: inputs/snapshot/runtime/outputs.
+- apps/hub-server/src/application/ports/administration.ts, application/services/administration-service.ts e infrastructure/repositories/sqlite-administration-repository.ts.
+- apps/hub-server/src/local/control-app.ts, runtime.ts, tunnel.ts y companion.ts; root script companion. CLI admin existente no refactorizado.
+- apps/web/src/features/local/LocalControlView.tsx, main.tsx, index.css; UI_DESIGN navy/superficies/typografía local, skills frontend-design y ui-ux-pro-max usadas; no framework desktop nuevo.
+- Pruebas apps/hub-server/src/local/control-app.test.ts, e2e/local-control.spec.ts. Compartir real se verifica aislado con runtime y DB :memory:, no fixture del piloto.
+- Stack existente Node24/pnpm/TS/Zod3/Fastify/SQLite/MCP SDKv1/React-Vite-TanStack/Vitest/Playwright/Biome. Reusar mcp-config.mjs/doctor.mjs para próximos incrementos; API_CONTRACT, OPERATIONS, MCP_SETUP, ADR-018–021 y sesiones/recovery siguen vigentes.
 
-Comandos de aceptación: pnpm check, pnpm build, pnpm test:e2e, git diff --check. Compilar antes de Playwright (bundle productivo/dist MCP); frozen install si faltan dependencias. No actualizar lockfile por defecto. Cambios documentales se revisan por contenido/enlaces/diff; no afirmar pruebas históricas como nuevas.
+### Verificación realmente observada y pendientes
 
-### Próximo paso concreto
+- pnpm check PASS: lint/typecheck + 148 pruebas, 22 suites, incluye 6 nuevas de frontera administrativa/CSRF/bootstrap/TTL/logout/rollback/lifecycle/concurrencia. Repetido tras endurecer cookies/rutas y separar TTL UI.
+- pnpm build PASS; repetido después de exigir conexión registrada en túnel.
+- pnpm test:e2e PASS: 14/14 incluyendo panel real (companion compilado, teclado/móvil375, token oculto/sin storage, proyectos/invitaciones, stop/restart/revocar/logout). Capturas desktop/móvil finales revisadas; se separó TTL de emisión y espaciado del botón. Repetición dirigida encontró carrera de prueba: disabled también significa operación pendiente; se espera confirmación Hub iniciado/detenido antes del HTTP, sin sleeps ni relajar condición de éxito. Dirigido repetido 3/3 PASS.
+- git diff --check PASS antes del cierre documental; repetir después. Fallos intermedios: CSS sin formatear, fixture LOG_LEVEL=silent no admitido, non-null assertion lint; corregidos sin relajar aserciones.
+- Experimento de túnel real aislado: primer intento health local200 pero público ENOTFOUND. Tras esperar Registered tunnel connection, sondeo final PASS: DNS sistema/1.1.1.1 resuelve, health público200, administración pública404, unshare conserva Hub local running y finally cierra procesos propios/DB efímera. No se diagnostica con certeza la causa del DNS inicial; no confundir URL anunciada con conexión registrada.
+- No CI actual del panel, publicación, instalador limpio Windows/Linux ni activación de agente inactivo verificados.
 
-Estado de 10.4: 1bb95f6 publicado en feat/phase-10-message-history; CI 37862390949 PASS Windows/Ubuntu (142 pruebas y 13 E2E). El cierre añade sólo documentación y se publica por separado; comprobar HEAD/status/origin al retomar. No hay cambios de 10.6, migraciones/dependencias o merge a main. Observador local 5251 finalizado exit 0; las pruebas locales también terminaron.
+### Próxima tarea concreta
 
-10.3 está publicado y aprobado. Al retomar comprobar rama/HEAD/status y conservar commits; el cierre documental posterior puede disparar otro run, que debe distinguirse del CI funcional aprobado de f5cff7d. El observador local 63209 terminó exit 0 y no quedan verificaciones locales esperando. No hay merge a main ni PR creado. 10.4 está publicado y aprobado; siguiente incremento propuesto 10.6. No rehacer 10.3, 10.4 ni la renovación. No hay verificación local en curso; el cierre documental posterior puede disparar otro CI, distinto del código 1bb95f6 aprobado.
+Sondeo real de transporte/DNS terminado PASS y cleanup observado. Revisar diff/contratos de primer incremento, capturas finales y gates tras último ajuste; commit acotado sin archivo privado y publicación progresiva sólo del código/documentos autorizados.
 
-10.4 implementado: [PRESENCE](docs/PRESENCE.md), known_agents con último contacto/estado efectivo según umbrales del Hub, desconectados visibles, reporte fechado/histórico y lectura anterior identificada ante fallo de red. No se infiere ejecución ni espera a partir de heartbeat; sólo blocked_by expresa bloqueo/espera declarada. Typecheck/build/lint y check secuencial 142/142 (21 suites) PASS; 13 E2E PASS y dos dirigidos tras unificar etiquetas. Capturas presencia revisadas en desktop/móvil. La corrida inicial simultánea agotó timeouts de diez pruebas existentes; repetir secuencialmente pasó sin alterar aserciones ni presupuestos. 10.4 publicado y CI aprobado en ambas plataformas. No quedan cambios funcionales pendientes de este incremento ni pruebas locales en curso.
+Después iniciar incremento 2: diseñar/registrar ADR y contratos de canje explícito de invitación de uso/TTL limitado para identidad/membresía + sesión humana separada de credencial MCP. Reusar membresía/auditoría/roles, evitar token duradero en URL, web storage o logs. Debe permitir anfitrión invitar y participante entrar sin copiar UUID/token; probar expiración/reuso/carreras/privacidad/revocación/Origin/cookies y E2E real. No saltar directamente al instalador ni prometer soporte cualquier versión.
 
-### Límites y pendientes globales
+Roadmap original sigue parcial: 10.3 respuestas, 10.4 presencia y 10.5 renovación publicados; 10.6 accesibilidad completa, fase7 productos/versiones distintos, 8.6 contratos restantes, distribución/credenciales y fase11 operación siguen pendientes. La nueva secuencia autorizada prioriza facilidad; no rehacer funcionalidades cerradas ni fusionar todo a main implícitamente.
 
-Esta tarea no cambia el siguiente incremento: deja validado en la práctica el flujo de colaboración multi-agente y multiusuario para el piloto (Windows y Linux conectados mediante túnel Cloudflare, intercambio de mensajes con hilos y exclusión mutua de locks verificados). El estado operativo de referencia sigue siendo la rama `feat/phase-10-message-history`, con evidencia funcional previa aprobada en CI.
-
-Siguiente tarea concreta cuando se solicite: 10.6. Revisar teclado/foco/semántica, reflow/zoom y estados vacíos/errores de permisos/red/cuota en los flujos actuales, conservando UI_DESIGN y ambas skills. Empezar por Shell, States y formularios/paneles web; usar Playwright y corregir problemas reproducidos sin ampliar a infraestructura. Criterio: todos los flujos centrales operables con teclado y móvil, errores distinguibles y regresiones actuales aprobadas. 10.6 no está iniciado; mejoras previas no equivalen a auditoría completa de accesibilidad.
-
-Piloto humano 7 con dos personas/productos/redes sigue sin evidencia; [clientes](docs/compatibility/clients.md) aún no elegidos/versionados. Harness stdio no lo sustituye. 8.6 validación completa de salidas/payloads pendiente. 9: guías concretas/distribución/credenciales y eventual sesión web persistente (ADR necesaria). 11: operación permanente, RPO/RTO/backups/releases/carga mixta según anfitrión. 12–14: tareas/entregas humanas, Git informativo y contexto/avisos sujetos a aceptación. 15 sólo investigaciones condicionadas.
-
-Conservar ADR-018–021, scopes intersectados con roles, privacidad, ACK explícito, retención y transacciones. Docker, daemon de prompts, orquestación compleja, Redis/PostgreSQL y servicios de pago siguen diferidos; ADR-006 permanece. No guardar credenciales, DB reales, logs privados ni razonamiento interno.
 ---
 
 ## 🎯 Visión y Misión del Proyecto
@@ -112,6 +106,7 @@ Permite que cada persona mantenga su entorno local, su terminal y su agente pref
 | ADR-019 | 2026-10-07 | Confirmación explícita MCP y comandos idempotentes | `check_inbox(cursor)` confirma la página previamente entregada antes de leer novedades; join devuelve cursor confirmado; herramienta `ack_inbox` permite confirmar la última página sin nueva lectura. Nunca confirmar antes de entregar. Idempotencia por identidad/proyecto/operación/clave con hash y resultado atómicos. | Aceptado |
 | ADR-020 | 2026-10-08 | Frontera persistente de retención y recuperación explícita | Cursor anterior al prefijo eliminado devuelve 410 `CURSOR_EXPIRED`; snapshot autorizado y aceptación explícita permiten continuar desde la frontera sin afirmar entrega de lo borrado. Retención vigente de 30 días/configuración existente; no se añade borrado manual ni se salta el ACK automáticamente. | Aceptado |
 | ADR-021 | 2026-10-08 | Una instancia activa por agente lógico y generación de sesión nueva al reanudar | Rechazar colisión de nombres evita compartir checkpoint/presencia accidentalmente. `instance_id` opcional identifica reintentos del proceso; desconexión/vencimiento permite rejoin con nuevo session_id y checkpoint conservado, invalidando llamadas/tickets antiguos. No se añaden namespaces múltiples ni takeover de instancia activa. | Aceptado |
+| ADR-022 | 2026-10-09 | Panel local administrativo con autoridad de instancia separada del Hub público | El compañero sirve UI web existente en listener loopback separado; bootstrap efímero de un uso y sesión local, Host/Origin exactos, sin autoridad global para owners de proyectos ni publicación de rutas administrativas por túnel. Servicios transaccionales/puertos y lifecycle controlado; identidad/sesión humana remota se entregan en siguiente incremento. | Aceptado |
 
 ---
 
@@ -148,6 +143,44 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 ---
 
 ## 📋 Entradas Cronológicas de la Bitácora
+
+### [2026-10-09] — Panel administrativo local implementado y regresiones
+- Primer incremento implementado: autoridad loopback separada, bootstrap/sesión local, servicios/puerto/adaptador administrativo transaccional, UI personas/accesos/proyectos/invitaciones y companion que controla sólo Hub/túnel propios. No dependencias nuevas; no modificación de DB/credenciales del piloto. Tokens emitidos sólo en memoria y TTL separado para nuevo acceso.
+- pnpm check PASS 148 pruebas/22 suites, pnpm build PASS y pnpm test:e2e PASS 14/14. Capturas desktop/móvil revisadas. Fallos de formato, fixture de log y lint corregidos; no se relajaron pruebas. Bootstrap/cookies/Origin/Host/rollback/revocar y reinicios con datos conservados probados.
+- Prueba real con DB efímera: primer sondeo público ENOTFOUND; procesos propios cerrados. Se exige registro efectivo de conexión del túnel antes de anunciar compartir; sondeo posterior PASS DNS sistema/Cloudflare, health público200, administración pública404, parar compartir conserva Hub local y finally cierra procesos propios. No se afirma causa exacta del DNS inicial. Sigue pendiente instalador, canje humano simplificado, MCP guiado, listener y operación estable; objetivo activo sin commit/publicación nueva todavía.
+- Repetición E2E posterior encontró carrera en la propia prueba (botón disabled durante arranque vs Hub listo); corregida esperando confirmación de operación y repetida 3/3 PASS. No se alteró lifecycle para esconder el fallo. Capturas finales revisadas y espaciado de emisión mejorado.
+
+### [2026-10-09] — Implementación de experiencia sencilla autorizada
+- El usuario activa objetivo con implementación de los cinco incrementos en orden; pausa breve y reanudación posteriores. Inspección inicial completó lecturas de app/server/admin/share, no produjo mutaciones o procesos persistentes. Al retomar se revalida HEAD/status/remoto, reglas/bitácora y composición; se crea feat/easy-onboarding desde eba6b1f conservando documentación previa y configuración privada sin seguimiento.
+- ADR-022 y docs/LOCAL_CONTROL.md fijan autoridad local y aceptación antes del código. UI conserva navy/tipografía/superficies de UI_DESIGN y skills frontend-design/ui-ux-pro-max; se descarta recomendación de landing/violeta por no corresponder al panel operacional existente. Objetivo global sigue activo; no se sustituye por sólo este primer incremento.
+
+### [2026-10-09] — Experiencia completa sin comandos: anfitrión, portal y conexión
+- El usuario amplía la evaluación: crear/consultar usuarios y administrar desde CLI también es complejo; solicita panel/mini app y perspectiva futura integrada con instalación/listener. Se inspeccionan admin.ts, rutas de membresía/tokens y operaciones: administración global de usuarios es local por DB, portal tiene gestión de proyecto pero no esa autoridad.
+- Propuesta: portal compartido + compañero local ligero con UI web reutilizada. Administración visual y bootstrap primero; identidad/invitación/sesión humana y emparejamiento MCP después; distribución y listener común en incrementos siguientes. No se acepta aún framework desktop/servicio nuevo; sesión persistente/canje para nueva identidad y credenciales por dispositivo requieren contrato/ADR explícitos, roles de instancia separados de roles de proyecto y regresiones.
+- Se corrige la propuesta de asistente terminal como experiencia final por el requerimiento de facilidad gráfica. La skill ui-ux-pro-max informa navegación atrás y opciones avanzadas progresivas; consulta de onboarding con resultado pertinente User Freedom, sin aplicar el resultado tipográfico irrelevante. No se modifica UI/código ni se crean usuarios/tokens, procesos o datos operativos. Próximo paso: revisar propuesta integral y concretar contrato de administración local/recorridos con criterios de aceptación sin comandos.
+- Verificación documental/estado: feat/phase-10-message-history/eba6b1f; se preservan BITACORA.md/docs/compatibility locales y mcp-orlando.json sin leer. Sin tests/build/CI/commit/push nuevo; revisión git diff --check. Roadmap global y ADR-006 siguen vigentes, propuesta no equivale a implementación.
+
+### [2026-10-09] — Propuesta de instalación guiada común
+- El usuario pide solución concreta para instalación después de expresar preferencia por cualquier agente/versión. Se revisan scripts/mcp-config.mjs y doctor.mjs: hoy exigen clon/dist y plantilla con placeholder; diagnóstico ya valida runtime, URL, readiness, compatibilidad, identidad y proyecto sin crear sesión.
+- Se propone empaquetado versionado por plataforma con runtime resuelto, CLI/asistente común y conectores de configuración por cliente; exportación MCP genérica conserva salida para clientes no conocidos. UX objetivo: instalar, introducir conexión/identidad, elegir cliente y recibir diagnóstico; sin Git/pnpm/build/rutas o JSON manual en clientes soportados. No confundir Hub HTTP existente con endpoint MCP remoto: stdio continúa como base (https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).
+- Alcance por definir antes de código: almacenamiento local de credenciales/permisos, empaquetado/runtime/licencias, plataformas/arquitecturas probadas y preservación de configuraciones existentes. El asistente no crea identidad por defecto ni expone token en enlace/argumentos/logs; no promete soporte certificado para cualquier versión. Propuesta registrada, sin nueva ADR aceptada ni implementación.
+- Estado conservado feat/phase-10-message-history/eba6b1f; BITACORA.md y docs/compatibility/clients.md locales, mcp-orlando.json sin seguimiento no leído. Verificación: lectura de utilidades/status/HEAD y diff documental; sin tests/build/CI/commit/push ni cambios operativos. Próximo paso: concretar contrato del instalador/asistente y aceptación de instalación limpia antes del listener.
+
+### [2026-10-09] — Versión y capacidades locales de Antigravity CLI verificadas
+- A petición del usuario se localizan los ejecutables mediante Get-Command y se consulta sólo versión/ayuda/changelog: agy 1.3.2 y lanzador del editor antigravity 1.104.0. No se leen tokens/configuraciones, no se ejecutan agentes, no se instalan actualizaciones ni se modifica MCP.
+- CLI 1.3.2 permite mcp add stdio/HTTP y driver persistente en print mode con entrada/salida stream-json (ayuda declara turno por mensaje NDJSON; changelog 1.1.15 confirma conversación única). Evidencia más concreta para activar una sesión controlada por launcher; formato y ejecución real quedan por probar, sin prometer inyección en terminal interactiva existente.
+- Matriz de compatibilidad actualizada; versión Linux y versión histórica del piloto siguen desconocidas, aceptación de fase 7 parcial. Sólo documentación local sobre eba6b1f, preservando cambios previos y mcp-orlando.json sin seguimiento. Verificación documental con git diff --check; sin pruebas funcionales, commit/push/CI. Próxima propuesta: configuración guiada de Antigravity CLI y experimento separado de listener/driver, manteniendo ADR-006.
+
+### [2026-10-09] — Clientes del piloto identificados por el usuario
+- Ambos usaron Antigravity CLI; Windows/Linux ya registrados en la prueba anterior, versiones aún desconocidas. La recomendación de simplificación se concreta en este cliente; el requisito de dos productos diferentes para cierre completo de fase 7 no se considera satisfecho.
+- Revisión oficial: MCP permite configuración stdio y remota en Antigravity CLI. No se encontró garantía de que una notificación MCP inicie un turno automáticamente. Sidecars y agentapi ofrecen recepción reactiva/envío a conversaciones en la documentación de Antigravity 2.0, cuya página no los declara para CLI; compatibilidad de CLI sigue por demostrar, no se asume imposibilidad ni soporte.
+- Se conserva evaluación anterior y cambios locales; HEAD eba6b1f, sólo bitácora modificada y mcp-orlando.json sin seguimiento sin leer. Sin cambios funcionales, procesos operativos, tests, commit/push o CI nuevo. Continuación: versión exacta de ambos CLI y prueba específica de recepción/activación antes de cambiar ADR-006.
+
+### [2026-10-09] — Evaluación de configuración y escucha tras piloto Windows/Linux
+- El usuario informa que el arranque fue complejo y propone listener en background; solicita evaluar prioridad frente a fases pendientes. Se contrasta evidencia humana con código y remoto: feat/phase-10-message-history/eba6b1f publicado; main/13a81d8 no contiene los incrementos posteriores. README aún dirige a main y la plantilla requiere clon/build/rutas manuales, fuentes concretas de fricción.
+- Recomendación: priorizar el acceso de fase 9 antes de ampliar funcionalidades y experimentar después con listener del adaptador. No equivale a aceptar un daemon de prompts ni a cerrar fase 7. La prueba humana registrada pasó mensajes/hilos/locks; faltan identificación de clientes y escenarios completos.
+- Descubrimiento: wait_for_messages implementa polling HTTP de un segundo durante llamada activa, sin WebSocket MCP. Listener y activación del LLM son capacidades diferentes; las suscripciones MCP notifican al host, que decide su incorporación. Propuestas y criterios de aceptación quedan en el relevo; ADR-006 permanece sin cambios.
+- Sólo actualización documental local; configuración privada sin seguimiento preservada y no leída. Sin código, dependencias, commit/push, nuevas pruebas funcionales o consulta de CI; siguiente paso es revisar recomendación con el usuario y concretar clientes antes de integración específica.
 
 ### [2026-10-08] — Cierre publicado y verificado de 10.4
 - Commit funcional 1bb95f6 publicado en feat/phase-10-message-history. CI 37862390949 termina success en Windows/Ubuntu: frozen install, lint/tipos/142 pruebas, build, audit producción, Chromium y 13 E2E. Observador local 5251 termina exit 0; no hay pruebas locales esperando.
