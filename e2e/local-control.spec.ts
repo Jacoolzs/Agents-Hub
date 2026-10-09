@@ -77,7 +77,8 @@ test("anfitrión administra y reinicia Hub desde panel privado con teclado y mó
   await page.getByLabel("Nombre del proyecto").fill("Equipo de prueba local");
   await page.getByRole("button", { name: "Crear proyecto", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Proyecto creado");
-  await page.getByRole("button", { name: "Crear invitación", exact: true }).click();
+  await page.getByText("Invitación avanzada con token personal", { exact: true }).click();
+  await page.getByRole("button", { name: "Crear invitación avanzada", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Invitación de un solo uso" })).toBeVisible();
   await page.getByRole("button", { name: "Descartar de pantalla" }).click();
   await page.getByRole("button", { name: "Iniciar Hub", exact: true }).click();

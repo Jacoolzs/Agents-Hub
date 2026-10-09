@@ -1,6 +1,6 @@
 # Acceso humano al portal
 
-ADR-023 implementa el núcleo común y su interfaz para personas existentes. ADR-024 añade el backend de primera invitación ligada a persona/proyecto/rol, sin completar todavía su formulario gráfico. No cierra el onboarding: cuenta con contraseña vs enlaces sigue abierta. No hay OAuth, correo, proveedor externo ni dependencia nueva.
+ADR-023 implementa el núcleo común y su interfaz para personas existentes. ADR-024 añade primera invitación ligada a persona/proyecto/rol con formulario en el panel. No cierra todo el onboarding: cuenta con contraseña vs enlaces sigue abierta. No hay OAuth, correo, proveedor externo ni dependencia nueva.
 
 ## Autoridad y credenciales
 
@@ -12,7 +12,7 @@ API con cookie exige Host que corresponda a un origen exacto configurado, Origin
 
 WebSocket conserva tickets efímeros de uso único ligados a sesión/agente/proyecto/token. Cookie sólo autentica la petición HTTP que emite ticket; no reemplaza el ticket del handshake. La revalidación acepta exclusivamente las dos audiencias propias, comprueba revocación/expiración/membresía y sigue cerrando sockets al retirar permisos. Logout revoca sólo la sesión humana actual, sin revocar credenciales MCP independientes.
 
-## Primera invitación unificada (backend implementado; UI pendiente)
+## Primera invitación unificada
 
 Autoridad exclusivamente local: `POST /local-api/web-invitations` recibe proyecto, rol reader/collaborator/maintainer, duración60–604800 segundos (default3600) y persona explícita: `{kind:"new", username}` o `{kind:"existing", user_id}`. Un nombre ocupado requiere seleccionar la persona existente; nunca se reutiliza automáticamente ni se abre registro público. La nueva identidad se reserva al emitir, sin contraseña ni token MCP; no obtiene membresía hasta confirmar el canje. Una persona ya miembro usa la entrada existente, sin cambiar su rol por invitación.
 
@@ -20,7 +20,11 @@ Migración9 añade `pending_role` nullable a web_entries: null conserva entradas
 
 `GET /local-api/web-invitations` lista metadata sin hashes/secretos, incluidos estados de consumo/revocación para control. `DELETE /local-api/web-invitations/:entryId` revoca sólo una invitación pendiente, sin retirar una membresía ya aceptada. Cancelar preview no consume. Expiración/revocación no borra la identidad reservada; puede seleccionarse explícitamente para otra invitación. El enlace conserva secreto de un uso en fragmento y depende del origen disponible. Cambiar túnel no convierte URL temporal en estable.
 
-Este contrato resuelve primera entrada, no elige cuentas/contraseñas para volver ni conecta la IA. Reutiliza SQLite, eventos y autoridad cookie, sin dependencia/servicio nuevo. Aceptación pendiente: formulario único, nuevo participante sin token/UUID/comandos, revocación, TTL, reuso, conflictos/carreras, rollback sin eventos fantasma, upgrade8/backup y E2E móvil.
+En **Proyectos e invitaciones**, usa **Invitar con un enlace**: persona nueva o selección explícita de existente, proyecto y permisos. Duración de una hora por defecto, un día o siete días en opciones adicionales. Inicia el Hub y comparte por Internet antes de invitar a otro PC; sin compartir, la UI avisa que el enlace sólo funciona en este PC. El resultado oculto recibe foco y ofrece Mostrar/Copiar/Descartar. Si falla la actualización posterior, el enlace emitido se conserva en pantalla; no vuelvas a crear la persona automáticamente.
+
+La lista muestra Pendiente/Aceptada/Revocada/Vencida y el permiso; **Actualizar estado** consulta cambios. Revocar pide confirmación y retira el enlace de pantalla si es el mismo. No se recupera el secreto desde la lista: para reemitir, revoca la pendiente y selecciona explícitamente la identidad existente. El formulario legacy continúa plegado como opción avanzada, no como recorrido principal.
+
+Este contrato resuelve primera entrada, no elige cuentas/contraseñas para volver ni conecta la IA. Reutiliza SQLite, eventos y autoridad cookie, sin dependencia/servicio nuevo. HTTP/DB cubre revocación, TTL, reuso, conflictos/carreras, rollback sin eventos fantasma y upgrade8/backup. E2E del formulario usa nuevo participante sin token/UUID/comandos, consentimiento, mensaje/recarga/logout, metadata y revocación, teclado/móvil y privacidad.
 
 ## Contrato del núcleo
 

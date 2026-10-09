@@ -2,11 +2,14 @@ import {
   LocalControlSnapshotSchema,
   LocalIssuedAccessSchema,
   WebEntrySchema,
+  type WebInvitationMetadata,
+  WebInvitationMetadataSchema,
 } from "@agents-hub/shared";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { LocalInvitationForm } from "./LocalInvitationForm";
 
 type Snapshot = ReturnType<typeof LocalControlSnapshotSchema.parse>;
-type Secret = { value: string; title: string; expires: string; link?: boolean };
+type Secret = { value: string; title: string; expires: string; link?: boolean; entryId?: string };
 
 async function request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(`/local-api/${path}`, {
@@ -34,8 +37,17 @@ function initialize() {
   return initialization;
 }
 
+async function loadSnapshot() {
+  const [data, invites] = await Promise.all([request("snapshot"), request("web-invitations")]);
+  return {
+    data: LocalControlSnapshotSchema.parse(data),
+    invites: WebInvitationMetadataSchema.array().parse(invites),
+  };
+}
+
 export function LocalControlView() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [invitations, setInvitations] = useState<WebInvitationMetadata[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -51,16 +63,26 @@ export function LocalControlView() {
   const [webProject, setWebProject] = useState("");
   const [role, setRole] = useState("collaborator");
   const [secret, setSecret] = useState<Secret | null>(null);
+  const secretInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (secret) secretInput.current?.focus();
+  }, [secret]);
   const [showSecret, setShowSecret] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
-  const refresh = async () =>
-    setSnapshot(LocalControlSnapshotSchema.parse(await request("snapshot")));
+  const refresh = async () => {
+    const { data, invites } = await loadSnapshot();
+    setSnapshot(data);
+    setInvitations(invites);
+  };
   useEffect(() => {
     let active = true;
     void initialize()
       .then(async () => {
-        const data = LocalControlSnapshotSchema.parse(await request("snapshot"));
-        if (active) setSnapshot(data);
+        const { data, invites } = await loadSnapshot();
+        if (active) {
+          setSnapshot(data);
+          setInvitations(invites);
+        }
       })
       .catch((e: Error) => {
         if (active) setError(e.message);
@@ -115,6 +137,7 @@ export function LocalControlView() {
                 .then(() => {
                   setClosed(true);
                   setSnapshot(null);
+                  setInvitations([]);
                   setSecret(null);
                 })
                 .catch((e: Error) => setError(e.message))
@@ -240,6 +263,7 @@ export function LocalControlView() {
                 </label>
                 <input
                   id="local-secret"
+                  ref={secretInput}
                   type={showSecret ? "text" : "password"}
                   value={secret.value}
                   readOnly
@@ -535,6 +559,42 @@ export function LocalControlView() {
               </div>
             </section>
             <section hidden={tab !== "projects"} className="local-columns">
+              <LocalInvitationForm
+                users={snapshot.users}
+                projects={snapshot.projects}
+                invitations={invitations}
+                projectId={projectId}
+                setProjectId={setSelectedProject}
+                ready={snapshot.runtime.hub === "running" && !!snapshot.runtime.portal_url}
+                shared={snapshot.runtime.sharing === "running"}
+                busy={busy}
+                onCreate={(input) => {
+                  void act(async () => {
+                    const invitation = WebEntrySchema.parse(
+                      await request("web-invitations", "POST", input),
+                    );
+                    const link = new URL(snapshot.runtime.portal_url as string);
+                    link.hash = new URLSearchParams({ entry: invitation.secret }).toString();
+                    setSecret({
+                      value: link.toString(),
+                      expires: invitation.expires_at,
+                      title: "Invitación al portal",
+                      link: true,
+                      entryId: invitation.entry_id,
+                    });
+                    setShowSecret(false);
+                  }, "Invitación al portal creada. Comparte el enlace por privado.");
+                }}
+                onRevoke={(id) =>
+                  void act(async () => {
+                    await request(`web-invitations/${id}`, "DELETE");
+                    if (secret?.entryId === id) {
+                      setSecret(null);
+                      setShowSecret(false);
+                    }
+                  }, "Invitación al portal revocada.")
+                }
+              />
               <div className="local-section">
                 <h2>Proyectos</h2>
                 {!snapshot.projects.length && (
@@ -604,62 +664,65 @@ export function LocalControlView() {
                 </form>
               </div>
               <div className="local-section">
-                <h2>Invitar al proyecto</h2>
-                <p>
-                  En esta primera entrega, la persona utiliza su acceso personal y esta invitación.
-                  El recorrido unificado se completa en el siguiente incremento.
-                </p>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void act(async () => {
-                      const invitation = await request<{ token: string; expires_at: string }>(
-                        `projects/${projectId}/invitations`,
-                        "POST",
-                        { role, ttl_seconds: 86400 },
-                      );
-                      setSecret({
-                        value: invitation.token,
-                        expires: invitation.expires_at,
-                        title: "Invitación de un solo uso",
-                      });
-                      setShowSecret(false);
-                    }, "Invitación creada.");
-                  }}
-                >
-                  <label htmlFor="local-invite-project">Proyecto</label>
-                  <select
-                    id="local-invite-project"
-                    className={inputClass}
-                    value={projectId}
-                    onChange={(e) => setSelectedProject(e.target.value)}
-                    required
+                <details>
+                  <summary>Invitación avanzada con token personal</summary>
+                  <h2>Invitación legacy</h2>
+                  <p>
+                    Sólo para el flujo anterior: requiere acceso personal y aceptar esta credencial.
+                    Para entrar al navegador usa Invitar con un enlace.
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void act(async () => {
+                        const invitation = await request<{ token: string; expires_at: string }>(
+                          `projects/${projectId}/invitations`,
+                          "POST",
+                          { role, ttl_seconds: 86400 },
+                        );
+                        setSecret({
+                          value: invitation.token,
+                          expires: invitation.expires_at,
+                          title: "Invitación de un solo uso",
+                        });
+                        setShowSecret(false);
+                      }, "Invitación creada.");
+                    }}
                   >
-                    <option value="" disabled>
-                      Primero crea un proyecto
-                    </option>
-                    {snapshot.projects.map((project) => (
-                      <option key={project.project_id} value={project.project_id}>
-                        {project.name}
+                    <label htmlFor="local-invite-project">Proyecto</label>
+                    <select
+                      id="local-invite-project"
+                      className={inputClass}
+                      value={projectId}
+                      onChange={(e) => setSelectedProject(e.target.value)}
+                      required
+                    >
+                      <option value="" disabled>
+                        Primero crea un proyecto
                       </option>
-                    ))}
-                  </select>
-                  <label htmlFor="local-role">Permisos</label>
-                  <select
-                    id="local-role"
-                    className={inputClass}
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
-                  >
-                    <option value="collaborator">Colaborar</option>
-                    <option value="reader">Sólo lectura</option>
-                    <option value="maintainer">Administrar colaboradores</option>
-                  </select>
-                  <p className="field-hint">Se puede usar una vez y vence en 24 horas.</p>
-                  <button type="submit" className="local-primary" disabled={busy || !projectId}>
-                    Crear invitación
-                  </button>
-                </form>
+                      {snapshot.projects.map((project) => (
+                        <option key={project.project_id} value={project.project_id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    </select>
+                    <label htmlFor="local-role">Permisos</label>
+                    <select
+                      id="local-role"
+                      className={inputClass}
+                      value={role}
+                      onChange={(e) => setRole(e.target.value)}
+                    >
+                      <option value="collaborator">Colaborar</option>
+                      <option value="reader">Sólo lectura</option>
+                      <option value="maintainer">Administrar colaboradores</option>
+                    </select>
+                    <p className="field-hint">Se puede usar una vez y vence en 24 horas.</p>
+                    <button type="submit" className="local-primary" disabled={busy || !projectId}>
+                      Crear invitación avanzada
+                    </button>
+                  </form>
+                </details>
               </div>
             </section>
           </>
