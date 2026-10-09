@@ -4,6 +4,8 @@ Revisión de fase 8.6: contrastado con `app.ts`, `http/routes`, catálogo MCP y 
 
 ## HTTP
 
+En `feat/easy-onboarding`, [acceso humano](WEB_ACCESS.md) añade POST `/v1/web/entry/preview`, POST `/v1/web/entry`, GET `/v1/web/session` y POST `/v1/web/logout`. Cookie humana con audiencia/proyecto propios, Origin/Host/Fetch-Site exactos y ninguna credencial duradera en body. Núcleo backend para identidades existentes; UI/registro de personas nuevas todavía pendientes. [Administración local](LOCAL_CONTROL.md) vive en listener loopback separado `/local-api/`, nunca en este Hub público.
+
 `P` significa `/v1/projects/:projectId`. Cada ruta de proyecto aplica pertenencia/rol además del scope; tokens ligados a un proyecto no acceden a otro. Mutaciones de agente derivan identidad de una sesión propia validada, nunca del nombre remitente declarado.
 
 | Método/ruta | Scope mínimo | Contrato o restricción |

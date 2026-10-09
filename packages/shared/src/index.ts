@@ -10,3 +10,4 @@ export * from "./schemas/status.js";
 export * from "./schemas/lock.js";
 export * from "./schemas/commands.js";
 export * from "./schemas/local-control.js";
+export * from "./schemas/web-access.js";

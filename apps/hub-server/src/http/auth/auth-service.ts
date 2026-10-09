@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { AppError, type MembershipRole } from "@agents-hub/shared";
+import { AppError, BROWSER_AUDIENCE, type MembershipRole } from "@agents-hub/shared";
 
 export interface AuthContext {
   userId: string;
@@ -9,6 +9,7 @@ export interface AuthContext {
   projectId?: string;
   role?: MembershipRole;
   scopes?: string[];
+  browser?: boolean;
 }
 
 export class AuthService {
@@ -95,9 +96,9 @@ export class AuthService {
   public isTokenActive(tokenId: string): boolean {
     return !!this.db
       .prepare(
-        "SELECT 1 FROM auth_tokens WHERE token_id = ? AND revoked_at IS NULL AND expires_at > ? AND audience = 'agents-hub'",
+        "SELECT 1 FROM auth_tokens WHERE token_id = ? AND revoked_at IS NULL AND expires_at > ? AND audience IN ('agents-hub', ?)",
       )
-      .get(tokenId, new Date().toISOString());
+      .get(tokenId, new Date().toISOString(), BROWSER_AUDIENCE);
   }
 
   public revokeToken(tokenId: string, userId?: string): boolean {

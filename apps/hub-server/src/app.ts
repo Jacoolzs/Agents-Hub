@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { EnvConfig } from "@agents-hub/config";
 import {
   AppError,
+  BROWSER_AUDIENCE,
   ClaimLockInputSchema,
   CreateProjectInputSchema,
   HubCapabilitiesSchema,
@@ -24,8 +25,10 @@ import { MessageService } from "./application/services/message-service.js";
 import { ProjectService } from "./application/services/project-service.js";
 import { SessionService } from "./application/services/session-service.js";
 import { StatusService } from "./application/services/status-service.js";
+import { WebAccessService } from "./application/services/web-access-service.js";
 import { WsTicketService } from "./application/services/ws-ticket-service.js";
 import { type AuthContext, AuthService } from "./http/auth/auth-service.js";
+import { assertWebOrigin, webCookie } from "./http/auth/web-policy.js";
 import { registerEventRoutes } from "./http/routes/event-routes.js";
 import { registerInboxRoutes } from "./http/routes/inbox-routes.js";
 import { registerLockRoutes } from "./http/routes/lock-routes.js";
@@ -33,6 +36,7 @@ import { registerMembershipRoutes } from "./http/routes/membership-routes.js";
 import { registerMessageRoutes } from "./http/routes/message-routes.js";
 import { registerProjectSessionRoutes } from "./http/routes/project-session-routes.js";
 import { registerStaticRoutes } from "./http/routes/static-routes.js";
+import { registerWebAccessRoutes } from "./http/routes/web-access-routes.js";
 import { WebSocketHub } from "./http/websocket/ws-hub.js";
 import { createDatabase } from "./infrastructure/db/database.js";
 import { SqliteEventBus } from "./infrastructure/event-bus/event-bus.js";
@@ -45,6 +49,10 @@ import { SqliteProjectRepository } from "./infrastructure/repositories/sqlite-pr
 import { SqliteSessionRepository } from "./infrastructure/repositories/sqlite-session-repository.js";
 import { SqliteStatusRepository } from "./infrastructure/repositories/sqlite-status-repository.js";
 import { SqliteTicketRepository } from "./infrastructure/repositories/sqlite-ticket-repository.js";
+import {
+  SqliteWebAccessRepository,
+  SqliteWebSessionAuthority,
+} from "./infrastructure/repositories/sqlite-web-access-repository.js";
 import { RateLimiter } from "./infrastructure/security/rate-limiter.js";
 import { redactSecrets } from "./infrastructure/security/redactor.js";
 
@@ -63,6 +71,7 @@ export interface AppContext {
   rateLimiter: RateLimiter;
   membershipService: MembershipService;
   idempotencyService: IdempotencyService;
+  webAccessService: WebAccessService;
 }
 
 export function buildApp(
@@ -87,6 +96,12 @@ export function buildApp(
   const statusService = new StatusService(new SqliteStatusRepository(db), eventBus);
   const lockService = new LockService(new SqliteLockRepository(db), eventBus);
   const auditService = new AuditService(new SqliteAuditRepository(db));
+  const webAccessService = new WebAccessService(
+    new SqliteWebAccessRepository(db),
+    eventBus,
+    new SqliteWebSessionAuthority(db),
+    auditService,
+  );
   const wsTicketService = new WsTicketService(new SqliteTicketRepository(db));
   const membershipService = new MembershipService(
     new SqliteMembershipRepository(db),
@@ -117,6 +132,7 @@ export function buildApp(
     rateLimiter,
     membershipService,
     idempotencyService,
+    webAccessService,
   };
 
   const app = fastify({
@@ -174,7 +190,15 @@ export function buildApp(
     // Apply rate limiting on non-health endpoints
     if (!req.url.startsWith("/health")) {
       let authIdentity: string | undefined;
-      if (req.headers.authorization) {
+      const publicWebAction = ["/v1/web/entry", "/v1/web/entry/preview", "/v1/web/logout"].includes(
+        req.routeOptions.url ?? "",
+      );
+      const cookieApi =
+        req.routeOptions.url?.startsWith("/v1/") &&
+        !publicWebAction &&
+        req.routeOptions.url !== "/v1/capabilities";
+      if (req.headers.authorization || (cookieApi && webCookie(req))) {
+        reply.header("cache-control", "no-store");
         try {
           authIdentity = getAuth(req).userId;
         } catch (error) {
@@ -229,6 +253,7 @@ export function buildApp(
           db.prepare("DELETE FROM idempotency_records WHERE expires_at <= ?").run(
             new Date().toISOString(),
           );
+          db.prepare("DELETE FROM web_entries WHERE expires_at <= ?").run(new Date().toISOString());
         });
       } catch (error) {
         app.log.error({ err: error }, "maintenance.failed");
@@ -317,11 +342,18 @@ export function buildApp(
     const cached = authCache.get(req);
     if (cached) return cached;
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (authHeader !== undefined && !authHeader.startsWith("Bearer ")) {
       throw new AppError("UNAUTHENTICATED", "Missing or malformed Authorization header");
     }
-    const token = authHeader.substring(7).trim();
-    const auth = authService.verifyToken(token);
+    let auth: AuthContext;
+    if (authHeader) auth = authService.verifyToken(authHeader.substring(7).trim());
+    else {
+      if (!webCookie(req)) throw new AppError("UNAUTHENTICATED", "Missing authentication");
+      const origin = assertWebOrigin(req, corsOrigins);
+      const token = webCookie(req, origin.startsWith("https:"));
+      if (!token) throw new AppError("UNAUTHENTICATED", "Missing authentication");
+      auth = { ...authService.verifyToken(token, BROWSER_AUDIENCE), browser: true };
+    }
     authCache.set(req, auth);
     return auth;
   }
@@ -476,7 +508,8 @@ export function buildApp(
   });
 
   // --- V1 ROUTES ---
-  registerMembershipRoutes(app, ctx, getAuthenticatedUserId);
+  registerMembershipRoutes(app, ctx, getAuthenticatedUserId, getAuth);
+  registerWebAccessRoutes(app, ctx, corsOrigins, getAuth);
   if (config?.WEB_STATIC_DIR) registerStaticRoutes(app, config.WEB_STATIC_DIR);
 
   const dependencies = {

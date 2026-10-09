@@ -300,3 +300,43 @@ it("starts/stops/restarts only its own Hub and preserves the DB after a port con
   await runtime.start();
   expect(db.prepare("SELECT username FROM users").get()).toEqual({ username: "persisted" });
 });
+
+it("restores the previous Hub state when public tunnel readiness fails", async () => {
+  const reserved = createServer();
+  await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", resolve));
+  const port = (reserved.address() as { port: number }).port;
+  await new Promise<void>((resolve) => reserved.close(() => resolve()));
+  const db = createDatabase(":memory:");
+  let address: string | null = null;
+  const runtime = await CompanionRuntime.create(
+    loadConfig({ PORT: String(port), NODE_ENV: "production", LOG_LEVEL: "fatal" }),
+    db,
+    {
+      url: () => address,
+      start: async () => {
+        address = "https://fixture.trycloudflare.com";
+        return address;
+      },
+      stop: async () => {
+        address = null;
+      },
+      ready: async () => {
+        throw new Error("DNS not ready");
+      },
+    },
+  );
+  cleanups.push(async () => {
+    await runtime.stop();
+    db.close();
+  });
+  for (const running of [false, true]) {
+    if (running) await runtime.start();
+    await expect(runtime.share()).rejects.toThrow("DNS not ready");
+    expect(runtime.status()).toEqual({
+      hub: running ? "running" : "stopped",
+      sharing: "stopped",
+      portal_url: running ? `http://127.0.0.1:${port}` : null,
+    });
+    if (running) expect((await fetch(`http://127.0.0.1:${port}/health/live`)).ok).toBe(true);
+  }
+});

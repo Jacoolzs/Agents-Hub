@@ -112,4 +112,32 @@ export class LocalTunnel {
       }
     }
   }
+  async ready() {
+    const address = this.address;
+    const deadline = Date.now() + 90000;
+    while (address && this.address === address && Date.now() < deadline) {
+      try {
+        const response = await fetch(`${address}/health/live`, {
+          redirect: "error",
+          signal: AbortSignal.timeout(5000),
+        });
+        const payload: unknown = response.ok ? await response.json() : undefined;
+        if (
+          payload &&
+          typeof payload === "object" &&
+          "status" in payload &&
+          payload.status === "ok" &&
+          this.address === address
+        )
+          return;
+      } catch {
+        // DNS publication may lag behind transport registration. Never log a URL or secret here.
+      }
+      await sleep(1000);
+    }
+    throw new AppError(
+      "STATE_CONFLICT",
+      "No se pudo confirmar el acceso público. Comprueba Internet/DNS y vuelve a compartir; el Hub recuperará su estado anterior.",
+    );
+  }
 }

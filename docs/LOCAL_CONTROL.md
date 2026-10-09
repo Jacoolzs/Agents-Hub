@@ -16,7 +16,7 @@ Un bootstrap aleatorio abre la interfaz por fragmento, se elimina del historial 
 
 Personas muestra usuarios y metadatos de accesos, nunca secretos guardados; emisión muestra el token una vez y permite descartar/copiar. Usuario existente es conflicto accionable. Crear usuario y acceso, emitir/revocar y auditoría comparten transacción. UUID/TTL/entradas/salidas validados. Revocación revalida sockets activos inmediatamente si el Hub está ejecutándose.
 
-Hub y túnel tienen estado observado, operaciones serializadas y errores visibles. Detener/reiniciar conserva DB y panel. Sólo se controla el proceso propio, sin tomar un Hub existente ni matar procesos ajenos. Arranque sin compartir es local; compartir requiere acción explícita y transporte oficial/checksum existente. Cierre del compañero detiene hijos y cierra DB. Instalación y permanencia se completan en incrementos posteriores.
+Hub y túnel tienen estado observado, operaciones serializadas y errores visibles. Detener/reiniciar conserva DB y panel. Sólo se controla el proceso propio, sin tomar un Hub existente ni matar procesos ajenos. Arranque sin compartir es local; compartir requiere acción explícita y transporte oficial/checksum existente, conexión registrada y health público confirmado sin credenciales ni redirects. Propagación DNS puede retrasar la confirmación hasta 90 segundos; fallo restaura el estado anterior del Hub y cierra el túnel propio. Cierre del compañero detiene hijos y cierra DB. Instalación y permanencia se completan en incrementos posteriores.
 
 ## Diseño
 

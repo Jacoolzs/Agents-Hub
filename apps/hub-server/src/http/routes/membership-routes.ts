@@ -6,11 +6,13 @@ import {
 } from "@agents-hub/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppContext } from "../../app.js";
+import type { AuthContext } from "../auth/auth-service.js";
 
 export function registerMembershipRoutes(
   app: FastifyInstance,
   ctx: AppContext,
   user: (req: FastifyRequest, scope?: string) => string,
+  auth: (req: FastifyRequest) => AuthContext,
 ) {
   const params = (req: FastifyRequest) =>
     req.params as { projectId: string; invitationId: string; userId: string };
@@ -117,8 +119,7 @@ export function registerMembershipRoutes(
       request_id: reply.getHeader("x-request-id"),
     };
   });
-  const tokenProject = (req: FastifyRequest) =>
-    ctx.authService.verifyToken(req.headers.authorization?.slice(7).trim() ?? "").projectId;
+  const tokenProject = (req: FastifyRequest) => auth(req).projectId;
   app.get("/v1/tokens", async (req, reply) => {
     const actor = user(req);
     const project = tokenProject(req);

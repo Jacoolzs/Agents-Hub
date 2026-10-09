@@ -183,4 +183,15 @@ export const MIGRATIONS = [
     ALTER TABLE messages ADD COLUMN thread_id TEXT;
     CREATE INDEX idx_messages_thread ON messages(project_id, thread_id, created_at DESC, message_id DESC);`,
   },
+  {
+    version: 8,
+    sql: `CREATE TABLE web_entries (
+      entry_id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE,
+      user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL, created_at TEXT NOT NULL,
+      consumed_at TEXT, revoked_at TEXT
+    );
+    CREATE INDEX idx_web_entries_expiry ON web_entries(expires_at);`,
+  },
 ];

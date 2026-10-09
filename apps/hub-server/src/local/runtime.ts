@@ -8,6 +8,7 @@ export interface TunnelTransport {
   url(): string | null;
   start(): Promise<string>;
   stop(): Promise<void>;
+  ready?(): Promise<void>;
 }
 
 export class CompanionRuntime implements LocalRuntime {
@@ -75,13 +76,17 @@ export class CompanionRuntime implements LocalRuntime {
   async share() {
     if (this.tunnel.url() && this.hub) return;
     const wasRunning = !!this.hub;
+    let recomposed = false;
     try {
       await this.tunnel.start();
       // Recompose the transport with the exact public origin; persistent data/checkpoints remain.
       await this.stopHub();
+      recomposed = true;
       await this.start();
+      await this.tunnel.ready?.();
     } catch (error) {
       await this.tunnel.stop();
+      if (recomposed) await this.stopHub();
       if (wasRunning && !this.hub) await this.start();
       throw error;
     }
