@@ -15,6 +15,7 @@ export interface AuthSessionConfig {
   sessionId: string;
   agentId: string;
   userId: string;
+  browserUser?: string;
 }
 
 export type ConnectionStatus =

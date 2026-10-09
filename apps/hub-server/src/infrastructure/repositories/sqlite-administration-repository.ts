@@ -28,7 +28,7 @@ export class SqliteAdministrationRepository implements AdministrationRepository 
   accesses() {
     return this.db
       .prepare(
-        "SELECT token_id, subject, project_id, expires_at, created_at, revoked_at FROM auth_tokens ORDER BY created_at DESC",
+        "SELECT token_id, audience, subject, project_id, expires_at, created_at, revoked_at FROM auth_tokens ORDER BY created_at DESC",
       )
       .all() as LocalAccess[];
   }

@@ -13,6 +13,7 @@ import {
   InboxRecoverySchema,
   MessageHistoryPageSchema,
   MessageSchema,
+  WebSessionSchema,
   WorkspaceLockSchema,
 } from "@agents-hub/shared";
 import type { InboxResponse, TeamStatusData } from "../types/index.js";
@@ -58,9 +59,45 @@ async function handleResponse<T>(res: Response): Promise<T> {
 function makeHeaders(token: string): HeadersInit {
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     "x-request-id": crypto.randomUUID(),
   };
+}
+
+export async function webSession(action: "session" | "entry" | "entry/preview", secret?: string) {
+  const response = await fetch(`/v1/web/${action}`, {
+    method: action === "session" ? "GET" : "POST",
+    credentials: "same-origin",
+    redirect: "error",
+    cache: "no-store",
+    headers: makeHeaders(""),
+    ...(secret === undefined ? {} : { body: JSON.stringify({ secret }) }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (
+    action === "session" &&
+    response.ok &&
+    !response.headers.get("content-type")?.includes("application/json")
+  )
+    throw new ApiClientError(
+      "UNSUPPORTED_WEB_ACCESS",
+      "Este servidor no ofrece acceso humano. Usa la conexión manual.",
+      404,
+    );
+  return WebSessionSchema.parse(await handleResponse(response));
+}
+
+export async function webLogout() {
+  await handleResponse(
+    await fetch("/v1/web/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      redirect: "error",
+      headers: makeHeaders(""),
+      body: "{}",
+      signal: AbortSignal.timeout(10000),
+    }),
+  );
 }
 
 export async function heartbeatSession(

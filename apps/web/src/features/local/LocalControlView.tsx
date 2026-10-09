@@ -1,8 +1,12 @@
-import { LocalControlSnapshotSchema, LocalIssuedAccessSchema } from "@agents-hub/shared";
+import {
+  LocalControlSnapshotSchema,
+  LocalIssuedAccessSchema,
+  WebEntrySchema,
+} from "@agents-hub/shared";
 import React, { useEffect, useState } from "react";
 
 type Snapshot = ReturnType<typeof LocalControlSnapshotSchema.parse>;
-type Secret = { value: string; title: string; expires: string };
+type Secret = { value: string; title: string; expires: string; link?: boolean };
 
 async function request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(`/local-api/${path}`, {
@@ -44,6 +48,7 @@ export function LocalControlView() {
   const [projectName, setProjectName] = useState("");
   const [projectOwner, setProjectOwner] = useState("");
   const [selectedProject, setSelectedProject] = useState("");
+  const [webProject, setWebProject] = useState("");
   const [role, setRole] = useState("collaborator");
   const [secret, setSecret] = useState<Secret | null>(null);
   const [showSecret, setShowSecret] = useState(false);
@@ -225,8 +230,14 @@ export function LocalControlView() {
             {secret && (
               <section className="local-secret" aria-labelledby="secret-title">
                 <h2 id="secret-title">{secret.title}</h2>
-                <p>Guárdalo o compártelo por privado. Se muestra sólo al emitirlo.</p>
-                <label htmlFor="local-secret">Credencial emitida</label>
+                <p>
+                  {secret.link
+                    ? "Compártelo sólo con esa persona. Permite entrar sin copiar IDs ni tokens; no conecta su IA."
+                    : "Guárdalo o compártelo por privado. Se muestra sólo al emitirlo."}
+                </p>
+                <label htmlFor="local-secret">
+                  {secret.link ? "Enlace de entrada" : "Credencial emitida"}
+                </label>
                 <input
                   id="local-secret"
                   type={showSecret ? "text" : "password"}
@@ -249,10 +260,12 @@ export function LocalControlView() {
                     onClick={() =>
                       void navigator.clipboard
                         .writeText(secret.value)
-                        .then(() => setNotice("Credencial copiada."))
+                        .then(() =>
+                          setNotice(secret.link ? "Enlace copiado." : "Credencial copiada."),
+                        )
                         .catch(() =>
                           setError(
-                            "No se pudo copiar. Pulsa Mostrar y copia la credencial manualmente.",
+                            "No se pudo copiar. Pulsa Mostrar y copia el valor manualmente.",
                           ),
                         )
                     }
@@ -361,6 +374,67 @@ export function LocalControlView() {
                 </form>
               </div>
               <div className="local-section">
+                {user && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void act(async () => {
+                        const address = snapshot.runtime.portal_url;
+                        if (!address) throw new Error("Inicia el Hub antes de generar la entrada.");
+                        const result = WebEntrySchema.parse(
+                          await request(`users/${userId}/web-entry`, "POST", {
+                            project_id: webProject || snapshot.projects[0]?.project_id,
+                          }),
+                        );
+                        const url = new URL(address);
+                        url.hash = new URLSearchParams({ entry: result.secret }).toString();
+                        setSecret({
+                          value: url.toString(),
+                          title: `Entrada al portal de ${user.username}`,
+                          expires: result.expires_at,
+                          link: true,
+                        });
+                        setShowSecret(false);
+                      }, "Entrada creada. Vence en cinco minutos y se puede usar una sola vez.");
+                    }}
+                    className="local-web-entry"
+                  >
+                    <h2>Entrada al portal de {user.username}</h2>
+                    <p>
+                      Elige un proyecto al que ya pertenezca. Para una persona nueva, primero debe
+                      aceptar su invitación.
+                    </p>
+                    <label htmlFor="local-web-project">Proyecto para entrar</label>
+                    <select
+                      id="local-web-project"
+                      className={inputClass}
+                      value={webProject || snapshot.projects[0]?.project_id || ""}
+                      onChange={(e) => setWebProject(e.target.value)}
+                      required
+                    >
+                      <option value="" disabled>
+                        Primero crea un proyecto
+                      </option>
+                      {snapshot.projects.map((p) => (
+                        <option key={p.project_id} value={p.project_id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="field-hint">
+                      {snapshot.runtime.sharing === "running"
+                        ? "La entrada usa la dirección pública actual. Si cambia, genera otro enlace."
+                        : "Sólo este PC: comparte el Hub por Internet antes de crear un enlace para tu amigo."}
+                    </p>
+                    <button
+                      type="submit"
+                      className="local-primary"
+                      disabled={busy || !snapshot.runtime.portal_url || !snapshot.projects.length}
+                    >
+                      Crear entrada al portal
+                    </button>
+                  </form>
+                )}
                 <h2>{user ? `Accesos de ${user.username}` : "Accesos personales"}</h2>
                 <p>
                   Cada acceso puede vencer o revocarse. Los secretos anteriores no se pueden
@@ -409,6 +483,11 @@ export function LocalControlView() {
                       return (
                         <li key={access.token_id} className="local-access">
                           <div>
+                            <p>
+                              {access.audience === "agents-hub-browser"
+                                ? "Sesión del portal"
+                                : "Acceso de agente / personal"}
+                            </p>
                             <strong>
                               {access.revoked_at ? "Revocado" : active ? "Vigente" : "Vencido"}
                             </strong>

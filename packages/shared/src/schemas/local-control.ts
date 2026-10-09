@@ -9,6 +9,7 @@ export const LocalUserSchema = z.object({
 });
 export const LocalAccessSchema = z.object({
   token_id: UuidSchema,
+  audience: z.string().default("agents-hub"),
   subject: UuidSchema,
   project_id: UuidSchema.nullable(),
   expires_at: z.string(),

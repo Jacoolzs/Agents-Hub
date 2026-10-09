@@ -40,6 +40,77 @@
   margin: auto;
   padding: 32px;
 }
+.local-web-entry {
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.local-web-entry > p {
+  margin-top: 12px;
+  color: var(--muted);
+}
+.web-entry-layout {
+  min-height: 100dvh;
+}
+.web-entry-main {
+  max-width: 640px;
+  padding: 32px 24px;
+  margin: 0 auto;
+}
+.web-entry-main > [role="alert"],
+.web-entry-main > output {
+  display: block;
+  margin-bottom: 24px;
+}
+.web-entry-identity {
+  background: var(--surface);
+  border-left: 4px solid var(--action);
+  padding: 24px;
+}
+.web-entry-identity dl {
+  display: grid;
+  gap: 24px;
+}
+.web-entry-identity dt {
+  font-size: 14px;
+  color: var(--muted);
+}
+.web-entry-identity dd {
+  font-size: 20px;
+  font-weight: 600;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.web-entry-identity p {
+  line-height: 1.65;
+  margin: 24px 0;
+}
+.web-entry-identity .field-hint {
+  font-size: 14px;
+}
+.web-entry-warning {
+  color: var(--ink);
+  padding: 16px;
+  background: var(--canvas);
+}
+.web-entry-main button {
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.web-entry-main button:hover {
+  background: var(--canvas);
+}
+.web-entry-main .web-entry-primary {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--surface);
+}
+.web-entry-main button:disabled {
+  background: var(--line);
+  color: var(--muted);
+  border-color: var(--line);
+}
 .local-main h2 {
   font-size: 20px;
   font-weight: 600;

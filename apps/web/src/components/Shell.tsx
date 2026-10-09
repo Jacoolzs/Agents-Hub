@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useHub } from "../context/HubContext.js";
 import { Icon, type IconName } from "./Icon.js";
 import { RecoveryPanel } from "./RecoveryPanel.js";
+import { ErrorBanner } from "./States.js";
 
 interface ShellProps {
   children: {
@@ -57,7 +58,7 @@ function readSection(): Section {
 }
 
 export function Shell({ children }: ShellProps) {
-  const { auth, connectionStatus, disconnect } = useHub();
+  const { auth, connectionStatus, disconnect, loggingOut, logoutError } = useHub();
   const [activeTab, setActiveTab] = useState<Section>(readSection);
   const [visited, setVisited] = useState<Set<Section>>(() => new Set([readSection()]));
   useEffect(() => {
@@ -124,9 +125,14 @@ export function Shell({ children }: ShellProps) {
             Tu equipo, conectado.<small>Mensajes, contexto y archivos compartidos.</small>
           </p>
         </div>
-        <button type="button" className="disconnect-button" onClick={disconnect}>
+        <button
+          type="button"
+          className="disconnect-button"
+          disabled={loggingOut}
+          onClick={() => void disconnect()}
+        >
           <Icon name="logout" />
-          Desconectar
+          {loggingOut ? "Cerrando sesión…" : auth.browserUser ? "Cerrar sesión" : "Desconectar"}
         </button>
       </aside>
       <div className="workspace-body">
@@ -156,7 +162,7 @@ export function Shell({ children }: ShellProps) {
             </div>
             <span className="session-name">
               <Icon name="agents" />
-              <span>{auth.agentId}</span>
+              <span>{auth.browserUser ?? auth.agentId}</span>
             </span>
           </div>
         </header>
@@ -166,6 +172,7 @@ export function Shell({ children }: ShellProps) {
             <p>{current.description}</p>
           </div>
           <RecoveryPanel />
+          <ErrorBanner error={logoutError} />
           {sections.map(
             (section) =>
               visited.has(section.id) && (

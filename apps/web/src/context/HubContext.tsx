@@ -1,8 +1,8 @@
 import type { EventEnvelope } from "@agents-hub/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import type React from "react";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { disconnectSession, heartbeatSession } from "../lib/api.js";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { disconnectSession, heartbeatSession, webLogout } from "../lib/api.js";
 import { RealtimeManager } from "../lib/events.js";
 import type { AuthSessionConfig, ConnectionStatus } from "../types/index.js";
 
@@ -10,7 +10,9 @@ interface HubContextType {
   auth: AuthSessionConfig | null;
   connectionStatus: ConnectionStatus;
   connect: (config: AuthSessionConfig) => void;
-  disconnect: () => void;
+  disconnect: () => Promise<void>;
+  logoutError: unknown | null;
+  loggingOut: boolean;
   realtimeManager: RealtimeManager | null;
   events: EventEnvelope[];
   syncError: unknown | null;
@@ -26,20 +28,51 @@ export function HubProvider({ children }: { children: React.ReactNode }) {
   const realtimeRef = useRef<RealtimeManager | null>(null);
   const [events, setEvents] = useState<EventEnvelope[]>([]);
   const [syncError, setSyncError] = useState<unknown | null>(null);
+  const [logoutError, setLogoutError] = useState<unknown | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
   const pendingDisconnect = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
-  const connect = (config: AuthSessionConfig) => {
-    setAuth(config);
-  };
-
-  const disconnect = () => {
-    if (realtimeRef.current) {
-      realtimeRef.current.destroy();
+  const connect = useCallback(
+    (config: AuthSessionConfig) => {
+      realtimeRef.current?.destroy();
       realtimeRef.current = null;
+      queryClient.clear();
+      setEvents([]);
+      setSyncError(null);
+      setLogoutError(null);
+      setAuth(config);
+    },
+    [queryClient],
+  );
+
+  const disconnect = async () => {
+    if (loggingOut) return;
+    setLogoutError(null);
+    setLoggingOut(true);
+    try {
+      if (auth?.browserUser) {
+        await disconnectSession(
+          auth.baseUrl,
+          auth.token,
+          auth.sessionId,
+          auth.projectId,
+          auth.agentId,
+        ).catch(() => {});
+        await webLogout();
+      }
+      if (realtimeRef.current) {
+        realtimeRef.current.destroy();
+        realtimeRef.current = null;
+      }
+      setAuth(null);
+      setConnectionStatus("disconnected");
+      queryClient.clear();
+      setEvents([]);
+    } catch (error) {
+      setLogoutError(error);
+    } finally {
+      setLoggingOut(false);
     }
-    setAuth(null);
-    setConnectionStatus("disconnected");
-    queryClient.clear();
   };
 
   useEffect(() => {
@@ -160,6 +193,8 @@ export function HubProvider({ children }: { children: React.ReactNode }) {
         realtimeManager: realtimeRef.current,
         events,
         syncError,
+        logoutError,
+        loggingOut,
       }}
     >
       {children}
