@@ -35,6 +35,8 @@ Skills instaladas fuera del repositorio: `frontend-design` de `anthropics/skills
 
 ## Verificación observada
 
+Preparación inicial: dos datos obligatorios en un bloque de ancho legible, sin pedir credencial MCP; selección explícita de anfitrión existente si aplica. Tras preparar cambia a Proyectos e invitaciones, con foco en Iniciar Hub cuando queda habilitado. Skills orientan reducir pasos y etiquetar datos; el resultado de búsqueda Required Indicators se aplica sólo a indicar obligatoriedad, no se interpreta como evidencia de una recomendación de mínimo de campos. Reutiliza el sistema navy claro, sin fuentes/dependencias nuevas.
+
 Primera invitación ADR-024: formulario del panel existente con persona nueva/existente explícita, proyecto/permiso y duración progresiva; resultado oculto recibe foco, revocación pide confirmación y se conserva flujo legacy sólo como avanzado. Se aplicó recomendación verificada Forms/Submit Feedback de ui-ux-pro-max (carga → éxito/error), sin nueva dirección visual. Capturas reales escritorio/móvil375 y preview de persona nueva revisadas; sin scroll horizontal y teclado/reduced-motion comprobados en E2E. No se afirma auditoría WCAG completa.
 
 El acceso humano de ADR-023 reutiliza los mismos tokens visuales con un bloque de identidad/proyecto/permisos y una sola acción principal. No se adopta la landing FAQ ni la paleta oscura/verde de la búsqueda genérica del skill, porque esta pantalla confirma acceso, no vende ni documenta un producto. Cancelar conserva la identidad anterior; carga/error son visibles y la operación requiere consentimiento, incluyendo enlaces nuevos abiertos en la misma pestaña. Ver [recorrido y límites](WEB_ACCESS.md).

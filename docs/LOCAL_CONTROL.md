@@ -20,6 +20,12 @@ Hub y túnel tienen estado observado, operaciones serializadas y errores visible
 
 ## Diseño
 
+### Preparación inicial guiada
+
+Con la misma autoridad local privada, `POST /local-api/workspaces` recibe `{name, person}` (persona nueva con username o selección explícita de user_id existente). Reserva una identidad sin emitir acceso MCP, crea proyecto/owner, evento y auditoría en una transacción. Un nombre ocupado se rechaza sin reutilizar identidad; no hay registro público, contraseña, owner global ni arranque/túnel implícito. La salida sólo contiene metadata de usuario/proyecto. Se reutilizan puertos administrativos, ProjectService, SQLite y eventos; servicio de composición necesario para conservar atomicidad sin SQL nuevo en rutas/UI, sin dependencia externa/migración.
+
+Cuando no hay proyectos, el panel prioriza Tu nombre + Nombre del primer proyecto, o selección explícita de persona existente. Tras crear, pasa a Proyectos e invitaciones y enfoca Iniciar Hub para iniciar/compartir e invitar. El flujo anterior permanece para compatibilidad; no es el recorrido inicial recomendado. Preparación no conecta la IA ni crea contraseña. Aceptación: preparación desde cero en un formulario, cero tokens/MCP, nuevo/existente/nombre ocupado, rollback sin entidad/evento/auditoría parcial, frontera local y E2E teclado/móvil; no cierra distribución instalable ni elección de reentrada. En fallo de red, Actualizar estado antes de repetir: no se promete reintento idempotente de creación de proyectos.
+
 UI_DESIGN vigente: navy #14263d, canvas #f4f6fa, superficie #ffffff, tinta #172a41, secundario #52657b, acción #2555db; Bahnschrift/Segoe UI locales. Estado y acción de arranque arriba; Personas y Proyectos en secciones con listas/formularios cortos. Detalles técnicos y TTL avanzados desplegables. Sin métricas ficticias, navegación con foco y errores/credenciales explícitos; responsive y reduced motion.
 
 ## Aceptación

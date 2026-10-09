@@ -63,14 +63,21 @@ test("una persona nueva entra con un enlace y las invitaciones pendientes se pue
   request,
 }, info) => {
   await admin.goto(entry);
-  await admin.getByLabel("Nombre de usuario", { exact: true }).fill("invitation-host");
-  await admin.getByRole("button", { name: "Crear persona", exact: true }).click();
-  const personal = await admin.getByLabel("Credencial emitida").inputValue();
-  await admin.getByRole("button", { name: "Descartar de pantalla" }).click();
-  await admin.getByRole("button", { name: "Proyectos e invitaciones", exact: true }).click();
-  await admin.getByLabel("Nombre del proyecto").fill("Equipo sin comandos");
-  await admin.getByRole("button", { name: "Crear proyecto", exact: true }).click();
-  await expect(admin.getByRole("status")).toContainText("Proyecto creado");
+  await admin.getByLabel("Tu nombre para el equipo").fill("invitation-host");
+  await admin.getByLabel("Nombre del primer proyecto").fill("Equipo sin comandos");
+  await admin.screenshot({ path: info.outputPath("first-workspace-desktop.png"), fullPage: true });
+  await admin.setViewportSize({ width: 375, height: 812 });
+  await admin.emulateMedia({ reducedMotion: "reduce" });
+  expect(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await admin.screenshot({ path: info.outputPath("first-workspace-mobile.png"), fullPage: true });
+  await admin.getByRole("button", { name: "Preparar proyecto", exact: true }).focus();
+  await admin.keyboard.press("Enter");
+  await expect(admin.getByRole("status")).toContainText("Proyecto preparado");
+  await expect(admin.getByRole("button", { name: "Iniciar Hub", exact: true })).toBeFocused();
+  await expect(admin.getByRole("heading", { name: "Prepara tu primer proyecto" })).toHaveCount(0);
+  await expect(admin.getByLabel("Credencial emitida")).toHaveCount(0);
+  const initial = await (await admin.request.get(`${local}/local-api/snapshot`)).json();
+  expect(initial.accesses).toHaveLength(0);
   await expect(admin.getByRole("button", { name: "Crear invitación", exact: true })).toBeDisabled();
   await admin.getByRole("button", { name: "Iniciar Hub", exact: true }).click();
   await expect(admin.getByRole("status")).toContainText("Hub iniciado");
@@ -90,11 +97,27 @@ test("una persona nueva entra con un enlace y las invitaciones pendientes se pue
     snapshot.accesses.filter((a: { subject: string }) => a.subject === friend.user_id),
   ).toHaveLength(0);
   const project = snapshot.projects[0].project_id;
+  // Inspect membership using an independent human owner cookie, never an MCP token.
+  const owner = snapshot.users.find((u: { username: string }) => u.username === "invitation-host");
+  const ownerEntry = await (
+    await admin.request.post(`${local}/local-api/users/${owner.user_id}/web-entry`, {
+      headers: { origin: local },
+      data: { project_id: project },
+    })
+  ).json();
+  expect(
+    (
+      await request.post(`${portal}/v1/web/entry`, {
+        headers: { origin: portal },
+        data: { secret: ownerEntry.secret },
+      })
+    ).status(),
+  ).toBe(200);
   const members = async () =>
     (
       await (
         await request.get(`${portal}/v1/projects/${project}/members`, {
-          headers: { authorization: `Bearer ${personal}` },
+          headers: { origin: portal },
         })
       ).json()
     ).data;

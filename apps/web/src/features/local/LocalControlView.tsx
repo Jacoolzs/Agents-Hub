@@ -1,12 +1,14 @@
 import {
   LocalControlSnapshotSchema,
   LocalIssuedAccessSchema,
+  LocalWorkspaceSchema,
   WebEntrySchema,
   type WebInvitationMetadata,
   WebInvitationMetadataSchema,
 } from "@agents-hub/shared";
 import React, { useEffect, useRef, useState } from "react";
 import { LocalInvitationForm } from "./LocalInvitationForm";
+import { LocalWorkspaceForm } from "./LocalWorkspaceForm";
 
 type Snapshot = ReturnType<typeof LocalControlSnapshotSchema.parse>;
 type Secret = { value: string; title: string; expires: string; link?: boolean; entryId?: string };
@@ -69,6 +71,14 @@ export function LocalControlView() {
   }, [secret]);
   const [showSecret, setShowSecret] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const startButton = useRef<HTMLButtonElement>(null);
+  const [prepared, setPrepared] = useState(false);
+  useEffect(() => {
+    if (prepared && snapshot?.projects.length && !busy) {
+      startButton.current?.focus();
+      setPrepared(false);
+    }
+  }, [prepared, snapshot, busy]);
   const refresh = async () => {
     const { data, invites } = await loadSnapshot();
     setSnapshot(data);
@@ -174,6 +184,24 @@ export function LocalControlView() {
           </section>
         ) : (
           <>
+            {!snapshot.projects.length && (
+              <LocalWorkspaceForm
+                users={snapshot.users}
+                busy={busy}
+                onCreate={(input) =>
+                  void act(async () => {
+                    const workspace = LocalWorkspaceSchema.parse(
+                      await request("workspaces", "POST", input),
+                    );
+                    setSelectedUser(workspace.user.user_id);
+                    setProjectOwner(workspace.user.user_id);
+                    setSelectedProject(workspace.project.project_id);
+                    setTab("projects");
+                    setPrepared(true);
+                  }, "Proyecto preparado. Inicia el Hub; comparte por Internet para invitar a otro PC.")
+                }
+              />
+            )}
             <section className="local-runtime" aria-labelledby="runtime-title" aria-busy={busy}>
               <div>
                 <h2 id="runtime-title">Tu Hub</h2>
@@ -193,6 +221,7 @@ export function LocalControlView() {
                 <button
                   type="button"
                   className="local-primary"
+                  ref={startButton}
                   disabled={busy || snapshot.runtime.hub === "running"}
                   onClick={() =>
                     void act(async () => {
@@ -328,7 +357,10 @@ export function LocalControlView() {
               <div className="local-section">
                 <h2>Personas</h2>
                 {!snapshot.users.length && (
-                  <p>Crea tu identidad para comenzar. Después puedes añadir a tu equipo.</p>
+                  <p>
+                    Para empezar, prepara tu primer proyecto arriba. Este formulario conserva el
+                    flujo avanzado con acceso personal para agentes.
+                  </p>
                 )}
                 <ul className="local-list">
                   {snapshot.users.map((person) => (

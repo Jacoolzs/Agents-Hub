@@ -8,6 +8,7 @@ import {
 import fastify from "fastify";
 import type { AppContext } from "../app.js";
 import { AdministrationService } from "../application/services/administration-service.js";
+import { LocalWorkspaceService } from "../application/services/local-workspace-service.js";
 import { registerStaticRoutes } from "../http/routes/static-routes.js";
 import { SqliteAdministrationRepository } from "../infrastructure/repositories/sqlite-administration-repository.js";
 
@@ -135,6 +136,15 @@ export function buildLocalControl(
     runtime: runtime.status(),
   }));
   app.post("/local-api/users", async (req) => administrative().createUser(req.body, req.id));
+  app.post("/local-api/workspaces", async (req) => {
+    const ctx = runtime.context();
+    return new LocalWorkspaceService(
+      new SqliteAdministrationRepository(ctx.db),
+      ctx.eventBus,
+      ctx.projectService,
+      ctx.auditService,
+    ).create(req.body, req.id);
+  });
   app.post("/local-api/web-invitations", async (req) =>
     runtime.context().webAccessService.issueInvitation(req.body, req.id),
   );

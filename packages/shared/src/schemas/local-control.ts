@@ -37,6 +37,18 @@ export const LocalProjectInputSchema = z
     user_id: UuidSchema,
   })
   .strict();
+export const LocalWorkspaceInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    person: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("new"), username: LocalUserInputSchema.shape.username }).strict(),
+      z.object({ kind: z.literal("existing"), user_id: UuidSchema }).strict(),
+    ]),
+  })
+  .strict();
+export const LocalWorkspaceSchema = z
+  .object({ user: LocalUserSchema, project: ProjectSchema })
+  .strict();
 export const LocalBootstrapSchema = z
   .object({
     secret: z.string().regex(/^[A-Za-z0-9_-]{43}$/),

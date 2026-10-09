@@ -48,6 +48,142 @@ async function fixture(clock?: () => number) {
 }
 
 describe("local administrative boundary", () => {
+  it("creates a workspace with an explicit owner and no MCP token, only on the local listener", async () => {
+    const f = await fixture();
+    const input = { name: "First team", person: { kind: "new", username: "first-owner" } };
+    expect(
+      (
+        await f.control.app.inject({
+          method: "POST",
+          url: "/local-api/workspaces",
+          headers,
+          payload: input,
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (await f.hub.inject({ method: "POST", url: "/local-api/workspaces", payload: input }))
+        .statusCode,
+    ).toBe(404);
+    const auth = await f.connect();
+    expect(
+      (
+        await f.control.app.inject({
+          method: "POST",
+          url: "/local-api/workspaces",
+          headers: { ...auth, origin: "http://attacker.test" },
+          payload: input,
+        })
+      ).statusCode,
+    ).toBe(403);
+    const response = await f.control.app.inject({
+      method: "POST",
+      url: "/local-api/workspaces",
+      headers: auth,
+      payload: input,
+    });
+    expect(response.statusCode).toBe(200);
+    const { user, project } = response.json();
+    expect(user.username).toBe("first-owner");
+    expect(project.name).toBe("First team");
+    expect(f.hub.ctx.projectService.checkMembership(project.project_id, user.user_id).role).toBe(
+      "owner",
+    );
+    expect(f.hub.ctx.db.prepare("SELECT COUNT(*) n FROM auth_tokens").get()?.n).toBe(0);
+    expect(f.runtime.status().hub).toBe("stopped");
+    expect(
+      (
+        await f.control.app.inject({
+          method: "POST",
+          url: "/local-api/workspaces",
+          headers: auth,
+          payload: input,
+        })
+      ).statusCode,
+    ).toBe(409);
+    const existing = await f.control.app.inject({
+      method: "POST",
+      url: "/local-api/workspaces",
+      headers: auth,
+      payload: { name: "Second team", person: { kind: "existing", user_id: user.user_id } },
+    });
+    expect(existing.statusCode).toBe(200);
+    expect(existing.json().user.user_id).toBe(user.user_id);
+    expect(f.hub.ctx.db.prepare("SELECT COUNT(*) n FROM users").get()?.n).toBe(1);
+    expect(f.hub.ctx.db.prepare("SELECT COUNT(*) n FROM auth_tokens").get()?.n).toBe(0);
+  });
+
+  it("rolls back all workspace entities, auditing and events when composition fails", async () => {
+    const f = await fixture();
+    const auth = await f.connect();
+    const events: string[] = [];
+    const unsubscribe = f.hub.ctx.eventBus.subscribe((event) => events.push(event.type));
+    try {
+      f.hub.ctx.db.exec(
+        "CREATE TRIGGER fail_workspace BEFORE INSERT ON audit_entries WHEN NEW.action = 'workspace.create' BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+      );
+      const input = { name: "Rollback team", person: { kind: "new", username: "rollback-owner" } };
+      expect(
+        (
+          await f.control.app.inject({
+            method: "POST",
+            url: "/local-api/workspaces",
+            headers: auth,
+            payload: input,
+          })
+        ).statusCode,
+      ).toBe(500);
+      for (const table of [
+        "users",
+        "projects",
+        "memberships",
+        "auth_tokens",
+        "events",
+        "audit_entries",
+      ])
+        expect(f.hub.ctx.db.prepare(`SELECT COUNT(*) n FROM ${table}`).get()?.n).toBe(0);
+      expect(events).toEqual([]);
+      f.hub.ctx.db.exec("DROP TRIGGER fail_workspace;");
+      expect(
+        (
+          await f.control.app.inject({
+            method: "POST",
+            url: "/local-api/workspaces",
+            headers: auth,
+            payload: input,
+          })
+        ).statusCode,
+      ).toBe(200);
+      expect(events).toEqual(["project.created"]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("rejects invalid or implicit workspace identities without partial provisioning", async () => {
+    const f = await fixture();
+    const auth = await f.connect();
+    for (const input of [
+      { name: " ", person: { kind: "new", username: "good" } },
+      { name: "Team", person: { kind: "new", username: "bad name" } },
+      { name: "Team", person: { kind: "existing", user_id: crypto.randomUUID() } },
+      { name: "Team", person: { username: "good" } },
+      { name: "Team", person: { kind: "new", username: "good", user_id: crypto.randomUUID() } },
+    ]) {
+      expect(
+        (
+          await f.control.app.inject({
+            method: "POST",
+            url: "/local-api/workspaces",
+            headers: auth,
+            payload: input,
+          })
+        ).statusCode,
+      ).toBe(422);
+    }
+    expect(f.hub.ctx.db.prepare("SELECT COUNT(*) n FROM users").get()?.n).toBe(0);
+  });
+
   it("never exposes administrative routes on the public Hub or accepts project tokens as local authority", async () => {
     const { hub, control } = await fixture();
     const token = hub.ctx.authService.createToken(crypto.randomUUID(), "agents-hub");
