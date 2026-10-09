@@ -66,6 +66,8 @@ Estado de 10.4: 1bb95f6 publicado en feat/phase-10-message-history; CI 378623909
 
 ### Límites y pendientes globales
 
+Esta tarea no cambia el siguiente incremento: sólo deja documentado el flujo de uso multiusuario para el piloto. El estado operativo de referencia sigue siendo la rama `feat/phase-10-message-history`, HEAD `6977387`, limpia y alineada con su remoto; no se iniciaron procesos Hub/túnel ni se modificaron datos o credenciales.
+
 Siguiente tarea concreta cuando se solicite: 10.6. Revisar teclado/foco/semántica, reflow/zoom y estados vacíos/errores de permisos/red/cuota en los flujos actuales, conservando UI_DESIGN y ambas skills. Empezar por Shell, States y formularios/paneles web; usar Playwright y corregir problemas reproducidos sin ampliar a infraestructura. Criterio: todos los flujos centrales operables con teclado y móvil, errores distinguibles y regresiones actuales aprobadas. 10.6 no está iniciado; mejoras previas no equivalen a auditoría completa de accesibilidad.
 
 Piloto humano 7 con dos personas/productos/redes sigue sin evidencia; [clientes](docs/compatibility/clients.md) aún no elegidos/versionados. Harness stdio no lo sustituye. 8.6 validación completa de salidas/payloads pendiente. 9: guías concretas/distribución/credenciales y eventual sesión web persistente (ADR necesaria). 11: operación permanente, RPO/RTO/backups/releases/carga mixta según anfitrión. 12–14: tareas/entregas humanas, Git informativo y contexto/avisos sujetos a aceptación. 15 sólo investigaciones condicionadas.
@@ -818,3 +820,11 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
 - Corrección de `BITACORA.md` con ADR-001 a ADR-006.
 - Definición lean del stack (TypeScript monorepo, SQLite + WebSockets).
 - Plan de testeo inicial local.
+
+### [2026-10-08] — Guía operativa solicitada para uso con un amigo
+- Se revisó la documentación vigente (`README.md`, `docs/OPERATIONS.md`, `docs/MCP_SETUP.md` y `docs/DOCTOR.md`) junto con el estado real del repositorio para explicar el flujo de uso multiusuario.
+- Confirmado: el anfitrión ejecuta `pnpm share` en Windows x64 con Node 24/pnpm, conserva encendidos el PC y la terminal, y comparte por privado la URL temporal HTTPS, el ID del proyecto, una invitación de un solo uso y el token personal del amigo.
+- Confirmado: el amigo puede usar únicamente el dashboard desde el navegador; para conectar también un agente mediante MCP debe clonar/compilar el repositorio en su propia máquina y usar su propio token, proyecto y nombre de agente.
+- Confirmado: los mensajes se consumen con `check_inbox`/ACK o `wait_for_messages` durante una llamada activa; un agente completamente inactivo no se despierta solo. Los locks coordinan intención, pero no bloquean físicamente Git.
+- Evidencia de esta revisión: `git status --short --branch` limpio y `HEAD`/`origin/feat/phase-10-message-history` en `69773878b207f878595c43234a94b5152be56eeb`. No se iniciaron procesos Hub/túnel ni se modificaron datos, código o credenciales.
+- Próximo paso si se solicita implementación: no cambiar código por esta guía; para un piloto real seguir el README/OPERATIONS y registrar los dos clientes MCP concretos en `docs/compatibility/clients.md`.
