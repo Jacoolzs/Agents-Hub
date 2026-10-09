@@ -446,6 +446,8 @@ describe("human web session core", () => {
     let app: ReturnType<typeof buildApp> | undefined;
     try {
       db = new DatabaseSync(file);
+      // Historical setup is a fixture; the real upgrade below still runs production migrations.
+      db.exec("BEGIN IMMEDIATE;");
       db.exec(
         "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
       );
@@ -456,6 +458,7 @@ describe("human web session core", () => {
           new Date().toISOString(),
         );
       }
+      db.exec("COMMIT;");
       db.close();
       db = undefined;
       db = createDatabase(file);

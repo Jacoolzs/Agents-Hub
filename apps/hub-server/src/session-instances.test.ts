@@ -175,6 +175,8 @@ describe("Exclusive agent instances", () => {
     try {
       const legacy = new DatabaseSync(file);
       try {
+        // Build the historical fixture in one durable commit, not one fsync per DDL.
+        legacy.exec("BEGIN IMMEDIATE;");
         legacy.exec(
           "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
         );
@@ -198,6 +200,7 @@ describe("Exclusive agent instances", () => {
           )
           .run(oldId, project, owner, encodeCursor(4), now, now);
         legacy.prepare("INSERT INTO project_sequences VALUES (?, 4, 2)").run(project);
+        legacy.exec("COMMIT;");
         backupDatabase(legacy, backup);
       } finally {
         legacy.close();

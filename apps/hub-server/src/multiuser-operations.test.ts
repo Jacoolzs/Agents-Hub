@@ -190,6 +190,8 @@ describe("Multiuser and operational acceptance", () => {
     directories.push(directory);
     const file = path.join(directory, "legacy.sqlite");
     const db = new DatabaseSync(file);
+    // Commit the historical fixture once; exercise the real upgrade after reopening it.
+    db.exec("BEGIN IMMEDIATE;");
     db.exec(INITIAL_MIGRATION_SQL);
     const user = crypto.randomUUID();
     const project = crypto.randomUUID();
@@ -223,6 +225,7 @@ describe("Multiuser and operational acceptance", () => {
       1,
       "{}",
     );
+    db.exec("COMMIT;");
     db.close();
     const app = buildApp({ DATABASE_URL: file });
     apps.push(app);

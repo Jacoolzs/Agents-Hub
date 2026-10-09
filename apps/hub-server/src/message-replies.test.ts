@@ -258,6 +258,8 @@ describe("Authorized correlated replies", () => {
     let db: DatabaseSync | undefined;
     try {
       db = new DatabaseSync(file);
+      // Avoid a separate disk sync for each statement while constructing the legacy fixture.
+      db.exec("BEGIN IMMEDIATE;");
       db.exec(
         "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
       );
@@ -279,6 +281,7 @@ describe("Authorized correlated replies", () => {
       db.prepare(
         "INSERT INTO messages (message_id, project_id, sender_id, recipient_agent_ids, channel, body, priority, correlation_id, created_at) VALUES (?, ?, 'alice', '[]', 'general', 'Legacy', 'normal', 'not-a-message-uuid', ?)",
       ).run(id, project, date);
+      db.exec("COMMIT;");
       db.close();
       db = undefined;
       db = createDatabase(file);
