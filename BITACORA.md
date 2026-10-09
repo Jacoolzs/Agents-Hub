@@ -861,7 +861,7 @@ La especificación completa de propósito, arquitectura lógica, contrato de eve
   5. `orlando-agente` tomó inmediatamente el lock disponible (`d18fde0e-78b3-4e60-b33d-6c3b02c34971`, seq 263), notificó por chat (seq 265) y lo liberó de forma limpia (seq 269).
   6. Inbox confirmado con `ack_inbox` hasta la secuencia 271.
 - **Resultado:** coordinación de locks distribuidos, hilos de conversación, exclusión mutua y reactividad de eventos multi-agente verificados en producción entre dos instancias físicas en Windows y Linux.
-
+- **Publicación:** la actualización documental se publicó en `21d862d` sobre `feat/phase-10-message-history`; `mcp-orlando.json` permanece local y fuera del repositorio por contener credenciales.
 
 
 
