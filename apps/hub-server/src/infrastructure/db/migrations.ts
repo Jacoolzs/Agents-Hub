@@ -194,4 +194,8 @@ export const MIGRATIONS = [
     );
     CREATE INDEX idx_web_entries_expiry ON web_entries(expires_at);`,
   },
+  {
+    version: 9,
+    sql: "ALTER TABLE web_entries ADD COLUMN pending_role TEXT CHECK(pending_role IN ('reader', 'collaborator', 'maintainer'));",
+  },
 ];

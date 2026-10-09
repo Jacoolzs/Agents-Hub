@@ -135,6 +135,15 @@ export function buildLocalControl(
     runtime: runtime.status(),
   }));
   app.post("/local-api/users", async (req) => administrative().createUser(req.body, req.id));
+  app.post("/local-api/web-invitations", async (req) =>
+    runtime.context().webAccessService.issueInvitation(req.body, req.id),
+  );
+  app.get("/local-api/web-invitations", async () =>
+    runtime.context().webAccessService.listInvitations(),
+  );
+  app.delete<{ Params: { entryId: string } }>("/local-api/web-invitations/:entryId", async (req) =>
+    runtime.context().webAccessService.revokeInvitation(req.params.entryId, req.id),
+  );
   app.post<{ Params: { userId: string } }>("/local-api/users/:userId/accesses", async (req) =>
     administrative().issueAccess(req.params.userId, req.body, req.id),
   );

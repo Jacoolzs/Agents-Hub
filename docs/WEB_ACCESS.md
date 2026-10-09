@@ -1,6 +1,6 @@
 # Acceso humano al portal
 
-ADR-023 implementa el núcleo común y su interfaz para personas existentes. No cierra el onboarding: cuenta con contraseña vs enlaces sigue abierta y falta la invitación unificada para personas nuevas. No hay OAuth, correo, proveedor externo ni dependencia nueva.
+ADR-023 implementa el núcleo común y su interfaz para personas existentes. ADR-024 añade el backend de primera invitación ligada a persona/proyecto/rol, sin completar todavía su formulario gráfico. No cierra el onboarding: cuenta con contraseña vs enlaces sigue abierta. No hay OAuth, correo, proveedor externo ni dependencia nueva.
 
 ## Autoridad y credenciales
 
@@ -12,6 +12,16 @@ API con cookie exige Host que corresponda a un origen exacto configurado, Origin
 
 WebSocket conserva tickets efímeros de uso único ligados a sesión/agente/proyecto/token. Cookie sólo autentica la petición HTTP que emite ticket; no reemplaza el ticket del handshake. La revalidación acepta exclusivamente las dos audiencias propias, comprueba revocación/expiración/membresía y sigue cerrando sockets al retirar permisos. Logout revoca sólo la sesión humana actual, sin revocar credenciales MCP independientes.
 
+## Primera invitación unificada (backend implementado; UI pendiente)
+
+Autoridad exclusivamente local: `POST /local-api/web-invitations` recibe proyecto, rol reader/collaborator/maintainer, duración60–604800 segundos (default3600) y persona explícita: `{kind:"new", username}` o `{kind:"existing", user_id}`. Un nombre ocupado requiere seleccionar la persona existente; nunca se reutiliza automáticamente ni se abre registro público. La nueva identidad se reserva al emitir, sin contraseña ni token MCP; no obtiene membresía hasta confirmar el canje. Una persona ya miembro usa la entrada existente, sin cambiar su rol por invitación.
+
+Migración9 añade `pending_role` nullable a web_entries: null conserva entradas para miembros; valor identifica invitación ligada a persona/proyecto/rol. Preview muestra el permiso propuesto sin concederlo. Canje consume entrada, comprueba ausencia de membresía, crea membresía, registra evento/auditoría y emite cookie en la misma transacción. Si otro flujo añadió la membresía, se rechaza sin alterar permisos; rollback conserva la entrada sin consumir. No se admite owner ni transferencia implícita.
+
+`GET /local-api/web-invitations` lista metadata sin hashes/secretos, incluidos estados de consumo/revocación para control. `DELETE /local-api/web-invitations/:entryId` revoca sólo una invitación pendiente, sin retirar una membresía ya aceptada. Cancelar preview no consume. Expiración/revocación no borra la identidad reservada; puede seleccionarse explícitamente para otra invitación. El enlace conserva secreto de un uso en fragmento y depende del origen disponible. Cambiar túnel no convierte URL temporal en estable.
+
+Este contrato resuelve primera entrada, no elige cuentas/contraseñas para volver ni conecta la IA. Reutiliza SQLite, eventos y autoridad cookie, sin dependencia/servicio nuevo. Aceptación pendiente: formulario único, nuevo participante sin token/UUID/comandos, revocación, TTL, reuso, conflictos/carreras, rollback sin eventos fantasma, upgrade8/backup y E2E móvil.
+
 ## Contrato del núcleo
 
 - POST /local-api/users/:userId/web-entry `{project_id}`: autoridad local, persona/membresía existentes, respuesta `{entry_id, secret, expires_at}` de un uso; nunca en Hub público.
@@ -20,7 +30,7 @@ WebSocket conserva tickets efímeros de uso único ligados a sesión/agente/proy
 - GET /v1/web/session: metadata de sesión humana vigente; no acepta bearer personal como login humano.
 - POST /v1/web/logout: revoca sesión humana actual y limpia cookie; idempotente si no hay sesión/venció. No cambia membresía, locks ni ACK.
 
-El núcleo no abre registro público, no añade contraseñas y no instala/configura MCP. La invitación actual continúa exigiendo identidad provisionada hasta implementar el canje para personas nuevas.
+El núcleo no abre registro público, no añade contraseñas y no instala/configura MCP. La invitación legacy continúa exigiendo identidad provisionada y token personal; el nuevo canje web admite una identidad reservada desde administración local sin token MCP.
 
 ## Recorrido gráfico para miembros existentes
 
@@ -36,6 +46,6 @@ Al conectar una identidad nueva se destruye el transporte anterior y se limpian 
 
 ## Aceptación y actualización
 
-Pruebas reales de HTTP/SQLite para fronteras de audiencia, Origin/Host/Fetch-Site, TTL/reuso/carrera/revocación/rollback, aislamiento por proyecto y WS real; logout no afecta token MCP. Migración 8 aditiva y backup/reapertura de esquema 7, sin cambios a datos operativos. Antes de actualizar DB real crear backup; no prometer downgrade automático: restaurar copia anterior a ruta nueva para volver al código viejo.
+Pruebas reales de HTTP/SQLite para fronteras de audiencia, Origin/Host/Fetch-Site, TTL/reuso/carrera/revocación/rollback, aislamiento por proyecto y WS real; logout no afecta token MCP. Migración8 aditiva y backup/reapertura de esquema7; migración9 conserva entradas de esquema8 con rol pendiente null y permite backup/reapertura de invitaciones ligadas. Sin cambios a datos operativos. Antes de actualizar DB real crear backup; no prometer downgrade automático: restaurar copia anterior a ruta nueva para volver al código viejo.
 
 Gates: pnpm check, pnpm build, pnpm test:e2e y git diff --check. e2e/web-access.spec.ts comprueba panel real y entrada/cancelación/reuso/recarga/logout/fallo de logout, ausencia de bearer/storage, teclado y móvil. La aceptación de primera invitación/alta y elección de reentrada todavía requiere entrega y E2E posteriores; este flujo sólo cubre personas ya miembros.
