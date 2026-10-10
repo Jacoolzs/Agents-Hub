@@ -18,7 +18,7 @@ Los locks coordinan intención: no impiden editar archivos ni sincronizan Git. U
 
 ## Probar con un amigo desde tu PC
 
-En la rama de desarrollo `feat/easy-onboarding` existe un [panel local del anfitrión](docs/LOCAL_CONTROL.md): después de compilar, `pnpm companion` abre administración privada con botones para personas, accesos, proyectos e inicio/parada del Hub. No es todavía un instalador ni elimina el intercambio de token/invitación; la guía siguiente describe el flujo publicado anterior. No arrancar `pnpm share` y el compañero sobre la misma DB simultáneamente.
+En la rama de desarrollo `feat/easy-onboarding` existe un [panel local del anfitrión](docs/LOCAL_CONTROL.md): después de compilar, `pnpm companion` abre administración privada para preparar proyecto, invitar personas e iniciar/parar el Hub. El [portal humano](docs/WEB_ACCESS.md) usa una invitación, permite elegir contraseña y volver con usuario/contraseña; el anfitrión puede restablecer el acceso desde Personas. No exige token MCP para entrar al portal. Instalador sin Git/Node/pnpm y conexión IA guiada siguen pendientes; la guía siguiente conserva el flujo anterior de agentes. No arrancar `pnpm share` y el compañero sobre la misma DB simultáneamente.
 
 El anfitrión necesita **Windows x64, Node.js 24, pnpm y Git**. Ejecuta los comandos en **PowerShell**, desde la raíz del repositorio. CI utiliza pnpm 10; también se verificó localmente pnpm 12.10.1.
 

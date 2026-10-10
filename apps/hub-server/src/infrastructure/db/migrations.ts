@@ -198,4 +198,12 @@ export const MIGRATIONS = [
     version: 9,
     sql: "ALTER TABLE web_entries ADD COLUMN pending_role TEXT CHECK(pending_role IN ('reader', 'collaborator', 'maintainer'));",
   },
+  {
+    version: 10,
+    sql: `CREATE TABLE web_accounts (
+      user_id TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+      salt TEXT NOT NULL, password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );`,
+  },
 ];

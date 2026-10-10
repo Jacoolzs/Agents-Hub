@@ -71,6 +71,26 @@
   display: grid;
   gap: 24px;
 }
+.web-entry-identity label {
+  display: block;
+  font-weight: 600;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+.web-entry-identity input,
+.web-entry-identity select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 10px 12px;
+  font-size: 16px;
+}
+.web-account-fields {
+  margin: 24px 0;
+}
 .web-entry-identity dt {
   font-size: 14px;
   color: var(--muted);
@@ -94,9 +114,13 @@
   background: var(--canvas);
 }
 .web-entry-main button {
+  min-height: 44px;
   padding: 10px 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+.web-entry-identity input + button {
+  margin-top: 8px;
 }
 .web-entry-main button:hover {
   background: var(--canvas);

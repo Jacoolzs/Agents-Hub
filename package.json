@@ -16,7 +16,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=2 --minWorkers=1",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check": "pnpm lint && pnpm typecheck && pnpm test"

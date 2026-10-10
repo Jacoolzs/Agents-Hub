@@ -157,6 +157,7 @@ test("una persona nueva entra con un enlace y las invitaciones pendientes se pue
       path: info.outputPath("new-person-preview-mobile.png"),
       fullPage: true,
     });
+    await page.getByLabel("Elige tu contraseña").fill("Mi frase para volver al portal");
     await page.getByRole("button", { name: "Entrar al proyecto", exact: true }).focus();
     await page.keyboard.press("Enter");
     await expect(page.getByText("Conectado (WS)", { exact: true })).toBeVisible();
@@ -181,12 +182,58 @@ test("una persona nueva entra con un enlace y las invitaciones pendientes se pue
     const row = admin.getByRole("listitem").filter({ hasText: "new-friend" });
     await expect(row).toContainText("Aceptada");
     await page.getByRole("button", { name: "Cerrar sesión", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "Ingresar al Dashboard", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Vuelve a tu Hub", exact: true })).toBeVisible();
     expect(
       (await context.cookies(`${portal}/v1/`)).filter((c) => c.name === "ah_web"),
     ).toHaveLength(0);
+    await page.getByLabel("Usuario", { exact: true }).fill("new-friend");
+    await page.getByLabel("Contraseña", { exact: true }).fill("Una contraseña equivocada");
+    await page.getByRole("button", { name: "Entrar al portal", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Usuario o contraseña incorrectos");
+    await page.getByLabel("Contraseña", { exact: true }).fill("Mi frase para volver al portal");
+    await page.screenshot({ path: info.outputPath("account-login-mobile.png"), fullPage: true });
+    await page.getByRole("button", { name: "Entrar al portal", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("Conectado (WS)", { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("Conectado (WS)", { exact: true })).toBeVisible();
+    await admin.getByRole("button", { name: "Personas", exact: true }).click();
+    await admin
+      .getByRole("button", { name: "Gestionar accesos de new-friend", exact: true })
+      .click();
+    await admin.getByRole("button", { name: "Restablecer acceso al portal", exact: true }).click();
+    await admin.getByRole("button", { name: "Cancelar restablecimiento", exact: true }).click();
+    await admin.getByRole("button", { name: "Restablecer acceso al portal", exact: true }).click();
+    await admin.setViewportSize({ width: 375, height: 812 });
+    expect(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await admin.screenshot({ path: info.outputPath("account-reset-mobile.png"), fullPage: true });
+    await admin
+      .getByRole("button", { name: "Confirmar restablecimiento del portal", exact: true })
+      .click();
+    await expect(admin.getByRole("status")).toContainText("Acceso al portal restablecido");
+    expect((await page.request.get(`${portal}/v1/web/session`)).status()).toBe(401);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Vuelve a tu Hub" })).toBeVisible();
+    await page.getByLabel("Usuario", { exact: true }).fill("new-friend");
+    await page.getByLabel("Contraseña", { exact: true }).fill("Mi frase para volver al portal");
+    await page.getByRole("button", { name: "Entrar al portal", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Usuario o contraseña incorrectos");
+    await admin.getByRole("button", { name: "Crear entrada al portal", exact: true }).click();
+    await expect(admin.getByRole("status")).toContainText("Entrada creada");
+    const recovery = await admin.getByLabel("Enlace de entrada").inputValue();
+    await page.goto(recovery);
+    await page.getByLabel("Elige tu contraseña").fill("Mi nueva frase para el portal");
+    await page.getByRole("button", { name: "Entrar al proyecto", exact: true }).click();
+    await expect(page.getByText("Conectado (WS)", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Cerrar sesión", exact: true }).click();
+    await page.getByLabel("Usuario", { exact: true }).fill("new-friend");
+    await page.getByLabel("Contraseña", { exact: true }).fill("Mi nueva frase para el portal");
+    await page.getByRole("button", { name: "Entrar al portal", exact: true }).click();
+    await expect(page.getByText("Conectado (WS)", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Cerrar sesión", exact: true }).click();
+    await admin.getByRole("button", { name: "Proyectos e invitaciones", exact: true }).click();
     await admin.getByRole("button", { name: "Descartar de pantalla" }).click();
     await admin.getByLabel("Nombre de la persona nueva").fill("revoked-friend");
     await admin.getByRole("button", { name: "Crear invitación", exact: true }).click();

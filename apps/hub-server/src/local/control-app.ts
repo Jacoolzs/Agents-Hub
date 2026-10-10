@@ -160,6 +160,15 @@ export function buildLocalControl(
   app.post<{ Params: { userId: string } }>("/local-api/users/:userId/web-entry", async (req) =>
     runtime.context().webAccessService.issueEntry(req.params.userId, req.body, req.id),
   );
+  app.post<{ Params: { userId: string } }>(
+    "/local-api/users/:userId/reset-web-account",
+    async (req) => {
+      const ctx = runtime.context();
+      const result = ctx.webAccountService.reset(req.params.userId, req.id);
+      ctx.wsHub.revalidate();
+      return result;
+    },
+  );
   app.delete<{ Params: { tokenId: string } }>("/local-api/accesses/:tokenId", async (req) => {
     const result = administrative().revokeAccess(req.params.tokenId, req.id);
     runtime.context().wsHub.revalidate();

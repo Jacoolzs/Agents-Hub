@@ -4,6 +4,30 @@ import { UtcIsoDateSchema } from "../time.js";
 import { MembershipRoleSchema } from "./project.js";
 
 export const BROWSER_AUDIENCE = "agents-hub-browser";
+export const WebPasswordInputSchema = z
+  .object({
+    password: z
+      .string()
+      .max(256)
+      .refine((value) => {
+        const length = Array.from(value).length;
+        return length >= 15 && length <= 128;
+      }),
+  })
+  .strict();
+export const WebLoginInputSchema = z
+  .object({
+    username: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9._-]{1,80}$/),
+    password: z.string().min(1).max(256),
+    project_id: UuidSchema.optional(),
+  })
+  .strict();
+export const WebLoginProjectsSchema = z
+  .object({ projects: z.array(z.object({ project_id: UuidSchema, name: z.string() }).strict()) })
+  .strict();
 export const WebEntryInputSchema = z.object({ project_id: UuidSchema }).strict();
 export const WebInvitationRoleSchema = z.enum(["reader", "collaborator", "maintainer"]);
 export const WebInvitationInputSchema = z
@@ -51,6 +75,7 @@ export const WebEntrySchema = z
   .strict();
 export const WebSessionSchema = z
   .object({
+    account_registered: z.boolean().optional(),
     user: z.object({ user_id: UuidSchema, username: z.string().min(1) }).strict(),
     project: z
       .object({ project_id: UuidSchema, name: z.string().min(1), role: MembershipRoleSchema })

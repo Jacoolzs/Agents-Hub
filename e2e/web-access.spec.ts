@@ -110,6 +110,7 @@ test("entrada gráfica confirma identidad, reanuda por cookie y cierra sólo la 
       true,
     );
     await page.screenshot({ path: info.outputPath("entry-mobile.png"), fullPage: true });
+    await page.getByLabel("Elige tu contraseña").fill("Una frase segura para portal");
     await page.getByRole("button", { name: "Entrar al proyecto", exact: true }).focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("heading", { name: "Conversación del equipo" })).toBeVisible();
@@ -194,12 +195,12 @@ test("entrada gráfica confirma identidad, reanuda por cookie y cierra sólo la 
     await expect(page.getByRole("heading", { name: "Conversación del equipo" })).toBeVisible();
     await page.getByRole("button", { name: "Cerrar sesión", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Entra a tu proyecto" })).not.toBeVisible();
-    await expect(page.getByLabel("Token de acceso")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Vuelve a tu Hub" })).toBeVisible();
     expect(
       (await context.cookies(`${portal}/v1/`)).filter((c) => c.name === "ah_web"),
     ).toHaveLength(0);
     await page.reload();
-    await expect(page.getByLabel("Token de acceso")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Vuelve a tu Hub" })).toBeVisible();
     expect(
       (
         await request.get(`${portal}/v1/web/session`, {
@@ -276,6 +277,7 @@ test("entrada gráfica confirma identidad, reanuda por cookie y cierra sólo la 
       });
     });
     try {
+      await page.getByLabel("Elige tu contraseña").fill("Una frase segura para reader");
       await page.getByRole("button", { name: "Entrar al proyecto", exact: true }).click();
       await expect(page.getByText("Conectado (WS)", { exact: true })).toBeVisible();
       await page.getByTestId("tab-members").click();
@@ -297,7 +299,7 @@ test("entrada gráfica confirma identidad, reanuda por cookie y cierra sólo la 
     ).not.toBeVisible();
     await page.unroute(`${portal}/v1/projects/${project}/invitations`);
     await page.getByRole("button", { name: "Cerrar sesión", exact: true }).click();
-    await expect(page.getByLabel("Token de acceso")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Vuelve a tu Hub" })).toBeVisible();
   } finally {
     await context.close();
   }

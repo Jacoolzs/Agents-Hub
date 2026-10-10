@@ -1,6 +1,6 @@
 # Distribución del compañero: requisitos y evidencia inicial
 
-Parte pendiente del incremento3 autorizado. Este documento prepara trabajo común; no elige reentrada por contraseña/enlace, no cambia el orden de entrega y no declara un instalador implementado. No se añade dependencia ni framework desktop.
+Parte pendiente del incremento3 autorizado. Este documento prepara distribución, no declara un instalador implementado. Reentrada por cuenta con contraseña aceptada en ADR-025; su entrega se verifica antes de este incremento. No se añade dependencia ni framework desktop.
 
 ## Estado observado en el repositorio
 

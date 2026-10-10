@@ -26,6 +26,7 @@ import { ProjectService } from "./application/services/project-service.js";
 import { SessionService } from "./application/services/session-service.js";
 import { StatusService } from "./application/services/status-service.js";
 import { WebAccessService } from "./application/services/web-access-service.js";
+import { WebAccountService } from "./application/services/web-account-service.js";
 import { WsTicketService } from "./application/services/ws-ticket-service.js";
 import { type AuthContext, AuthService } from "./http/auth/auth-service.js";
 import { assertWebOrigin, webCookie } from "./http/auth/web-policy.js";
@@ -53,6 +54,12 @@ import {
   SqliteWebAccessRepository,
   SqliteWebSessionAuthority,
 } from "./infrastructure/repositories/sqlite-web-access-repository.js";
+import { SqliteWebAccountRepository } from "./infrastructure/repositories/sqlite-web-account-repository.js";
+import {
+  derivePassword,
+  equalPassword,
+  passwordSalt,
+} from "./infrastructure/security/passwords.js";
 import { RateLimiter } from "./infrastructure/security/rate-limiter.js";
 import { redactSecrets } from "./infrastructure/security/redactor.js";
 
@@ -72,6 +79,7 @@ export interface AppContext {
   membershipService: MembershipService;
   idempotencyService: IdempotencyService;
   webAccessService: WebAccessService;
+  webAccountService: WebAccountService;
 }
 
 export function buildApp(
@@ -103,6 +111,14 @@ export function buildApp(
     auditService,
   );
   const wsTicketService = new WsTicketService(new SqliteTicketRepository(db));
+  const webAccountService = new WebAccountService(
+    new SqliteWebAccountRepository(db),
+    eventBus,
+    new SqliteWebSessionAuthority(db),
+    webAccessService,
+    auditService,
+    { salt: passwordSalt, derive: derivePassword, equal: equalPassword },
+  );
   const membershipService = new MembershipService(
     new SqliteMembershipRepository(db),
     eventBus,
@@ -133,6 +149,7 @@ export function buildApp(
     membershipService,
     idempotencyService,
     webAccessService,
+    webAccountService,
   };
 
   const app = fastify({
@@ -142,6 +159,7 @@ export function buildApp(
         paths: [
           "req.headers.authorization",
           "req.headers.cookie",
+          "req.body.password",
           "token",
           "ticket",
           "AGENTS_HUB_TOKEN",
@@ -190,9 +208,12 @@ export function buildApp(
     // Apply rate limiting on non-health endpoints
     if (!req.url.startsWith("/health")) {
       let authIdentity: string | undefined;
-      const publicWebAction = ["/v1/web/entry", "/v1/web/entry/preview", "/v1/web/logout"].includes(
-        req.routeOptions.url ?? "",
-      );
+      const publicWebAction = [
+        "/v1/web/entry",
+        "/v1/web/entry/preview",
+        "/v1/web/logout",
+        "/v1/web/login",
+      ].includes(req.routeOptions.url ?? "");
       const cookieApi =
         req.routeOptions.url?.startsWith("/v1/") &&
         !publicWebAction &&

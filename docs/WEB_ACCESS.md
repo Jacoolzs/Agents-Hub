@@ -1,6 +1,16 @@
 # Acceso humano al portal
 
-ADR-023 implementa el núcleo común y su interfaz para personas existentes. ADR-024 añade primera invitación ligada a persona/proyecto/rol con formulario en el panel. No cierra todo el onboarding: cuenta con contraseña vs enlaces sigue abierta. No hay OAuth, correo, proveedor externo ni dependencia nueva.
+ADR-023 implementa el núcleo común y ADR-024 la primera invitación. El usuario acepta cuentas locales con contraseña el 2026-10-10 (ADR-025). No hay OAuth, correo, proveedor externo ni dependencia nueva. La entrega de cuentas está en implementación; no equivale a cerrar instalador/MCP/listener/operación.
+
+## Cuenta local y regreso al portal (ADR-025)
+
+Después de aceptar una entrada válida, `POST /v1/web/account {password}` permite establecer la primera contraseña con cookie humana vigente. No hay registro público ni selección de otra identidad; una cuenta existente no se sobrescribe desde otro enlace. `GET /v1/web/account` devuelve sólo si la cuenta actual tiene contraseña. Entrada de un uso sigue siendo alternativa de acceso autorizada por el anfitrión; no se elimina compatibilidad previa.
+
+`POST /v1/web/login {username,password,project_id?}` verifica contraseña antes de revelar proyectos. Si hay uno, inicia sesión; si hay varios, devuelve sólo su lista para elegir y repetir login con proyecto. Nunca emite sesión general ni acepta proyectos ajenos. Usuario inexistente, contraseña incorrecta y acceso retirado usan el mismo error. La UI conserva contraseña sólo durante el envío/selección, permite pegar/autocompletar y la borra al terminar/cancelar. Cookie, audiencias, scopes y logout de ADR-023 se conservan.
+
+Migración10 añade web_accounts sin cambiar usuarios, membresías ni tokens MCP. Hash scrypt versionado por este esquema, N=131072/r=8/p=1, sal aleatoria16bytes y salida64bytes; asíncrono, maxmem160MiB, una derivación concurrente por proceso sin cola ilimitada. Contraseñas15–128 puntos de código Unicode sin recorte/normalización ni reglas artificiales de símbolos; el límite de entrada256 unidades UTF-16 permite caracteres suplementarios sin truncarlos. IP15/min y cuenta5/5min antes de hashing; errores de saturación429 y reintento manual. Límites son por proceso y no sobreviven reinicio; no se afirma protección distribuida ni MFA/lista de contraseñas comprometidas. Referencias verificadas: [almacenamiento OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) y [autenticación OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html).
+
+Recuperación sólo desde administración privada: `POST /local-api/users/:userId/reset-web-account` elimina hash, revoca todas las cookies humanas de la persona y entradas pendientes, conserva membresías y MCP, todo con auditoría/transacción. Después emitir entrada nueva para un proyecto existente; usuario elige otra contraseña. No se muestra ni entrega contraseña al administrador. Revocación durante hashing impide alta/login por revalidación dentro de la transacción; rollback conserva estado previo. Revalidación WS existente invalida sockets/tickets asociados. Actualización requiere backup y no ofrece downgrade automático.
 
 ## Autoridad y credenciales
 
@@ -24,7 +34,7 @@ En **Proyectos e invitaciones**, usa **Invitar con un enlace**: persona nueva o 
 
 La lista muestra Pendiente/Aceptada/Revocada/Vencida y el permiso; **Actualizar estado** consulta cambios. Revocar pide confirmación y retira el enlace de pantalla si es el mismo. No se recupera el secreto desde la lista: para reemitir, revoca la pendiente y selecciona explícitamente la identidad existente. El formulario legacy continúa plegado como opción avanzada, no como recorrido principal.
 
-Este contrato resuelve primera entrada, no elige cuentas/contraseñas para volver ni conecta la IA. Reutiliza SQLite, eventos y autoridad cookie, sin dependencia/servicio nuevo. HTTP/DB cubre revocación, TTL, reuso, conflictos/carreras, rollback sin eventos fantasma y upgrade8/backup. E2E del formulario usa nuevo participante sin token/UUID/comandos, consentimiento, mensaje/recarga/logout, metadata y revocación, teclado/móvil y privacidad.
+Este contrato resuelve primera entrada; ADR-025 añade contraseña para volver, sin conectar la IA. Reutiliza SQLite, eventos y autoridad cookie, sin dependencia/servicio nuevo. HTTP/DB cubre revocación, TTL, reuso, conflictos/carreras, rollback sin eventos fantasma y upgrade8/backup. E2E del formulario usa nuevo participante sin token/UUID/comandos, consentimiento, mensaje/recarga/logout, metadata y revocación, teclado/móvil y privacidad.
 
 ## Contrato del núcleo
 
@@ -34,7 +44,7 @@ Este contrato resuelve primera entrada, no elige cuentas/contraseñas para volve
 - GET /v1/web/session: metadata de sesión humana vigente; no acepta bearer personal como login humano.
 - POST /v1/web/logout: revoca sesión humana actual y limpia cookie; idempotente si no hay sesión/venció. No cambia membresía, locks ni ACK.
 
-El núcleo no abre registro público, no añade contraseñas y no instala/configura MCP. La invitación legacy continúa exigiendo identidad provisionada y token personal; el nuevo canje web admite una identidad reservada desde administración local sin token MCP.
+El núcleo no abre registro público ni instala/configura MCP. Las cuentas se añaden mediante ADR-025, sin cambiar el canje atómico original. La invitación legacy continúa exigiendo identidad provisionada y token personal; el nuevo canje web admite una identidad reservada desde administración local sin token MCP.
 
 ## Recorrido gráfico para miembros existentes
 
@@ -46,10 +56,10 @@ Después del canje, todas las peticiones humanas usan cookie del mismo origen si
 
 Al conectar una identidad nueva se destruye el transporte anterior y se limpian eventos, errores y cache de consultas antes de renderizar la vista. No se reutilizan datos administrativos cargados por una persona anterior, incluso dentro del mismo proyecto y mientras se espera la respuesta nueva. Las autorizaciones del servidor siguen siendo la autoridad.
 
-**Cerrar sesión** desconecta la presencia de esta vista y revoca la cookie humana. Un fallo de logout se muestra y no limpia el estado como si hubiera tenido éxito; se puede reintentar o recargar con la cookie aún vigente. No se revocan los tokens personales MCP. Sin cookie/enlace, el formulario manual legacy sigue disponible mientras se completa el onboarding unificado; no es la experiencia final.
+**Cerrar sesión** desconecta la presencia de esta vista y revoca la cookie humana. Un fallo de logout se muestra y no limpia el estado como si hubiera tenido éxito; se puede reintentar o recargar con la cookie aún vigente. No se revocan los tokens personales MCP. Sin cookie/enlace, se ofrece usuario/contraseña; conexión manual queda plegada como avanzada. Si el servidor no soporta API humana, permanece el formulario legacy.
 
 ## Aceptación y actualización
 
 Pruebas reales de HTTP/SQLite para fronteras de audiencia, Origin/Host/Fetch-Site, TTL/reuso/carrera/revocación/rollback, aislamiento por proyecto y WS real; logout no afecta token MCP. Migración8 aditiva y backup/reapertura de esquema7; migración9 conserva entradas de esquema8 con rol pendiente null y permite backup/reapertura de invitaciones ligadas. Sin cambios a datos operativos. Antes de actualizar DB real crear backup; no prometer downgrade automático: restaurar copia anterior a ruta nueva para volver al código viejo.
 
-Gates: pnpm check, pnpm build, pnpm test:e2e y git diff --check. e2e/web-access.spec.ts comprueba panel real y entrada/cancelación/reuso/recarga/logout/fallo de logout, ausencia de bearer/storage, teclado y móvil. La aceptación de primera invitación/alta y elección de reentrada todavía requiere entrega y E2E posteriores; este flujo sólo cubre personas ya miembros.
+Gates: pnpm check, pnpm build, pnpm test:e2e y git diff --check. e2e/web-access.spec.ts comprueba panel real y entrada/cancelación/reuso/recarga/logout/fallo de logout, ausencia de bearer/storage, teclado y móvil. e2e/web-invitation.spec.ts incluye alta, vuelta con contraseña, recuperación local, rechazo de contraseña anterior y nueva entrada. HTTP/SQLite/crypto cubren migración9→10/backup/reopen, hash real, proyectos autorizados, límites y fencing/rollback. Ver bitácora para resultados observados de cada versión; no atribuir evidencia anterior a cambios posteriores.

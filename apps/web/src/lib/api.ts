@@ -13,6 +13,7 @@ import {
   InboxRecoverySchema,
   MessageHistoryPageSchema,
   MessageSchema,
+  WebLoginProjectsSchema,
   WebSessionSchema,
   WorkspaceLockSchema,
 } from "@agents-hub/shared";
@@ -98,6 +99,34 @@ export async function webLogout() {
       signal: AbortSignal.timeout(10000),
     }),
   );
+}
+export async function webAccount(password: string) {
+  await handleResponse(
+    await fetch("/v1/web/account", {
+      method: "POST",
+      credentials: "same-origin",
+      redirect: "error",
+      cache: "no-store",
+      headers: makeHeaders(""),
+      body: JSON.stringify({ password }),
+      signal: AbortSignal.timeout(15000),
+    }),
+  );
+}
+export async function webLogin(username: string, password: string, projectId?: string) {
+  const data = await handleResponse<unknown>(
+    await fetch("/v1/web/login", {
+      method: "POST",
+      credentials: "same-origin",
+      redirect: "error",
+      cache: "no-store",
+      headers: makeHeaders(""),
+      body: JSON.stringify({ username, password, ...(projectId ? { project_id: projectId } : {}) }),
+      signal: AbortSignal.timeout(15000),
+    }),
+  );
+  const projects = WebLoginProjectsSchema.safeParse(data);
+  return projects.success ? projects.data : WebSessionSchema.parse(data);
 }
 
 export async function heartbeatSession(

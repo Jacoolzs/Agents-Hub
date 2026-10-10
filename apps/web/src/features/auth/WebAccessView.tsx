@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 import { Icon } from "../../components/Icon.js";
 import { ErrorBanner } from "../../components/States.js";
 import { useHub } from "../../context/HubContext.js";
-import { ApiClientError, joinSession, webLogout, webSession } from "../../lib/api.js";
+import { ApiClientError, joinSession, webAccount, webLogout, webSession } from "../../lib/api.js";
 import type { AuthSessionConfig } from "../../types/index.js";
 import { ConnectView } from "./ConnectView.js";
+import { WebLoginForm } from "./WebLoginForm.js";
 
 // Remove the one-use proof before rendering or making any network request.
 let entrySecret: string | null = null;
@@ -44,13 +45,14 @@ async function currentSession() {
   try {
     return await webSession("session");
   } catch (error) {
-    if (error instanceof ApiClientError && [401, 404].includes(error.statusCode)) return null;
+    if (error instanceof ApiClientError && error.statusCode === 401) return null;
     throw error;
   }
 }
 type Initial =
   | { profile: WebSession; current: WebSession | null }
   | { config: AuthSessionConfig }
+  | { unsupported: true }
   | null;
 let initialization: Promise<Initial> | undefined;
 let initializationAttempt = 0;
@@ -72,8 +74,18 @@ function initialize(attempt: number) {
         current: await currentSession(),
       };
     }
-    const profile = await currentSession();
-    return profile ? { config: await openView(profile) } : null;
+    try {
+      const profile = await currentSession();
+      return profile
+        ? profile.account_registered === false
+          ? { profile, current: profile }
+          : { config: await openView(profile) }
+        : null;
+    } catch (error) {
+      if (error instanceof ApiClientError && error.statusCode === 404)
+        return { unsupported: true as const };
+      throw error;
+    }
   })().finally(() => {
     if (initialization === pending) {
       initialization = undefined;
@@ -89,6 +101,9 @@ export function WebAccessView({ onCancel }: { onCancel: () => void }) {
   const [profile, setProfile] = useState<WebSession | null>(null);
   const [current, setCurrent] = useState<WebSession | null>(null);
   const [legacy, setLegacy] = useState(false);
+  const [login, setLogin] = useState(false);
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
@@ -99,7 +114,8 @@ export function WebAccessView({ onCancel }: { onCancel: () => void }) {
     void initialize(attempt)
       .then((result) => {
         if (!active) return;
-        if (!result) setLegacy(true);
+        if (!result) setLogin(true);
+        else if ("unsupported" in result) setLegacy(true);
         else if ("config" in result) connect(result.config);
         else {
           setProfile(result.profile);
@@ -118,20 +134,33 @@ export function WebAccessView({ onCancel }: { onCancel: () => void }) {
   }, [attempt, connect]);
 
   if (legacy) return <ConnectView />;
+  if (login)
+    return <WebLoginForm onLogin={async (accepted) => connect(await openView(accepted))} />;
   const enter = async () => {
-    if (busy || !profile || !entrySecret) return;
+    if (busy || !profile) return;
     setBusy(true);
     setError(null);
     const proof = entrySecret;
     try {
-      if (current) {
+      if (current && proof) {
         await webLogout();
         setCurrent(null);
       }
-      const accepted = await webSession("entry", proof);
+      const accepted = proof ? await webSession("entry", proof) : profile;
       // A newer link opened during this request must still get its own confirmation.
       if (entrySecret !== proof) return;
       entrySecret = null;
+      setProfile(accepted);
+      if (accepted.account_registered === false) {
+        try {
+          await webAccount(password);
+        } catch (e) {
+          // Enrollment may have succeeded despite a lost response. Recheck without replaying the consumed link.
+          const refreshed = await webSession("session");
+          if (!refreshed.account_registered) throw e;
+        }
+      }
+      setPassword("");
       connect(await openView(accepted));
     } catch (e) {
       setError(e);
@@ -152,7 +181,13 @@ export function WebAccessView({ onCancel }: { onCancel: () => void }) {
       </header>
       <main className="web-entry-main" id="entry-main" aria-busy={busy} tabIndex={-1}>
         <div className="page-heading">
-          <h1>{profile ? "Entra a tu proyecto" : "Abriendo el portal"}</h1>
+          <h1>
+            {profile
+              ? entrySecret
+                ? "Entra a tu proyecto"
+                : "Prepara tu cuenta"
+              : "Abriendo el portal"}
+          </h1>
           <p>
             {profile
               ? "Confirma tu identidad antes de continuar."
@@ -185,21 +220,55 @@ export function WebAccessView({ onCancel }: { onCancel: () => void }) {
                 </dd>
               </div>
             </dl>
-            <p className="field-hint">
-              El enlace es de un solo uso y vence a las{" "}
-              {new Date(profile.expires_at).toLocaleTimeString()}. No lo compartas con otra persona.
-            </p>
-            {current && (
+            {entrySecret && (
+              <p className="field-hint">
+                El enlace es de un solo uso y vence a las{" "}
+                {new Date(profile.expires_at).toLocaleTimeString()}. No lo compartas con otra
+                persona.
+              </p>
+            )}
+            {current && entrySecret && (
               <p className="web-entry-warning">
                 Tienes una sesión como {current.user.username} en {current.project.name}. Al entrar,
                 esa sesión se cerrará en este navegador.
               </p>
             )}
+            {profile.account_registered === false && (
+              <div className="web-account-fields">
+                <label htmlFor="entry-password">Elige tu contraseña</label>
+                <input
+                  id="entry-password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  minLength={15}
+                  maxLength={256}
+                  value={password}
+                  aria-describedby="entry-password-hint"
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={busy}
+                />
+                <p id="entry-password-hint" className="field-hint">
+                  De 15 a 128 caracteres. Puedes usar una frase o tu gestor de contraseñas. Después
+                  volverás con tu usuario, sin pedir otra invitación.
+                </p>
+                <button
+                  type="button"
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                </button>
+              </div>
+            )}
             <div className="local-actions">
               <button
                 className="web-entry-primary"
                 type="button"
-                disabled={busy || !entrySecret}
+                disabled={
+                  busy ||
+                  (profile.account_registered === false &&
+                    (Array.from(password).length < 15 || Array.from(password).length > 128))
+                }
                 onClick={() => void enter()}
               >
                 Entrar al proyecto
@@ -209,6 +278,7 @@ export function WebAccessView({ onCancel }: { onCancel: () => void }) {
                 disabled={busy}
                 onClick={() => {
                   entrySecret = null;
+                  setPassword("");
                   setLegacy(true);
                   onCancel();
                 }}

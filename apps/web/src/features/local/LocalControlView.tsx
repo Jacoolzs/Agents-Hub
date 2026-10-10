@@ -71,6 +71,7 @@ export function LocalControlView() {
   }, [secret]);
   const [showSecret, setShowSecret] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [resettingAccount, setResettingAccount] = useState<string | null>(null);
   const startButton = useRef<HTMLButtonElement>(null);
   const [prepared, setPrepared] = useState(false);
   useEffect(() => {
@@ -372,6 +373,7 @@ export function LocalControlView() {
                         onClick={() => {
                           setSelectedUser(person.user_id);
                           setRevoking(null);
+                          setResettingAccount(null);
                         }}
                       >
                         Gestionar accesos de {person.username}
@@ -430,6 +432,54 @@ export function LocalControlView() {
                 </form>
               </div>
               <div className="local-section">
+                {user && (
+                  <section className="local-web-entry" aria-label="Recuperación del portal">
+                    <h3>Cuenta del portal de {user.username}</h3>
+                    <p>
+                      Si olvidó su contraseña, restablece su acceso y crea una entrada nueva abajo.
+                      Sus permisos y accesos de IA se conservan.
+                    </p>
+                    {resettingAccount === userId ? (
+                      <>
+                        <p className="web-entry-warning">
+                          Se cerrarán todas sus sesiones del portal y se invalidarán sus enlaces
+                          pendientes. La contraseña anterior dejará de funcionar.
+                        </p>
+                        <div className="local-actions">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              void act(async () => {
+                                await request(`users/${userId}/reset-web-account`, "POST", {});
+                                setResettingAccount(null);
+                                setSecret(null);
+                                setShowSecret(false);
+                              }, "Acceso al portal restablecido. Crea una entrada nueva para esta persona.")
+                            }
+                          >
+                            Confirmar restablecimiento del portal
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setResettingAccount(null)}
+                          >
+                            Cancelar restablecimiento
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setResettingAccount(userId)}
+                      >
+                        Restablecer acceso al portal
+                      </button>
+                    )}
+                  </section>
+                )}
                 {user && (
                   <form
                     onSubmit={(e) => {
