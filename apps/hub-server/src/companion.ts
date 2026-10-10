@@ -5,11 +5,13 @@ import { fileURLToPath } from "node:url";
 import { loadConfig } from "@agents-hub/config";
 import { createDatabase } from "./infrastructure/db/database.js";
 import { buildLocalControl } from "./local/control-app.js";
+import { companionPaths } from "./local/paths.js";
 import { CompanionRuntime } from "./local/runtime.js";
 import { LocalTunnel } from "./local/tunnel.js";
 
 async function main() {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
+  const paths = companionPaths(root, process.env);
   const controlPort = Number(process.env.LOCAL_CONTROL_PORT ?? 8791);
   if (!Number.isInteger(controlPort) || controlPort < 1024 || controlPort > 65535)
     throw new Error("LOCAL_CONTROL_PORT must be between 1024 and 65535");
@@ -17,13 +19,18 @@ async function main() {
     ...process.env,
     NODE_ENV: "production",
     HOST: "127.0.0.1",
-    WEB_STATIC_DIR: path.join(root, "apps/web/dist"),
+    WEB_STATIC_DIR: paths.web,
+    DATABASE_URL: paths.database,
   });
   if (config.PORT === controlPort) throw new Error("Hub and control ports must be different");
   if (!config.WEB_STATIC_DIR) throw new Error("Static UI is required");
   await access(path.join(config.WEB_STATIC_DIR, "index.html"));
   const db = createDatabase(config.DATABASE_URL);
-  const runtime = await CompanionRuntime.create(config, db, new LocalTunnel(root, config.PORT));
+  const runtime = await CompanionRuntime.create(
+    config,
+    db,
+    new LocalTunnel(paths.data, config.PORT),
+  );
   const { app, bootstrapUrl } = buildLocalControl(
     runtime,
     `http://127.0.0.1:${controlPort}`,

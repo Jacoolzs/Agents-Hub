@@ -7,7 +7,7 @@ Parte pendiente del incremento3 autorizado. Este documento prepara distribución
 - `pnpm companion` inicia `apps/hub-server/dist/companion.js`; requiere runtime, instalación del monorepo y compilación previos.
 - El launcher deriva root por posición de su módulo y exige `apps/web/dist/index.html`. Ese layout debe conservarse o sustituirse explícitamente, no adivinar rutas al empaquetar.
 - Hub/MCP importan paquetes privados `workspace:*`. Copiar sólo los archivos dist no produce una distribución autocontenida: faltan sus dependencias de ejecución y resolución de paquetes.
-- La DB predeterminada es `./data/agents-hub.sqlite`, relativa al directorio de trabajo. Un acceso directo con otro directorio puede abrir otra DB; una actualización de la carpeta instalada no debe perder datos.
+- Antes del corte de rutas, la DB predeterminada `./data/agents-hub.sqlite` dependía del cwd. El contrato al final de este documento corrige esa ambigüedad para el compañero; no cambia el launcher Hub/CLI histórico ni migra datos.
 - `scripts/mcp-config.mjs` deriva root y usa `process.execPath` más ruta absoluta al adaptador. Emite placeholder, no credencial real. El futuro asistente debe conservar exportación MCP genérica y separar credencial de configuración visible.
 - El panel tiene bootstrap de un uso y sesión en memoria. Reabrir después de logout/vencimiento actualmente requiere reiniciar el compañero; no hay reapertura de instancia propia por segundo lanzamiento.
 - Publicar por Internet actualmente depende del transporte Windows x64 y URL temporal. No certifica launcher limpio Linux ni operación permanente.
@@ -27,3 +27,12 @@ Parte pendiente del incremento3 autorizado. Este documento prepara distribución
 Primero fijar contrato de rutas instaladas/datos y lifecycle de reapertura, manteniendo autoridad ADR-022. Probar en carpeta efímera sin tocar DB del piloto. Después resolver artefacto autocontenido y prueba de ejecución fuera del checkout; finalmente conexión MCP guiada y adaptadores. Reutilizar companion/runtime/control-app, doctor, validación de URL y exportación existente. El listener común queda después y mantiene ADR-006: recibir no garantiza activar un LLM inactivo.
 
 Estrategia de empaquetado y almacén de credenciales siguen sin decidir. Esta inspección no permite afirmar distribución lista ni reemplazar los cinco incrementos por un launcher de desarrollo.
+
+## Contrato de rutas del compañero (primer corte de implementación)
+
+- `AGENTS_HUB_RESOURCE_DIR`, si existe, es un directorio absoluto con el layout actual de recursos (`apps/web/dist`). No se cambia todavía el formato del artefacto.
+- `AGENTS_HUB_DATA_DIR`, si existe, es absoluto y aloja `agents-hub.sqlite` y `.tools`. Un lanzamiento con recursos explícitos exige también datos explícitos: nunca escribir por defecto en una instalación.
+- En desarrollo sin esas opciones, se conserva la DB histórica `<checkout>/data/agents-hub.sqlite`, pero deja de depender del cwd. No migrar/copiar datos automáticamente ni elegir una carpeta de usuario todavía.
+- `DATABASE_URL` absoluto o `:memory:` conserva su semántica. Si es relativo, en desarrollo se resuelve contra el checkout (compatibilidad con `./data/...`); con datos explícitos se resuelve dentro de esa carpeta y se rechaza traversal que salga de ella.
+- Validar opciones antes de crear DB/procesos. El transporte descargable usa la carpeta de datos, no recursos instalados. Este corte no concede permisos privados a un almacén de credenciales, no implementa reapertura ni distribuye un runtime.
+- Aceptación: resolución independiente del cwd, espacios, rechazo de rutas ambiguas/traversal y recursos explícitos sin datos; lanzamiento compilado desde carpeta efímera, persistencia al reiniciar y recursos sin escrituras. Próximo corte: reapertura segura y artefacto autocontenido.
