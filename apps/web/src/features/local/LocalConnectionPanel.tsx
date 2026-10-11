@@ -1,4 +1,18 @@
+import { LocalConnectionReportSchema } from "@agents-hub/shared";
 import { useEffect, useRef, useState } from "react";
+
+type Report = ReturnType<typeof LocalConnectionReportSchema.parse>;
+const checkLabels: Record<string, string> = {
+  runtime: "Runtime",
+  build: "Adaptador",
+  connection: "Almacén seguro",
+  url: "Dirección del Hub",
+  readiness: "Disponibilidad",
+  compatibility: "Compatibilidad",
+  identity: "Credencial",
+  membership: "Proyecto",
+  listener: "Escucha de mensajes",
+};
 
 type Connection = {
   connection_id: string;
@@ -35,6 +49,7 @@ export function LocalConnectionPanel({
   const [connections, setConnections] = useState<Connection[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [reports, setReports] = useState<Record<string, Report>>({});
   const busy = processing || loading;
   const [selected, setSelected] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -192,6 +207,55 @@ export function LocalConnectionPanel({
                 <button type="button" disabled={busy} onClick={() => download(connection.config)}>
                   Descargar configuración MCP
                 </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      setReports((previous) => {
+                        const next = { ...previous };
+                        delete next[connection.connection_id];
+                        return next;
+                      });
+                      const result = LocalConnectionReportSchema.parse(
+                        await request("/diagnose", {
+                          connection_id: connection.connection_id,
+                        }),
+                      );
+                      setReports((previous) => ({
+                        ...previous,
+                        [connection.connection_id]: result,
+                      }));
+                    }, "Comprobación terminada. Revisa el resultado junto a tu conexión.")
+                  }
+                >
+                  Comprobar conexión
+                </button>
+                {reports[connection.connection_id] && (
+                  <section aria-label={`Diagnóstico de ${connection.label}`}>
+                    <output>
+                      {reports[connection.connection_id]?.ok
+                        ? "Comprobaciones de acceso correctas. La escucha aún no se ha comprobado."
+                        : "La conexión necesita atención. Sigue las indicaciones antes de usarla."}
+                    </output>
+                    <p>Resultado de esta comprobación puntual; no se actualiza automáticamente.</p>
+                    <ul>
+                      {reports[connection.connection_id]?.checks.map((check) => (
+                        <li key={check.name}>
+                          <strong>
+                            {checkLabels[check.name] ?? check.name}:{" "}
+                            {check.status === "ok"
+                              ? "Correcto"
+                              : check.status === "error"
+                                ? "Revisar"
+                                : "Sin comprobar"}
+                          </strong>
+                          <p>{check.hint}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
                 <details>
                   <summary>Referencia y compatibilidad</summary>
                   <p className="break-words">{connection.file}</p>

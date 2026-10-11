@@ -9,6 +9,24 @@ export const LocalConnectionStartInputSchema = DeviceRequestInputSchema.extend({
 export const LocalConnectionFinishInputSchema = z
   .object({ connection_id: UuidSchema, confirm: z.literal(true) })
   .strict();
+export const LocalConnectionDiagnoseInputSchema = z.object({ connection_id: UuidSchema }).strict();
+export const LocalConnectionReportSchema = z
+  .object({
+    ok: z.boolean(),
+    checks: z
+      .array(
+        z
+          .object({
+            name: z.string().max(40),
+            status: z.enum(["ok", "error", "skipped"]),
+            code: z.string().max(40),
+            hint: z.string().max(512),
+          })
+          .strict(),
+      )
+      .max(12),
+  })
+  .strict();
 export const LocalConnectionAttemptSchema = DeviceRequestSchema.omit({ device_secret: true })
   .extend(LocalConnectionStartInputSchema.shape)
   .strict();

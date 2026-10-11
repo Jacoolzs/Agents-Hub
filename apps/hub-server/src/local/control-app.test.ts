@@ -3,6 +3,7 @@ import { loadConfig } from "@agents-hub/config";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createDatabase } from "../infrastructure/db/database.js";
+import type { ConnectionAssistant } from "./connection-assistant.js";
 import { type LocalInstallation, type LocalRuntime, buildLocalControl } from "./control-app.js";
 import { CompanionRuntime } from "./runtime.js";
 
@@ -17,6 +18,7 @@ async function fixture(
   clock?: () => number,
   closeCompanion?: () => void,
   installation?: LocalInstallation,
+  connections?: Pick<ConnectionAssistant, "start" | "finish" | "list" | "diagnose">,
 ) {
   const hub = buildApp();
   await hub.ready();
@@ -35,6 +37,7 @@ async function fixture(
     clock,
     closeCompanion,
     installation,
+    connections,
   );
   cleanups.push(async () => {
     await control.app.close();
@@ -59,6 +62,64 @@ async function fixture(
 }
 
 describe("local administrative boundary", () => {
+  it("keeps passive connection checks private and serialized with runtime/shutdown", async () => {
+    let release: (() => void) | undefined;
+    let entered: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const connections = {
+      start: async () => {
+        throw new Error("Not used");
+      },
+      finish: async () => {
+        throw new Error("Not used");
+      },
+      list: async () => [],
+      diagnose: async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+          entered?.();
+        });
+        return { ok: true, checks: [] };
+      },
+    };
+    const f = await fixture(undefined, () => {}, undefined, connections);
+    const url = "/local-api/connections/diagnose";
+    const payload = { connection_id: crypto.randomUUID() };
+    expect((await f.hub.inject({ method: "POST", url, payload })).statusCode).toBe(404);
+    expect((await f.control.app.inject({ method: "POST", url, headers, payload })).statusCode).toBe(
+      401,
+    );
+    const authenticated = await f.connect();
+    for (const altered of [
+      { ...authenticated, origin: "https://foreign.example" },
+      { ...authenticated, host: "foreign.example" },
+    ])
+      expect(
+        (await f.control.app.inject({ method: "POST", url, headers: altered, payload })).statusCode,
+      ).toBe(403);
+    const pending = f.control.app
+      .inject({ method: "POST", url, headers: authenticated, payload })
+      .then((result) => result);
+    await started;
+    try {
+      for (const other of [url, "/local-api/runtime/stop", "/local-api/companion/shutdown"])
+        expect(
+          (
+            await f.control.app.inject({
+              method: "POST",
+              url: other,
+              headers: authenticated,
+              payload: { confirm: true },
+            })
+          ).statusCode,
+        ).toBe(409);
+    } finally {
+      release?.();
+    }
+    expect((await pending).json()).toEqual({ ok: true, checks: [] });
+  });
   it("requires private explicit installation and keeps runtime and shutdown serialized", async () => {
     let finish: (() => void) | undefined;
     let entered: (() => void) | undefined;

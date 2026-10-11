@@ -1,5 +1,11 @@
 # Diagnóstico de conexión
 
+Desde el compañero local, pulsa **Comprobar conexión** junto a una conexión guardada:
+referencia privada, almacén protegido, disponibilidad, credencial y proyecto, con pasos
+para resolver errores. No requiere escribir comandos. El resultado es puntual y **no
+certifica WebSocket/Origin ni que el cliente active la IA**; esas comprobaciones requieren
+una sesión real. Ver [contrato gráfico ADR-032](CONNECTION_DIAGNOSTICS.md).
+
 Ejecutar desde el repositorio con Node 24, después de instalar y compilar:
 
 ```powershell
@@ -10,7 +16,7 @@ pnpm doctor
 pnpm doctor --json
 ```
 
-El comando no crea proyectos, sesiones, tokens, mensajes ni locks y no confirma cursores. Comprueba runtime, presencia de artefactos locales, URL segura, readiness, compatibilidad, identidad y acceso al proyecto. Sólo emite GET; usa un timeout de cinco segundos por solicitud, valida TLS y rechaza redirecciones para evitar enviar el token a otro destino. La presencia de dist no demuestra que el build corresponda al código más reciente: compilar después de actualizar.
+El comando no crea proyectos, sesiones, tokens, mensajes ni locks y no confirma cursores. Comprueba runtime, presencia de artefactos locales, URL segura, readiness, compatibilidad, identidad y acceso al proyecto. Comparte las comprobaciones remotas con el panel. Sólo emite GET; usa un timeout de cinco segundos por solicitud y un máximo de 256 KiB por respuesta, valida TLS y rechaza redirecciones para evitar enviar el token a otro destino. La presencia de dist no demuestra que el build corresponda al código más reciente: compilar después de actualizar.
 
 Salida: comprobaciones `ok`, `error` o `skipped`, código y acción; JSON añade `ok` global. Exit code 0 si no hay errores, 1 si existe algún error. Si falta token o identidad válida, membresía se omite explícitamente. Un proyecto accesible acredita `projects:read` y membresía, no todos los scopes de escritura.
 

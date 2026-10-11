@@ -102,6 +102,29 @@ test("asistente gráfico revisa, guarda sin bearer, exporta y revoca", async ({
     await expect(page.getByRole("status")).toContainText("Conexión guardada");
     expect(values.size).toBe(1);
     const [token] = values.values();
+    const snapshot = () =>
+      Object.fromEntries(
+        [
+          "events",
+          "agent_sessions",
+          "messages",
+          "workspace_locks",
+          "ws_tickets",
+          "audit_entries",
+          "idempotency_records",
+        ].map((table) => [
+          table,
+          hub.ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()?.n,
+        ]),
+      );
+    const before = snapshot();
+    await page.getByRole("button", { name: "Comprobar conexión", exact: true }).click();
+    const diagnosis = page.getByRole("region", { name: "Diagnóstico de Mi equipo de prueba" });
+    await expect(diagnosis).toContainText("Comprobaciones de acceso correctas");
+    await expect(diagnosis).toContainText("Escucha de mensajes: Sin comprobar");
+    expect(await diagnosis.textContent()).not.toContain(token as string);
+    expect(snapshot()).toEqual(before);
+    await page.screenshot({ path: info.outputPath("diagnostics-desktop.png"), fullPage: true });
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Descargar configuración MCP" }).click();
     const config = await readFile((await (await download).path()) as string, "utf8");
@@ -130,6 +153,10 @@ test("asistente gráfico revisa, guarda sin bearer, exporta y revoca", async ({
         })
       ).status,
     ).toBe(401);
+    await page.getByRole("button", { name: "Comprobar conexión", exact: true }).click();
+    await expect(diagnosis).toContainText("La conexión necesita atención");
+    await expect(diagnosis).toContainText("Credencial: Revisar");
+    await expect(diagnosis).toContainText("inválida, vencida o revocada");
     await page.setViewportSize({ width: 375, height: 812 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,

@@ -60,6 +60,72 @@ const create = (directory: string, http = network(), store = vault()) =>
 
 describe("serialized connection writer", () => {
   it(
+    "diagnoses own references without writes, stops locally on unavailable/expired/invalid profiles",
+    async () =>
+      fixture(async (directory) => {
+        const http = network();
+        const store = vault();
+        const assistant = create(directory, http, store);
+        const start = await assistant.start({ hub_url: "https://hub.example", label: "Diagnosis" });
+        const saved = await assistant.finish({ connection_id: start.connection_id, confirm: true });
+        const before = await readFile(saved.file, "utf8");
+        const puts = store.put.mock.calls.length;
+        const removes = store.remove.mock.calls.length;
+        http.mockClear();
+        http.mockImplementation(async (url) => {
+          if (String(url).endsWith("/health/ready")) return reply({ status: "ready" });
+          if (String(url).endsWith("/capabilities"))
+            return reply({
+              api_version: "v1",
+              contract_revision: 1,
+              features: [
+                "exclusive_instances",
+                "cursor_recovery",
+                "explicit_ack",
+                "idempotent_commands",
+              ],
+            });
+          if (String(url).endsWith("/tokens")) return reply([]);
+          return reply({ project_id: projectId });
+        });
+        const report = await assistant.diagnose({ connection_id: start.connection_id });
+        expect(report.ok).toBe(true);
+        expect(report.checks.at(-1)).toMatchObject({ status: "skipped", code: "WS_NOT_CHECKED" });
+        expect(http).toHaveBeenCalledTimes(4);
+        expect(await readFile(saved.file, "utf8")).toBe(before);
+        expect(store.put).toHaveBeenCalledTimes(puts);
+        expect(store.remove).toHaveBeenCalledTimes(removes);
+        expect(JSON.stringify(report)).not.toContain(token);
+        http.mockClear();
+        store.get.mockRejectedValueOnce(new Error(token));
+        expect(
+          (await assistant.diagnose({ connection_id: start.connection_id })).checks.find(
+            (check) => check.name === "connection",
+          )?.code,
+        ).toBe("CREDENTIAL_UNAVAILABLE");
+        await writeFile(
+          saved.file,
+          JSON.stringify({ ...saved.profile, expires_at: "2000-01-01T00:00:00.000Z" }),
+        );
+        expect(
+          (await assistant.diagnose({ connection_id: start.connection_id })).checks.find(
+            (check) => check.name === "connection",
+          )?.code,
+        ).toBe("CONNECTION_EXPIRED");
+        expect(
+          (await assistant.diagnose({ connection_id: randomUUID() })).checks.find(
+            (check) => check.name === "connection",
+          )?.code,
+        ).toBe("CONNECTION_INVALID");
+        await expect(
+          assistant.diagnose({ connection_id: start.connection_id, file: saved.file }),
+        ).rejects.toThrow();
+        await expect(assistant.diagnose({ connection_id: "../foreign" })).rejects.toThrow();
+        expect(http).not.toHaveBeenCalled();
+      }),
+    30000,
+  );
+  it(
     "checks provider before network and publishes complete reference/config without secrets",
     async () =>
       fixture(async (directory) => {
@@ -256,6 +322,11 @@ describe("serialized connection writer", () => {
             confirm: true,
           });
           expect((await loadLocalConnection(result.file)).token).toBe(token);
+          const report = await assistant.diagnose({ connection_id: start.connection_id });
+          expect(report.checks.find((check) => check.name === "connection")?.code).toBe(
+            "LOCAL_CONNECTION_READY",
+          );
+          expect(JSON.stringify(report)).not.toContain(token);
         } finally {
           await new NativeSecretStore(path.join(directory, "credentials")).remove(
             start.connection_id,

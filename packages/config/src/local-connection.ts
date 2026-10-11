@@ -55,7 +55,7 @@ export class LocalConnectionError extends Error {
 }
 
 /** Read only: never repairs permissions, creates a profile or opens the Hub. */
-export async function loadLocalConnection(file: string) {
+export async function loadLocalConnection(file: string, store?: Pick<NativeSecretStore, "get">) {
   let profile: LocalConnection;
   let directory: string;
   try {
@@ -78,7 +78,9 @@ export async function loadLocalConnection(file: string) {
     throw new LocalConnectionError("CONNECTION_EXPIRED");
   let token: string | undefined;
   try {
-    token = await new NativeSecretStore(join(directory, "credentials")).get(profile.credential_id);
+    token = await (store ?? new NativeSecretStore(join(directory, "credentials"))).get(
+      profile.credential_id,
+    );
     if (!token || !/^ah_[A-Za-z0-9_-]{32}$/.test(token)) throw new Error("Not an MCP bearer");
   } catch {
     throw new LocalConnectionError("CREDENTIAL_UNAVAILABLE");

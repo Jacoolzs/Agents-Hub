@@ -1,4 +1,6 @@
 import { z } from "zod";
+export { diagnoseHubAccess } from "./connection-diagnostics.js";
+export type { ConnectionCheck, ConnectionReport } from "./connection-diagnostics.js";
 
 export { privateDirectory, verifyPrivatePath } from "./private-directory.js";
 export { NativeSecretStore } from "./secret-store.js";

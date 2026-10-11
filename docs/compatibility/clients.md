@@ -17,6 +17,24 @@ Estado: piloto humano parcial registrado el 2026-10-08; ambos participantes usar
 
 Fuentes oficiales consultadas: [MCP](https://www.antigravity.google/docs/mcp/), [referencia CLI](https://www.antigravity.google/docs/cli/reference/) y ayuda/changelog del binario instalado. [Sidecars](https://www.antigravity.google/docs/sidecars/) declara disponibilidad en Antigravity 2.0; no extrapolar al CLI. No se iniciaron turnos de IA ni se cambiaron configuración, credenciales o sesiones del usuario.
 
+## Revalidación de sólo lectura — 2026-10-11
+
+`agy --version` ahora devuelve **1.3.3**; no atribuir 1.3.2 al estado actual ni
+inferir la versión del amigo. `agy mcp add --help` mantiene stdio/HTTP y `--env`
+repetible antes del nombre; declara **add or update**, por lo que no garantiza
+preservar una entrada existente. No se ejecutó add/list/remove ni se abrió ninguna
+configuración privada. La ayuda global/add inspeccionada no anuncia selección de
+perfil/configuración; esto no demuestra que no exista una vía de aislamiento.
+
+La [documentación oficial MCP](https://www.antigravity.google/docs/mcp/), comprobada
+en esta fecha, describe `/mcp` y los archivos global `~/.gemini/config/mcp_config.json`
+y de workspace `.agents/mcp_config.json`. Son rutas documentadas, **no comprobadas
+en perfiles reales ni autorización para escribirlas**. La exportación genérica usa
+`mcpServers`, `command`, `args` y `env`; aún falta probar importación/preservación
+en un perfil TEMP y versiones concretas antes de ofrecer el botón automático.
+No se ha demostrado suscripción a recursos ni despertar por notificaciones MCP
+en este CLI. La ayuda stream-json tampoco prueba esa integración.
+
 Registrar la versión realmente usada, fecha, commit de Hub/adaptador y documentación oficial consultada al configurar cada cliente. No copiar tokens, variables de entorno completas ni prompts privados.
 
 El adaptador usa Node 24, MCP SDK v1, stdin/stdout para JSON-RPC y stderr para diagnóstico. Cada proceso simultáneo necesita un nombre de agente distinto; [ADR-021](../SESSIONS.md) rechaza colisiones, permite reintentos de la misma instancia y conserva checkpoint al rotar la generación tras desconexión. Un agente inactivo no se despierta automáticamente: registrar cuándo la persona tuvo que pedir una consulta del inbox (ADR-006).

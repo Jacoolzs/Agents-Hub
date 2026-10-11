@@ -41,7 +41,7 @@ export function buildLocalControl(
   now = Date.now,
   closeCompanion?: () => void,
   installation?: LocalInstallation,
-  connections?: Pick<ConnectionAssistant, "start" | "finish" | "list">,
+  connections?: Pick<ConnectionAssistant, "start" | "finish" | "list" | "diagnose">,
 ) {
   const parsedOrigin = new URL(origin);
   if (
@@ -181,7 +181,7 @@ export function buildLocalControl(
     runtime: runtime.status(),
   }));
   app.get("/local-api/connections", async () => (connections ? await connections.list() : []));
-  for (const operation of ["start", "finish"] as const)
+  for (const operation of ["start", "finish", "diagnose"] as const)
     app.post(`/local-api/connections/${operation}`, async (req) => {
       if (!connections || changingRuntime)
         throw new AppError("STATE_CONFLICT", "Espera a que termine la operación del compañero.");

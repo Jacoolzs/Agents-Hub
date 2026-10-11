@@ -4,6 +4,8 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
   LocalConnectionSchema,
   NativeSecretStore,
+  diagnoseHubAccess,
+  loadLocalConnection,
   parseConnectionHubUrl,
   privateDirectory,
   verifyPrivatePath,
@@ -13,7 +15,9 @@ import {
   DeviceCredentialSchema,
   DeviceRequestSchema,
   LocalConnectionAttemptSchema,
+  LocalConnectionDiagnoseInputSchema,
   LocalConnectionFinishInputSchema,
+  LocalConnectionReportSchema,
   LocalConnectionStartInputSchema,
 } from "@agents-hub/shared";
 
@@ -233,6 +237,78 @@ export class ConnectionAssistant {
         },
       },
     };
+  }
+  async diagnose(input: unknown) {
+    const parsed = LocalConnectionDiagnoseInputSchema.safeParse(input);
+    if (!parsed.success)
+      throw new AppError("INVALID_INPUT", "Selecciona una conexión guardada en este PC.");
+    return this.exclusive(async () => {
+      const checks: {
+        name: string;
+        status: "ok" | "error" | "skipped";
+        code: string;
+        hint: string;
+      }[] = [];
+      checks.push({
+        name: "runtime",
+        status: process.versions.node.split(".")[0] === "24" ? "ok" : "error",
+        code: process.versions.node.split(".")[0] === "24" ? "NODE_24" : "UNSUPPORTED_RUNTIME",
+        hint: "Usa el paquete con Node 24 incluido o ejecuta el adaptador con Node 24.",
+      });
+      let built = false;
+      try {
+        built = (await lstat(this.mcpScript)).isFile();
+      } catch {}
+      checks.push({
+        name: "build",
+        status: built ? "ok" : "error",
+        code: built ? "BUILD_READY" : "BUILD_MISSING",
+        hint: built
+          ? "Adaptador local disponible; no garantiza que esté actualizado."
+          : "Reinstala un paquete completo o compila el adaptador antes de conectarlo.",
+      });
+      try {
+        const id = parsed.data.connection_id;
+        this.attempt(id); // canonical lowercase UUID, never accepts a caller-supplied path
+        const connection = await loadLocalConnection(
+          join(this.directory, `${id}.json`),
+          this.vault,
+        );
+        checks.push({
+          name: "connection",
+          status: "ok",
+          code: "LOCAL_CONNECTION_READY",
+          hint: "Referencia privada y credencial nativa disponibles.",
+        });
+        checks.push(...(await diagnoseHubAccess(connection, this.network)).checks);
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        checks.push({
+          name: "connection",
+          status: "error",
+          code:
+            code === "CONNECTION_EXPIRED" || code === "CREDENTIAL_UNAVAILABLE"
+              ? code
+              : "CONNECTION_INVALID",
+          hint:
+            code === "CONNECTION_EXPIRED"
+              ? "La conexión venció. Revoca el dispositivo en el portal y prepara una conexión nueva."
+              : code === "CREDENTIAL_UNAVAILABLE"
+                ? "Desbloquea el almacén del sistema. En Linux necesitas Secret Service disponible; no se guardará en claro. Si perdiste la credencial, revoca y empareja de nuevo."
+                : "La referencia falta o no es privada/válida. No repararemos archivos: revisa la instalación o revoca y empareja de nuevo.",
+        });
+      }
+      checks.push({
+        name: "listener",
+        status: "skipped",
+        code: "WS_NOT_CHECKED",
+        hint: "Escucha y Origin sin comprobar: esta revisión no crea sesiones ni tickets. Conecta tu cliente MCP y verifica recepción; que la IA reaccione depende del cliente.",
+      });
+      return LocalConnectionReportSchema.parse({
+        ok: checks.every((check) => check.status !== "error"),
+        checks,
+      });
+    });
   }
   async list() {
     return this.exclusive(async () => {
