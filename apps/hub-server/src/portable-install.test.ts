@@ -66,21 +66,23 @@ describe("versioned per-user installation", () => {
       fixture(async (source, _base, data) => {
         let profileParent = path.dirname(data);
         if (process.platform === "win32") {
+          const aliasProbe = path.join(profileParent, "short-path-probe.js");
+          await writeFile(
+            aliasProbe,
+            'WScript.StdOut.WriteLine(new ActiveXObject("Scripting.FileSystemObject").GetFolder(WScript.Arguments.Item(0)).ShortPath);',
+          );
           const alias = await promisify(execFile)(
-            "powershell.exe",
-            [
-              "-NoProfile",
-              "-NonInteractive",
-              "-Command",
-              "(New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:AH_TEST_PARENT).ShortPath",
-            ],
+            "cscript.exe",
+            ["//nologo", "//E:JScript", "//U", aliasProbe, profileParent],
             {
-              env: { ...process.env, AH_TEST_PARENT: profileParent },
+              encoding: "utf16le",
               windowsHide: true,
               timeout: 10000,
             },
           );
           profileParent = alias.stdout.trim();
+          expect(profileParent).not.toBe("");
+          await access(profileParent);
         }
         const profile = path.join(profileParent, "profile & spaces");
         const env = {
