@@ -99,7 +99,7 @@ export const ChangeMemberInputSchema = z.object({ role: MembershipRoleSchema }).
 export const EmptyInputSchema = z.object({}).strict();
 
 export function containsObviousSecret(value: string): boolean {
-  return /\b(?:ah_|wst_|ahi_|ahb_|ahd_|sk-)[A-Za-z0-9_-]{8,}|Bearer\s+\S+|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i.test(
+  return /\b(?:ah_|wst_|ahi_|ahb_|ahd_|ahp_|sk-)[A-Za-z0-9_-]{8,}|Bearer\s+\S+|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i.test(
     value,
   );
 }

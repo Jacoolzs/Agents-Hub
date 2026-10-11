@@ -1,8 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { HubClient } from "./client/hub-client.js";
 import { createMcpServer } from "./server.js";
+import { safeError } from "./tools/response.js";
 
 describe("MCP Server Tools & Protocol (Phase 4)", () => {
+  it("redacts human entry, device and approval proofs in tool errors", () => {
+    for (const secret of [
+      "ahb_PRIVATE_HUMAN_ENTRY",
+      "ahd_PRIVATE_DEVICE_SECRET",
+      "ahp_PRIVATE_APPROVAL_PROOF",
+    ]) {
+      expect(safeError(new Error(`Failure ${secret}`))).not.toContain(secret);
+    }
+  });
   let fakeHub: {
     calls: Array<{ method: string; url: string; body?: unknown }>;
     mockResponses: Record<string, unknown>;

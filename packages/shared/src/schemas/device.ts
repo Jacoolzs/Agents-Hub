@@ -28,8 +28,14 @@ export const DeviceRequestSchema = z
   })
   .strict();
 export const DevicePreviewInputSchema = z.object({ request_id: UuidSchema }).strict();
+export const DeviceApprovalSchema = z
+  .object({
+    proof: z.string().regex(/^ahp_[A-Za-z0-9_-]{43}$/),
+    expires_at: UtcIsoDateSchema,
+  })
+  .strict();
 export const DeviceApproveInputSchema = z
-  .object({ request_id: UuidSchema, confirm: z.literal(true) })
+  .object({ request_id: UuidSchema, confirm: z.literal(true), approval: DeviceApprovalSchema })
   .strict();
 export const DeviceExchangeInputSchema = z.object({ device_secret: DeviceSecretSchema }).strict();
 export const DeviceConfirmInputSchema = z.object({ confirm: z.literal(true) }).strict();
@@ -57,6 +63,7 @@ export const DevicePreviewSchema = z
     label: z.string(),
     expires_at: UtcIsoDateSchema,
     profile: WebSessionSchema,
+    approval: DeviceApprovalSchema,
   })
   .strict();
 export type DeviceMetadata = z.infer<typeof DeviceMetadataSchema>;

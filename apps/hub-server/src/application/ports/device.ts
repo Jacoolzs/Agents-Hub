@@ -1,4 +1,5 @@
 import type { DeviceMetadata } from "@agents-hub/shared";
+import type { WebIdentity } from "./web-access.js";
 
 export interface DeviceRequestRecord {
   request_id: string;
@@ -18,6 +19,7 @@ export interface DeviceRepository {
   revoke(tokenId: string, userId: string, projectId: string, now: string): boolean;
 }
 export interface DeviceAuthority {
+  humanSessionActive(identity: WebIdentity, now: string): boolean;
   checkProjectPermission(userId: string, projectId: string): unknown;
   issue(
     userId: string,

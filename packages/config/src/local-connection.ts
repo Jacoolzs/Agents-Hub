@@ -7,7 +7,7 @@ import { NativeSecretStore } from "./secret-store.js";
 const uuid = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-const obviousSecret = /(?:ah_|ahb_|ahd_|ahi_|wst_|sk-)[A-Za-z0-9_-]{8,}|Bearer\s+\S+/i;
+const obviousSecret = /(?:ah_|ahb_|ahd_|ahp_|ahi_|wst_|sk-)[A-Za-z0-9_-]{8,}|Bearer\s+\S+/i;
 
 export function parseConnectionHubUrl(value: string) {
   const url = new URL(value);

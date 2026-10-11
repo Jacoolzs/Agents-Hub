@@ -5,9 +5,14 @@ import { DatabaseSync } from "node:sqlite";
 import { DeviceCredentialSchema, containsObviousSecret } from "@agents-hub/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
+import { DeviceService } from "./application/services/device-service.js";
 import { backupDatabase } from "./infrastructure/db/backup.js";
 import { createDatabase } from "./infrastructure/db/database.js";
 import { MIGRATIONS } from "./infrastructure/db/migrations.js";
+import {
+  SqliteDeviceAuthority,
+  SqliteDeviceRepository,
+} from "./infrastructure/repositories/sqlite-device-repository.js";
 import { redactSecrets } from "./infrastructure/security/redactor.js";
 
 const origin = "http://127.0.0.1:8795";
@@ -42,8 +47,27 @@ async function fixture(db?: DatabaseSync) {
   };
   const auth = await cookieFor();
   const request = () => app.ctx.deviceService.request({ label: "PC del amigo" });
-  const approve = (id: string, h = auth, body: unknown = { request_id: id, confirm: true }) =>
-    app.inject({ method: "POST", url: "/v1/web/devices/approve", headers: h, payload: body });
+  const preview = (id: string, h = auth) =>
+    app.inject({
+      method: "POST",
+      url: "/v1/web/devices/preview",
+      headers: h,
+      payload: { request_id: id },
+    });
+  const approve = async (id: string, h = auth, body?: unknown) => {
+    let payload = body;
+    if (payload === undefined) {
+      const reviewed = await preview(id, h);
+      if (reviewed.statusCode !== 200) return reviewed;
+      payload = { request_id: id, confirm: true, approval: reviewed.json().data.approval };
+    }
+    return app.inject({
+      method: "POST",
+      url: "/v1/web/devices/approve",
+      headers: h,
+      payload,
+    });
+  };
   const exchange = (secret: string) =>
     app.inject({ method: "POST", url: "/v1/devices/exchange", payload: { device_secret: secret } });
   return {
@@ -57,10 +81,260 @@ async function fixture(db?: DatabaseSync) {
     cookieFor,
     request,
     approve,
+    preview,
     exchange,
   };
 }
 describe("device pairing core", () => {
+  it("revalidates a previously authenticated identity inside approval after revocation", async () => {
+    const f = await fixture();
+    const row = f.app.ctx.db
+      .prepare(
+        "SELECT token_id, expires_at FROM auth_tokens WHERE subject = ? AND audience = 'agents-hub-browser'",
+      )
+      .get(f.user) as { token_id: string; expires_at: string };
+    const identity = {
+      userId: f.user,
+      projectId: f.project,
+      tokenId: row.token_id,
+      expiresAt: row.expires_at,
+    };
+    const request = f.request();
+    const approval = f.app.ctx.deviceService.preview(identity, {
+      request_id: request.request_id,
+    }).approval;
+    f.app.ctx.authService.revokeToken(row.token_id, f.user);
+    expect(() =>
+      f.app.ctx.deviceService.approve(
+        identity,
+        { request_id: request.request_id, confirm: true, approval },
+        "cached-request",
+      ),
+    ).toThrow("Vinculación");
+    expect(() =>
+      f.app.ctx.deviceService.preview(identity, { request_id: request.request_id }),
+    ).toThrow("Vinculación");
+    expect(
+      f.app.ctx.db.prepare("SELECT approved_at FROM device_requests").get()?.approved_at,
+    ).toBeNull();
+  });
+  it("rejects a revoked human session before using its otherwise valid review", async () => {
+    const f = await fixture();
+    const request = f.request();
+    const approval = (await f.preview(request.request_id)).json().data.approval;
+    const tokenId = f.app.ctx.db
+      .prepare(
+        "SELECT token_id FROM auth_tokens WHERE subject = ? AND audience = 'agents-hub-browser'",
+      )
+      .get(f.user)?.token_id as string;
+    f.app.ctx.authService.revokeToken(tokenId, f.user);
+    expect(
+      (
+        await f.approve(request.request_id, f.auth, {
+          request_id: request.request_id,
+          confirm: true,
+          approval,
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      f.app.ctx.db.prepare("SELECT approved_at FROM device_requests").get()?.approved_at,
+    ).toBeNull();
+    expect((await f.exchange(request.device_secret)).statusCode).toBe(401);
+  });
+  it("requires a reviewed context and rejects a different human cookie even for the same person/project", async () => {
+    const f = await fixture();
+    const request = f.request();
+    const reviewed = (await f.preview(request.request_id)).json().data;
+    const body = { request_id: request.request_id, confirm: true, approval: reviewed.approval };
+    expect(
+      (
+        await f.approve(request.request_id, f.auth, {
+          request_id: request.request_id,
+          confirm: true,
+        })
+      ).statusCode,
+    ).toBe(422);
+    for (const auth of [await f.cookieFor(), await f.cookieFor(f.otherUser, f.otherProject)]) {
+      const denied = await f.approve(request.request_id, auth, body);
+      expect(denied.statusCode).toBe(409);
+      expect(denied.body).not.toContain(reviewed.approval.proof);
+    }
+    const project = f.app.ctx.projectService.createProject("Same person other project", f.user)
+      .project.project_id;
+    expect(
+      (await f.approve(request.request_id, await f.cookieFor(f.user, project), body)).statusCode,
+    ).toBe(409);
+    expect(
+      f.app.ctx.db.prepare("SELECT approved_at FROM device_requests").get()?.approved_at,
+    ).toBeNull();
+    expect((await f.approve(request.request_id, f.auth, body)).statusCode).toBe(200);
+    expect((await f.approve(request.request_id, f.auth, body)).statusCode).toBe(401);
+  });
+  it("rejects changed role, project name and device label, and allows a new review of current context", async () => {
+    const f = await fixture();
+    const changes = [
+      () =>
+        f.app.ctx.db
+          .prepare("UPDATE memberships SET role = 'reader' WHERE user_id = ? AND project_id = ?")
+          .run(f.user, f.project),
+      () =>
+        f.app.ctx.db
+          .prepare("UPDATE projects SET name = 'Renamed' WHERE project_id = ?")
+          .run(f.project),
+      (id: string) =>
+        f.app.ctx.db
+          .prepare("UPDATE device_requests SET label = 'Changed' WHERE request_id = ?")
+          .run(id),
+    ];
+    for (const change of changes) {
+      const request = f.request();
+      const reviewed = (await f.preview(request.request_id)).json().data;
+      change(request.request_id);
+      expect(
+        (
+          await f.approve(request.request_id, f.auth, {
+            request_id: request.request_id,
+            confirm: true,
+            approval: reviewed.approval,
+          })
+        ).statusCode,
+      ).toBe(409);
+      expect((await f.approve(request.request_id)).statusCode).toBe(200);
+    }
+  });
+  it("rejects tampering, cross-request use and unknown approval fields without consuming the request", async () => {
+    const f = await fixture();
+    const request = f.request();
+    const other = f.request();
+    const reviewed = (await f.preview(request.request_id)).json().data;
+    const approval = reviewed.approval;
+    const proof = approval.proof.slice(0, -1) + (approval.proof.endsWith("A") ? "B" : "A");
+    for (const input of [
+      { ...approval, proof },
+      { ...approval, expires_at: new Date(Date.parse(approval.expires_at) + 1000).toISOString() },
+    ]) {
+      expect(
+        (
+          await f.approve(request.request_id, f.auth, {
+            request_id: request.request_id,
+            confirm: true,
+            approval: input,
+          })
+        ).statusCode,
+      ).toBe(409);
+    }
+    expect(
+      (
+        await f.approve(other.request_id, f.auth, {
+          request_id: other.request_id,
+          confirm: true,
+          approval,
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await f.approve(request.request_id, f.auth, {
+          request_id: request.request_id,
+          confirm: true,
+          approval: { ...approval, user_id: f.otherUser },
+        })
+      ).statusCode,
+    ).toBe(422);
+    expect(containsObviousSecret(approval.proof)).toBe(true);
+    expect(String(redactSecrets(`review ${approval.proof}`))).not.toContain(approval.proof);
+    expect(redactSecrets({ approval: { proof: "unrecognized-proof-format" } })).toEqual({
+      approval: { proof: "***REDACTED***" },
+    });
+    expect(() => f.app.ctx.deviceService.request({ label: approval.proof })).toThrow();
+    expect(
+      JSON.stringify(f.app.ctx.db.prepare("SELECT * FROM device_requests").all()),
+    ).not.toContain(approval.proof);
+    expect(
+      (
+        await f.approve(request.request_id, f.auth, {
+          request_id: request.request_id,
+          confirm: true,
+          approval,
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+  it("caps review TTL by request and human expiry, rejects expired review and rotates key on restart", async () => {
+    const f = await fixture();
+    let now = Date.now();
+    const make = () =>
+      new DeviceService(
+        new SqliteDeviceRepository(f.app.ctx.db),
+        f.app.ctx.eventBus,
+        new SqliteDeviceAuthority(f.app.ctx.db),
+        f.app.ctx.webAccessService,
+        f.app.ctx.auditService,
+        () => now,
+      );
+    const service = make();
+    const session = f.app.ctx.db
+      .prepare(
+        "SELECT token_id, expires_at FROM auth_tokens WHERE subject = ? AND audience = 'agents-hub-browser'",
+      )
+      .get(f.user) as { token_id: string; expires_at: string };
+    const identity = {
+      userId: f.user,
+      projectId: f.project,
+      tokenId: session.token_id,
+      expiresAt: session.expires_at,
+    };
+    const request = service.request({ label: "Clock" });
+    const reviewed = service.preview(identity, { request_id: request.request_id });
+    expect(Date.parse(reviewed.approval.expires_at) - now).toBe(120000);
+    const input = { request_id: request.request_id, confirm: true, approval: reviewed.approval };
+    expect(() => make().approve(identity, input, "restart")).toThrow("Revisa");
+    now += 120000;
+    expect(() => service.approve(identity, input, "expired")).toThrow("Revisa");
+    const short = { ...identity, expiresAt: new Date(now + 1000).toISOString() };
+    f.app.ctx.db
+      .prepare("UPDATE auth_tokens SET expires_at = ? WHERE token_id = ?")
+      .run(short.expiresAt, short.tokenId);
+    expect(service.preview(short, { request_id: request.request_id }).approval.expires_at).toBe(
+      short.expiresAt,
+    );
+    f.app.ctx.db
+      .prepare("UPDATE device_requests SET expires_at = ? WHERE request_id = ?")
+      .run(new Date(now + 500).toISOString(), request.request_id);
+    expect(service.preview(short, { request_id: request.request_id }).approval.expires_at).toBe(
+      new Date(now + 500).toISOString(),
+    );
+    now += 500;
+    expect(() => service.preview(short, { request_id: request.request_id })).toThrow();
+    expect(
+      f.app.ctx.db.prepare("SELECT approved_at FROM device_requests").get()?.approved_at,
+    ).toBeNull();
+  });
+  it("allows only one approval in a race and retries the same proof after audit rollback", async () => {
+    const f = await fixture();
+    const request = f.request();
+    const approval = (await f.preview(request.request_id)).json().data.approval;
+    const body = { request_id: request.request_id, confirm: true, approval };
+    f.app.ctx.db.exec(
+      "CREATE TRIGGER fail_review BEFORE INSERT ON audit_entries WHEN NEW.action = 'device.approve' BEGIN SELECT RAISE(ABORT, 'test'); END;",
+    );
+    expect((await f.approve(request.request_id, f.auth, body)).statusCode).toBe(500);
+    expect(
+      f.app.ctx.db.prepare("SELECT approved_at FROM device_requests").get()?.approved_at,
+    ).toBeNull();
+    f.app.ctx.db.exec("DROP TRIGGER fail_review");
+    const results = await Promise.all([
+      f.approve(request.request_id, f.auth, body),
+      f.approve(request.request_id, f.auth, body),
+    ]);
+    expect(results.map((r) => r.statusCode).sort()).toEqual([200, 401]);
+    expect(
+      f.app.ctx.db
+        .prepare("SELECT COUNT(*) n FROM audit_entries WHERE action = 'device.approve'")
+        .get()?.n,
+    ).toBe(1);
+  });
   it("requires human approval, keeps preview read-only, and issues one project-scoped MCP credential", async () => {
     const f = await fixture();
     const created = await f.app.inject({

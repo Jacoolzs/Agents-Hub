@@ -18,7 +18,7 @@ export function createMcpConfig(options = {}) {
   if (
     !name ||
     name.length > 100 ||
-    /\b(?:ah_|ahb_|ahd_|ahi_|wst_|sk-)[A-Za-z0-9_-]{8,}|Bearer\s+\S+/i.test(name) ||
+    /\b(?:ah_|ahb_|ahd_|ahp_|ahi_|wst_|sk-)[A-Za-z0-9_-]{8,}|Bearer\s+\S+/i.test(name) ||
     Array.from(name).some(
       (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
     )
@@ -38,7 +38,7 @@ export function createMcpConfig(options = {}) {
       !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.json$/.test(
         path.basename(connectionFile),
       ) ||
-      /(?:ah_|ahb_|ahd_|ahi_|wst_|sk-)[A-Za-z0-9_-]{8,}|Bearer\s+\S+/i.test(connectionFile)
+      /(?:ah_|ahb_|ahd_|ahp_|ahi_|wst_|sk-)[A-Za-z0-9_-]{8,}|Bearer\s+\S+/i.test(connectionFile)
     )
       throw new Error(
         "Usa una referencia local absoluta UUID.json, sin mezclar URL/proyecto legacy ni credenciales.",
@@ -116,7 +116,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     } else console.log(JSON.stringify(config, null, 2));
   } catch (error) {
     console.error(
-      error instanceof Error && !/(?:ah_|ahi_|wst_|sk-)|Bearer/i.test(error.message)
+      error instanceof Error && !/(?:ah_|ahb_|ahd_|ahp_|ahi_|wst_|sk-)|Bearer/i.test(error.message)
         ? error.message
         : "No se pudo generar la plantilla. Revisa los argumentos sin incluir credenciales.",
     );

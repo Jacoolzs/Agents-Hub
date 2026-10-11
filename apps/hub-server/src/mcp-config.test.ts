@@ -28,6 +28,9 @@ describe("MCP configuration templates", () => {
     expect(() =>
       createMcpConfig({ connectionFile: file, agentName: "ahd_PRIVATE_INPUT_CREDENTIAL" }),
     ).toThrow();
+    expect(() =>
+      createMcpConfig({ connectionFile: file, agentName: "ahp_PRIVATE_REVIEW_PROOF" }),
+    ).toThrow();
   });
   it("produces absolute launch paths and a placeholder instead of the real environment credential", async () => {
     const token = "ah_PRIVATE_ENVIRONMENT_CREDENTIAL";

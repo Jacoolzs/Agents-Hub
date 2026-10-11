@@ -1,5 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
+import { BROWSER_AUDIENCE } from "@agents-hub/shared";
 import type { DeviceAuthority, DeviceRepository } from "../../application/ports/device.js";
+import type { WebIdentity } from "../../application/ports/web-access.js";
 import { AuthService } from "../../http/auth/auth-service.js";
 
 export class SqliteDeviceRepository implements DeviceRepository {
@@ -58,8 +60,22 @@ export class SqliteDeviceRepository implements DeviceRepository {
 }
 export class SqliteDeviceAuthority implements DeviceAuthority {
   private auth: AuthService;
-  constructor(db: DatabaseSync) {
+  constructor(private db: DatabaseSync) {
     this.auth = new AuthService(db);
+  }
+  humanSessionActive(identity: WebIdentity, now: string) {
+    return !!this.db
+      .prepare(
+        "SELECT 1 FROM auth_tokens WHERE token_id = ? AND subject = ? AND project_id = ? AND audience = ? AND expires_at = ? AND expires_at > ? AND revoked_at IS NULL",
+      )
+      .get(
+        identity.tokenId,
+        identity.userId,
+        identity.projectId ?? "",
+        BROWSER_AUDIENCE,
+        identity.expiresAt,
+        now,
+      );
   }
   checkProjectPermission(user: string, project: string) {
     return this.auth.checkProjectPermission(user, project);

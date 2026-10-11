@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   AppError,
   DeviceApproveInputSchema,
@@ -10,8 +10,9 @@ import {
   DeviceRequestInputSchema,
   DeviceRequestSchema,
   UuidSchema,
+  type WebSession,
 } from "@agents-hub/shared";
-import type { DeviceAuthority, DeviceRepository } from "../ports/device.js";
+import type { DeviceAuthority, DeviceRepository, DeviceRequestRecord } from "../ports/device.js";
 import type { DomainEvents } from "../ports/persistence.js";
 import type { WebIdentity } from "../ports/web-access.js";
 import type { AuditService } from "./audit-service.js";
@@ -19,7 +20,13 @@ import type { WebAccessService } from "./web-access-service.js";
 
 const unavailable = () =>
   new AppError("UNAUTHENTICATED", "Vinculación pendiente, vencida o no disponible.");
+const reviewAgain = () =>
+  new AppError(
+    "STATE_CONFLICT",
+    "La revisión venció o cambió. Revisa el dispositivo otra vez antes de confirmar.",
+  );
 export class DeviceService {
+  private readonly approvalKey = randomBytes(32);
   constructor(
     private repository: DeviceRepository,
     private unit: DomainEvents,
@@ -53,25 +60,51 @@ export class DeviceService {
   preview(identity: WebIdentity, input: unknown) {
     const parsed = DevicePreviewInputSchema.safeParse(input);
     if (!parsed.success) throw unavailable();
+    if (!this.authority.humanSessionActive(identity, new Date(this.now()).toISOString()))
+      throw unavailable();
     const record = this.repository.pending(
       parsed.data.request_id,
       new Date(this.now()).toISOString(),
     );
     if (!record) throw unavailable();
-    return DevicePreviewSchema.parse({ ...record, profile: this.web.profile(identity) });
+    const profile = this.web.profile(identity);
+    const expiresAt = new Date(
+      Math.min(this.now() + 120000, Date.parse(record.expires_at), Date.parse(profile.expires_at)),
+    ).toISOString();
+    if (Date.parse(expiresAt) <= this.now()) throw unavailable();
+    return DevicePreviewSchema.parse({
+      ...record,
+      profile,
+      approval: { proof: this.proof(identity, record, profile, expiresAt), expires_at: expiresAt },
+    });
   }
   approve(identity: WebIdentity, input: unknown, requestId: string) {
     const parsed = DeviceApproveInputSchema.safeParse(input);
     if (!parsed.success)
       throw new AppError("INVALID_INPUT", "Confirma explícitamente la solicitud de dispositivo.");
     return this.unit.transaction(() => {
+      const now = this.now();
+      if (!this.authority.humanSessionActive(identity, new Date(now).toISOString()))
+        throw unavailable();
       const profile = this.web.profile(identity);
+      const record = this.repository.pending(parsed.data.request_id, new Date(now).toISOString());
+      if (!record) throw unavailable();
+      const approval = parsed.data.approval;
+      if (
+        Date.parse(approval.expires_at) <= now ||
+        Date.parse(profile.expires_at) <= now ||
+        !timingSafeEqual(
+          Buffer.from(approval.proof),
+          Buffer.from(this.proof(identity, record, profile, approval.expires_at)),
+        )
+      )
+        throw reviewAgain();
       if (
         !this.repository.approve(
           parsed.data.request_id,
           identity.userId,
           profile.project.project_id,
-          new Date(this.now()).toISOString(),
+          new Date(now).toISOString(),
         )
       )
         throw unavailable();
@@ -149,5 +182,27 @@ export class DeviceService {
   }
   private hash(value: string) {
     return createHash("sha256").update(value).digest("hex");
+  }
+  private proof(
+    identity: WebIdentity,
+    record: DeviceRequestRecord,
+    profile: WebSession,
+    expiresAt: string,
+  ) {
+    const context = [
+      1,
+      identity.tokenId,
+      profile.user.user_id,
+      profile.user.username,
+      profile.project.project_id,
+      profile.project.name,
+      profile.project.role,
+      profile.expires_at,
+      record.request_id,
+      record.label,
+      record.expires_at,
+      expiresAt,
+    ];
+    return `ahp_${createHmac("sha256", this.approvalKey).update(JSON.stringify(context)).digest("base64url")}`;
   }
 }

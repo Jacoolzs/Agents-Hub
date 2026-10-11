@@ -65,6 +65,7 @@ describe("read-only local connection boundaries", () => {
       { hub_url: "https://user:password@example.test" },
       { hub_url: "https://example.test/?token=x" },
       { hub_url: "https://example.test/#x" },
+      { hub_url: "https://example.test/ahp_PRIVATE_APPROVAL_PROOF" },
     ]) {
       expect(() => LocalConnectionSchema.parse({ ...value, ...patch })).toThrow();
     }

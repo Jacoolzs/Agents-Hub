@@ -37,13 +37,24 @@ test("credencial emparejada conecta MCP stdio y revocación humana corta su acce
       ...headers,
       cookie: String(accepted.headers["set-cookie"]).split(";")[0] as string,
     };
+    const preview = await hub.inject({
+      method: "POST",
+      url: "/v1/web/devices/preview",
+      headers: auth,
+      payload: { request_id: request.request_id },
+    });
+    expect(preview.statusCode).toBe(200);
     expect(
       (
         await hub.inject({
           method: "POST",
           url: "/v1/web/devices/approve",
           headers: auth,
-          payload: { request_id: request.request_id, confirm: true },
+          payload: {
+            request_id: request.request_id,
+            confirm: true,
+            approval: preview.json().data.approval,
+          },
         })
       ).statusCode,
     ).toBe(200);
