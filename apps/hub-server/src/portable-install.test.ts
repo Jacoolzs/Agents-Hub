@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   access,
@@ -11,6 +12,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createInstallation } from "../../../scripts/portable/install-ui.mjs";
 import { installPackage, installationRoot } from "../../../scripts/portable/install.mjs";
@@ -62,7 +64,25 @@ describe("versioned per-user installation", () => {
     "confirms installation, reuses verified copies and preserves foreign shortcuts",
     async () =>
       fixture(async (source, _base, data) => {
-        const profile = path.join(path.dirname(data), "profile & spaces");
+        let profileParent = path.dirname(data);
+        if (process.platform === "win32") {
+          const alias = await promisify(execFile)(
+            "powershell.exe",
+            [
+              "-NoProfile",
+              "-NonInteractive",
+              "-Command",
+              "(New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:AH_TEST_PARENT).ShortPath",
+            ],
+            {
+              env: { ...process.env, AH_TEST_PARENT: profileParent },
+              windowsHide: true,
+              timeout: 10000,
+            },
+          );
+          profileParent = alias.stdout.trim();
+        }
+        const profile = path.join(profileParent, "profile & spaces");
         const env = {
           LOCALAPPDATA: profile,
           XDG_DATA_HOME: profile,

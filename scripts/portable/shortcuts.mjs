@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { link, lstat, readFile, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, readFile, realpath, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -103,11 +103,23 @@ async function windowsShortcut(file, node, entry, label) {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "$ErrorActionPreference='Stop'; $s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:AH_LINK_FILE); if ($s.TargetPath -ne $env:AH_LINK_NODE -or $s.Arguments -cne $env:AH_LINK_ARGS -or $s.Description -cne $env:AH_LINK_LABEL -or $s.WorkingDirectory -ne $env:AH_LINK_CWD -or $s.WindowStyle -ne 1) {throw 'Foreign shortcut'}",
+        "$ErrorActionPreference='Stop'; $s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:AH_LINK_FILE); @{node=$s.TargetPath;args=$s.Arguments;label=$s.Description;cwd=$s.WorkingDirectory;window=$s.WindowStyle} | ConvertTo-Json -Compress",
       ],
       { env: { ...env, AH_LINK_FILE: target }, windowsHide: true, timeout: 10000 },
     );
-    return result;
+    const saved = JSON.parse(result.stdout.trim());
+    // WSH expands native DOS 8.3 aliases in TargetPath/WorkingDirectory.
+    // Compare resolved objects, while retaining exact argument/label checks.
+    if (
+      (await realpath(safePath(saved.node))).toLowerCase() !==
+        (await realpath(node)).toLowerCase() ||
+      (await realpath(safePath(saved.cwd))).toLowerCase() !==
+        (await realpath(path.dirname(entry))).toLowerCase() ||
+      saved.args !== args ||
+      saved.label !== label ||
+      saved.window !== 1
+    )
+      throw new Error("Hay un acceso ajeno; no se reemplazó.");
   };
   await directoryChain(path.dirname(file), true);
   if (await existing(file)) {
