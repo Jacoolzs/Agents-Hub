@@ -132,7 +132,7 @@ async function startCompanion(
 }
 void main().catch(() => {
   console.error(
-    "No se pudo preparar o reabrir el compañero. Comprueba build, configuración, carpeta de datos privada y puertos. No se tomó ninguna instancia ajena; un registro abandonado requiere recuperación explícita.",
+    "No se pudo preparar o reabrir el compañero. Comprueba build, configuración, carpeta de datos privada y puertos. No se tomó ninguna instancia ajena; los registros antiguos o incompatibles requieren revisión explícita.",
   );
   process.exitCode = 1;
   if (process.connected) process.disconnect?.();

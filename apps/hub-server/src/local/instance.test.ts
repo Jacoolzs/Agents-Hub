@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalInstance } from "./instance.js";
+import { verifyPrivatePath } from "./private-directory.js";
 
 const directories: string[] = [];
 const owners: LocalInstance[] = [];
@@ -50,7 +51,7 @@ async function exchange(address: string, payload: string) {
 }
 
 describe("private companion instance", () => {
-  it("fails closed for an abandoned lease or impostor instead of deleting the lease", async () => {
+  it("fails closed for a live unresponsive owner or impostor instead of deleting the lease", async () => {
     const data = await directory();
     await owner(data);
     const file = path.join(data, ".companion-control/instance.json");
@@ -96,6 +97,41 @@ describe("private companion instance", () => {
     ).toBe(false);
     const replacement = await owner(data);
     await replacement.close();
+  }, 20000);
+
+  it("never replaces an abandoned v1 record without proof of ownership", async () => {
+    const data = await directory();
+    const instance = await owner(data);
+    const file = path.join(data, ".companion-control/instance.json");
+    const record = JSON.parse(await readFile(file, "utf8"));
+    await instance.close();
+    record.version = 1;
+    if (process.platform !== "win32")
+      record.address = path.join(data, ".companion-control/reopen.sock");
+    await writeFile(file, JSON.stringify(record), { mode: 0o600, flag: "wx" });
+    await verifyPrivatePath(file, true);
+    const original = await readFile(file, "utf8");
+    await expect(LocalInstance.acquire(data, "test-instance")).rejects.toThrow("unavailable");
+    expect(await readFile(file, "utf8")).toBe(original);
+  }, 20000);
+
+  it("rejects stale mismatched or corrupt records without replacing them", async () => {
+    const data = await directory();
+    const instance = await owner(data);
+    const file = path.join(data, ".companion-control/instance.json");
+    const record = JSON.parse(await readFile(file, "utf8"));
+    await instance.close();
+    await writeFile(file, JSON.stringify(record), { mode: 0o600, flag: "wx" });
+    await verifyPrivatePath(file, true);
+    await expect(LocalInstance.acquire(data, "another-instance")).rejects.toThrow(
+      "identity mismatch",
+    );
+    expect(await readFile(file, "utf8")).toBe(JSON.stringify(record));
+    for (const contents of ["null", "{", "{}"]) {
+      await writeFile(file, contents);
+      await expect(LocalInstance.acquire(data, "test-instance")).rejects.toThrow();
+      expect(await readFile(file, "utf8")).toBe(contents);
+    }
   }, 20000);
 
   it("authenticates IPC, rejects replay/expired/oversized requests and encrypts its response", async () => {

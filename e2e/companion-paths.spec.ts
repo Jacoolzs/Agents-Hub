@@ -1,5 +1,5 @@
 import { type ChildProcess, fork } from "node:child_process";
-import { cp, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
@@ -135,6 +135,32 @@ test("compiled companion keeps data across cwd changes without writing installed
       expect(await readdir(temporary)).toHaveLength(3);
     } finally {
       await second.dispose();
+    }
+    const file = path.join(data, ".companion-control/instance.json");
+    const beforeCrash = JSON.parse(await readFile(file, "utf8"));
+    const crashed = child;
+    if (!crashed) throw new Error("Missing own companion process");
+    const exited = new Promise<void>((resolve) => crashed.once("exit", () => resolve()));
+    crashed.kill("SIGKILL");
+    await exited;
+    // No clean shutdown: OS releases ownership; persistent user data stays intact.
+    expect(await readFile(file, "utf8")).toBe(JSON.stringify(beforeCrash));
+    const recovered = await launch(temporary);
+    try {
+      const afterCrash = JSON.parse(await readFile(file, "utf8"));
+      expect(afterCrash.version).toBe(2);
+      expect(afterCrash.key === beforeCrash.key).toBe(false);
+      expect(afterCrash.address === beforeCrash.address).toBe(false);
+      const snapshot = await (await recovered.get(`${origin}/local-api/snapshot`)).json();
+      expect(snapshot.projects).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "Persistent team" })]),
+      );
+      expect(snapshot.users).toEqual(
+        expect.arrayContaining([expect.objectContaining({ username: "persistent-host" })]),
+      );
+      expect(snapshot.runtime.hub).toBe("stopped");
+    } finally {
+      await recovered.dispose();
     }
   } finally {
     await stop();

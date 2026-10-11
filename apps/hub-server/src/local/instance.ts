@@ -5,14 +5,16 @@ import {
   randomBytes,
   timingSafeEqual,
 } from "node:crypto";
-import { type FileHandle, mkdir, open, readFile, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { type Socket, createConnection, createServer } from "node:net";
 import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { setTimeout as sleep } from "node:timers/promises";
+import { prepareOwnership, tryOwnership } from "./ownership.js";
 import { privateDirectory, verifyPrivatePath } from "./private-directory.js";
 
 interface InstanceRecord {
-  version: 1;
+  version: 1 | 2;
   identity: string;
   address: string;
   key: string;
@@ -102,6 +104,7 @@ export class LocalInstance {
   private constructor(
     private file: string,
     private record: InstanceRecord,
+    private ownership: DatabaseSync,
   ) {}
 
   static async acquire(data: string, identity: string): Promise<LocalInstance | string> {
@@ -110,70 +113,89 @@ export class LocalInstance {
     const directory = path.join(data, ".companion-control");
     await privateDirectory(directory);
     const file = path.join(directory, "instance.json");
-    let handle: FileHandle;
-    try {
-      handle = await open(file, "wx", 0o600);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      const deadline = Date.now() + 5000;
-      while (Date.now() < deadline) {
-        // The exclusive creator may still be setting its new file's Windows owner/ACL.
-        // Never read credentials before verification, and never repair an existing file.
+    const ownershipFile = path.join(directory, "ownership.sqlite");
+    await prepareOwnership(ownershipFile);
+    const deadline = Date.now() + 5000;
+    while (true) {
+      const ownership = tryOwnership(ownershipFile);
+      let retained = false;
+      try {
+        let record: InstanceRecord | undefined;
         try {
           await verifyPrivatePath(file);
+          record = JSON.parse(await readFile(file, "utf8")) as InstanceRecord;
+          if (!record || typeof record !== "object") throw new Error("Invalid instance record");
         } catch (error) {
-          if (Date.now() >= deadline) throw error;
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        if (record) {
+          if (
+            (record.version !== 1 && record.version !== 2) ||
+            record.identity !== identity ||
+            !/^[a-f0-9]{64}$/.test(record.key) ||
+            typeof record.address !== "string"
+          )
+            throw new Error("Instance identity mismatch");
+          const expectedAddress =
+            process.platform === "win32" ? /^\\\\\.\\pipe\\agents-hub-[a-f0-9-]{36}$/ : undefined;
+          if (
+            expectedAddress
+              ? !expectedAddress.test(record.address)
+              : record.version === 1
+                ? record.address !== path.join(directory, "reopen.sock")
+                : path.dirname(record.address) !== directory ||
+                  !/^r-[a-f0-9]{16}\.sock$/.test(path.basename(record.address))
+          )
+            throw new Error("Instance address mismatch");
+          // v1 never promised to hold this mutex; absence of response proves nothing.
+          if (!ownership || record.version === 1) {
+            try {
+              return await requestReopen(record);
+            } catch {
+              if (Date.now() >= deadline)
+                throw new Error("Existing private instance is unavailable; no takeover attempted");
+              await sleep(100);
+              continue;
+            }
+          }
+        }
+        if (!ownership) {
+          if (Date.now() >= deadline)
+            throw new Error("Existing private instance is unavailable; no takeover attempted");
           await sleep(100);
           continue;
         }
-        const contents = await readFile(file, "utf8");
-        if (!contents) {
-          await sleep(100);
-          continue;
-        }
-        const record = JSON.parse(contents) as InstanceRecord;
-        if (
-          record.version !== 1 ||
-          record.identity !== identity ||
-          !/^[a-f0-9]{64}$/.test(record.key) ||
-          typeof record.address !== "string"
-        )
-          throw new Error("Instance identity mismatch");
-        const expectedAddress =
-          process.platform === "win32" ? /^\\\\\.\\pipe\\agents-hub-[a-f0-9-]{36}$/ : undefined;
-        if (
-          expectedAddress
-            ? !expectedAddress.test(record.address)
-            : record.address !== path.join(directory, "reopen.sock")
-        )
-          throw new Error("Instance address mismatch");
+        const newRecord: InstanceRecord = {
+          version: 2,
+          identity,
+          key: randomBytes(32).toString("hex"),
+          address:
+            process.platform === "win32"
+              ? `\\\\.\\pipe\\agents-hub-${crypto.randomUUID()}`
+              : path.join(directory, `r-${randomBytes(8).toString("hex")}.sock`),
+        };
+        const temporary = path.join(directory, `entry-${crypto.randomUUID()}.tmp`);
+        const handle = await open(temporary, "wx", 0o600);
         try {
-          return await requestReopen(record);
-        } catch {
-          await sleep(100);
+          await verifyPrivatePath(temporary, true);
+          await handle.writeFile(JSON.stringify(newRecord));
+          await handle.sync();
+        } finally {
+          await handle.close();
         }
+        try {
+          await rename(temporary, file);
+        } finally {
+          await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== "ENOENT") throw error;
+          });
+        }
+        retained = true;
+        return new LocalInstance(file, newRecord, ownership);
+      } finally {
+        if (!retained) ownership?.close();
       }
-      throw new Error("Existing private instance is unavailable; no takeover attempted");
     }
-    const record: InstanceRecord = {
-      version: 1,
-      identity,
-      key: randomBytes(32).toString("hex"),
-      address:
-        process.platform === "win32"
-          ? `\\\\.\\pipe\\agents-hub-${crypto.randomUUID()}`
-          : path.join(directory, "reopen.sock"),
-    };
-    try {
-      await verifyPrivatePath(file, true);
-      await handle.writeFile(JSON.stringify(record));
-    } catch (error) {
-      await unlink(file);
-      throw error;
-    } finally {
-      await handle.close();
-    }
-    return new LocalInstance(file, record);
   }
 
   async serve(issueEntry: () => string) {
@@ -227,13 +249,17 @@ export class LocalInstance {
   async close() {
     if (this.closed) return;
     this.closed = true;
-    for (const socket of this.sockets) socket.destroy();
-    if (this.server.listening)
-      await new Promise<void>((resolve, reject) =>
-        this.server.close((error) => (error ? reject(error) : resolve())),
-      );
-    // Never remove another instance's lease, and never recursively remove data.
-    const contents = await readFile(this.file, "utf8").catch(() => "");
-    if (contents === JSON.stringify(this.record)) await unlink(this.file);
+    try {
+      for (const socket of this.sockets) socket.destroy();
+      if (this.server.listening)
+        await new Promise<void>((resolve, reject) =>
+          this.server.close((error) => (error ? reject(error) : resolve())),
+        );
+      // Never remove another instance's lease, and never recursively remove data.
+      const contents = await readFile(this.file, "utf8").catch(() => "");
+      if (contents === JSON.stringify(this.record)) await unlink(this.file);
+    } finally {
+      this.ownership.close();
+    }
   }
 }
