@@ -18,6 +18,7 @@ import fastifyCors from "@fastify/cors";
 import fastifyWebsocket from "@fastify/websocket";
 import fastify, { LogController, type FastifyInstance, type FastifyRequest } from "fastify";
 import { AuditService } from "./application/services/audit-service.js";
+import { DeviceService } from "./application/services/device-service.js";
 import { IdempotencyService } from "./application/services/idempotency-service.js";
 import { LockService } from "./application/services/lock-service.js";
 import { MembershipService } from "./application/services/membership-service.js";
@@ -30,6 +31,7 @@ import { WebAccountService } from "./application/services/web-account-service.js
 import { WsTicketService } from "./application/services/ws-ticket-service.js";
 import { type AuthContext, AuthService } from "./http/auth/auth-service.js";
 import { assertWebOrigin, webCookie } from "./http/auth/web-policy.js";
+import { registerDeviceRoutes } from "./http/routes/device-routes.js";
 import { registerEventRoutes } from "./http/routes/event-routes.js";
 import { registerInboxRoutes } from "./http/routes/inbox-routes.js";
 import { registerLockRoutes } from "./http/routes/lock-routes.js";
@@ -42,6 +44,10 @@ import { WebSocketHub } from "./http/websocket/ws-hub.js";
 import { createDatabase } from "./infrastructure/db/database.js";
 import { SqliteEventBus } from "./infrastructure/event-bus/event-bus.js";
 import { SqliteAuditRepository } from "./infrastructure/repositories/sqlite-audit-repository.js";
+import {
+  SqliteDeviceAuthority,
+  SqliteDeviceRepository,
+} from "./infrastructure/repositories/sqlite-device-repository.js";
 import { SqliteIdempotencyRepository } from "./infrastructure/repositories/sqlite-idempotency-repository.js";
 import { SqliteLockRepository } from "./infrastructure/repositories/sqlite-lock-repository.js";
 import { SqliteMembershipRepository } from "./infrastructure/repositories/sqlite-membership-repository.js";
@@ -80,6 +86,7 @@ export interface AppContext {
   idempotencyService: IdempotencyService;
   webAccessService: WebAccessService;
   webAccountService: WebAccountService;
+  deviceService: DeviceService;
 }
 
 export function buildApp(
@@ -111,6 +118,13 @@ export function buildApp(
     auditService,
   );
   const wsTicketService = new WsTicketService(new SqliteTicketRepository(db));
+  const deviceService = new DeviceService(
+    new SqliteDeviceRepository(db),
+    eventBus,
+    new SqliteDeviceAuthority(db),
+    webAccessService,
+    auditService,
+  );
   const webAccountService = new WebAccountService(
     new SqliteWebAccountRepository(db),
     eventBus,
@@ -150,6 +164,7 @@ export function buildApp(
     idempotencyService,
     webAccessService,
     webAccountService,
+    deviceService,
   };
 
   const app = fastify({
@@ -531,6 +546,7 @@ export function buildApp(
   // --- V1 ROUTES ---
   registerMembershipRoutes(app, ctx, getAuthenticatedUserId, getAuth);
   registerWebAccessRoutes(app, ctx, corsOrigins, getAuth);
+  registerDeviceRoutes(app, ctx, corsOrigins, getAuth);
   if (config?.WEB_STATIC_DIR) registerStaticRoutes(app, config.WEB_STATIC_DIR);
 
   const dependencies = {

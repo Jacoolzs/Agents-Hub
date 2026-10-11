@@ -11,3 +11,4 @@ export * from "./schemas/lock.js";
 export * from "./schemas/commands.js";
 export * from "./schemas/local-control.js";
 export * from "./schemas/web-access.js";
+export * from "./schemas/device.js";

@@ -206,4 +206,15 @@ export const MIGRATIONS = [
       created_at TEXT NOT NULL
     );`,
   },
+  {
+    version: 11,
+    sql: `CREATE TABLE device_requests (
+      request_id TEXT PRIMARY KEY, label TEXT NOT NULL, secret_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL, created_at TEXT NOT NULL, approved_at TEXT, consumed_at TEXT,
+      user_id TEXT REFERENCES users(user_id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(project_id) ON DELETE CASCADE,
+      token_id TEXT UNIQUE REFERENCES auth_tokens(token_id) ON DELETE CASCADE
+    );
+    CREATE INDEX idx_device_requests_expiry ON device_requests(expires_at);`,
+  },
 ];

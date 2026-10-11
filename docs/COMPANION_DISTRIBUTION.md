@@ -87,6 +87,8 @@ Las pruebas de fixtures usan sólo TEMP y perfiles simulados. El E2E del artefac
 
 ## Confirmación gráfica y accesos por usuario
 
+El siguiente corte de conexión fija el [núcleo de emparejamiento](DEVICE_PAIRING.md): confirmación humana y credencial MCP propia revocable por proyecto. No incluye aún proveedor nativo de almacenamiento, interfaz de emparejamiento ni escritura de configuración de clientes. No confundir estas rutas con conexión guiada terminada ni guardar credenciales como fallback.
+
 Abrir el launcher del preview muestra **Instalar en este PC** en el mismo panel privado. `Revisar instalación` explica programa/datos, acceso obligatorio en Inicio/Aplicaciones y escritorio opcional. Cancelar no instala ni crea accesos. Confirmar copia/verifica la versión y genera accesos; no reinicia el Hub activo ni inicia el compañero con el sistema. Cerrar el compañero y abrir el acceso permite usar la copia instalada sin comandos. Volver a confirmar desde esa copia verifica y reutiliza sus recursos y accesos propios.
 
 Sólo el paquete completo registra el puerto de instalación en `buildLocalControl`; desarrollo no lo ofrece. GET describe sin escrituras; POST exige cookie local/Host/Origin y `{confirm:true,desktop?:boolean}` estricto. Comparte exclusión con cambios de runtime/cierre. Sin API pública, ruta elegible por navegador, secretos en respuesta o dependencia nueva.
