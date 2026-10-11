@@ -59,14 +59,18 @@ test("portable runtime runs Hub and MCP outside checkout, reopens and preserves 
   const cwd = path.join(temporary, "unrelated cwd");
   const origin = "http://127.0.0.1:8811";
   const processes: ChildProcess[] = [];
+  const closures = new WeakMap<ChildProcess, Promise<void>>();
   const contexts: Array<{ dispose(): Promise<void> }> = [];
   async function stop(child: ChildProcess, abrupt = false) {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    if (child.exitCode !== null || child.signalCode !== null) {
+      await closures.get(child);
+      return;
+    }
+    const closed = closures.get(child);
     if (abrupt) child.kill("SIGKILL");
     else if (child.connected) child.send({ type: "shutdown" });
     const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
-    await exited;
+    await closed;
     clearTimeout(timer);
   }
   async function launch(secondary = false) {
@@ -88,6 +92,8 @@ test("portable runtime runs Hub and MCP outside checkout, reopens and preserves 
       windowsHide: true,
     });
     processes.push(child);
+    const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+    closures.set(child, closed);
     const exited = new Promise<number | null>((resolve) => child.once("exit", resolve));
     const entry = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Portable companion not ready")), 10000);
@@ -109,7 +115,10 @@ test("portable runtime runs Hub and MCP outside checkout, reopens and preserves 
         resolve(message.url);
       });
     });
-    if (secondary) expect(await exited).toBe(0);
+    if (secondary) {
+      expect(await exited).toBe(0);
+      await closed;
+    }
     const client = await playwright.request.newContext({ extraHTTPHeaders: { origin } });
     contexts.push(client);
     const secret = new URLSearchParams(new URL(entry).hash.slice(1)).get("local-control");
@@ -167,32 +176,36 @@ test("portable runtime runs Hub and MCP outside checkout, reopens and preserves 
     expect(access.status()).toBe(200);
     const credential = await access.json();
     const mcp = new Client({ name: "portable-test", version: "1.0.0" }, { capabilities: {} });
+    let mcpClosed: Promise<void> | undefined;
     try {
       const env = Object.fromEntries(
         Object.entries(process.env).filter(
           (entry): entry is [string, string] => entry[1] !== undefined,
         ),
       );
-      await mcp.connect(
-        new StdioClientTransport({
-          command: path.join(
-            installed,
-            "runtime",
-            process.platform === "win32" ? "node.exe" : "node",
-          ),
-          args: [path.join(installed, "packages/mcp-server/dist/main.js")],
-          cwd,
-          env: {
-            ...env,
-            NODE_PATH: "",
-            NODE_OPTIONS: "",
-            NODE_ENV: "production",
-            AGENTS_HUB_URL: "http://127.0.0.1:8810",
-            AGENTS_HUB_TOKEN: credential.token,
-          },
-          stderr: "pipe",
-        }),
-      );
+      const transport = new StdioClientTransport({
+        command: path.join(
+          installed,
+          "runtime",
+          process.platform === "win32" ? "node.exe" : "node",
+        ),
+        args: [path.join(installed, "packages/mcp-server/dist/main.js")],
+        cwd,
+        env: {
+          ...env,
+          NODE_PATH: "",
+          NODE_OPTIONS: "",
+          NODE_ENV: "production",
+          AGENTS_HUB_URL: "http://127.0.0.1:8810",
+          AGENTS_HUB_TOKEN: credential.token,
+        },
+        stderr: "pipe",
+      });
+      // SDK close() can return after its timeout/exit before the native stdio close event.
+      mcpClosed = new Promise<void>((resolve) => {
+        transport.onclose = resolve;
+      });
+      await mcp.connect(transport);
       const joined = await mcp.callTool({
         name: "join_project",
         arguments: { project_id: workspace.project.project_id, agent_name: "portable-agent" },
@@ -202,6 +215,7 @@ test("portable runtime runs Hub and MCP outside checkout, reopens and preserves 
       expect(status.isError).not.toBe(true);
     } finally {
       await mcp.close();
+      await mcpClosed;
     }
     const reopened = await launch(true);
     expect(
@@ -220,6 +234,7 @@ test("portable runtime runs Hub and MCP outside checkout, reopens and preserves 
       ).status(),
     ).toBe(202);
     await expect.poll(() => recovered.child.exitCode, { timeout: 5000 }).toBe(0);
+    await stop(recovered.child); // Wait for close/IPC, not merely exitCode, before moving resources.
     const updated = path.join(temporary, "relocated version");
     await rename(installed, updated);
     installed = updated;
