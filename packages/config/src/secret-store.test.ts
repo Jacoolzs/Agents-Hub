@@ -176,6 +176,7 @@ describe.skipIf(!native)("real isolated native provider", () => {
         await readFile(join(path, source, "record.json")),
         { mode: 0o600 },
       );
+      await verifyPrivatePath(join(path, target, "record.json"), true);
       try {
         await expect(store.get(target)).rejects.toThrow("read securely");
       } finally {

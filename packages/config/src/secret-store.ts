@@ -212,7 +212,8 @@ export class NativeSecretStore {
         flag: "wx",
         mode: 0o600,
       });
-      await verifyPrivatePath(path);
+      // wx above proves this file is new; initialize its owner as well as its ACL.
+      await verifyPrivatePath(path, true);
       const cipher =
         provider === "dpapi" ? await dpapi("protect", location.context, value) : undefined;
       if (provider === "secret-service") {
@@ -226,7 +227,7 @@ export class NativeSecretStore {
         JSON.stringify({ version: 1, provider, ready: true, ...(cipher ? { cipher } : {}) }),
         { flag: "wx", mode: 0o600 },
       );
-      await verifyPrivatePath(temporary);
+      await verifyPrivatePath(temporary, true);
       await verifyPrivatePath(location.directory);
       await verifyPrivatePath(path);
       await rename(temporary, path);
