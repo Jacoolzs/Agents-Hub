@@ -39,6 +39,7 @@ export class HubClient {
       try {
         const fetchOptions: RequestInit = {
           method,
+          redirect: "error",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${this.token}`,

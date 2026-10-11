@@ -2,6 +2,14 @@ import { z } from "zod";
 
 export { privateDirectory, verifyPrivatePath } from "./private-directory.js";
 export { NativeSecretStore } from "./secret-store.js";
+export {
+  LocalConnectionError,
+  LocalConnectionSchema,
+  loadLocalConnection,
+  parseConnectionHubUrl,
+  resolveAgentConnection,
+} from "./local-connection.js";
+export type { LocalConnection } from "./local-connection.js";
 
 export const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

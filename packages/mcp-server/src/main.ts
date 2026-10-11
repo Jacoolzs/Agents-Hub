@@ -4,7 +4,9 @@ import { runServer } from "./server.js";
 if (process.env.NODE_ENV !== "test") {
   runServer().catch(() => {
     // Strict rule: all diagnostics to stderr, stdout is reserved for JSON-RPC
-    console.error("Agents-Hub MCP Server failed. Check Hub URL, token and connection.");
+    console.error(
+      "Agents-Hub MCP Server failed. Check local connection/vault or legacy Hub URL/token; use doctor for diagnosis.",
+    );
     process.exit(1);
   });
 }

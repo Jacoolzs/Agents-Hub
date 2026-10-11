@@ -7,6 +7,30 @@ import { runDoctor } from "../../../scripts/doctor.mjs";
 import { buildApp } from "./app.js";
 
 describe("Read-only onboarding doctor", () => {
+  it("stops before networking on a broken reference or conflicting legacy credential", async () => {
+    let requests = 0;
+    const token = "ah_PRIVATE_TEST_CREDENTIAL";
+    for (const env of [
+      { AGENTS_HUB_CONNECTION_FILE: path.resolve("missing-profile.json") },
+      { AGENTS_HUB_CONNECTION_FILE: path.resolve("missing-profile.json"), AGENTS_HUB_TOKEN: token },
+    ]) {
+      const result = await runDoctor({
+        env,
+        runtimeVersion: "24.12.0",
+        fetchImpl: () => {
+          requests++;
+          throw new Error("Unexpected network");
+        },
+      });
+      expect(result.ok).toBe(false);
+      expect(
+        result.checks.find((check: { name: string }) => check.name === "connection")?.code,
+      ).toBe("AGENTS_HUB_TOKEN" in env ? "CONNECTION_CONFLICT" : "CONNECTION_INVALID");
+      expect(JSON.stringify(result)).not.toContain(token);
+      expect(JSON.stringify(result)).not.toContain("missing-profile.json");
+    }
+    expect(requests).toBe(0);
+  });
   it("reports a connection failure without claiming that an unseen Hub is incompatible", async () => {
     const result = await runDoctor({
       env: { AGENTS_HUB_URL: "https://unreachable.example.test" },

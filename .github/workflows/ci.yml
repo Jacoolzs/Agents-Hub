@@ -44,7 +44,7 @@ jobs:
             done
             test "$keyring_ready" = 1
             export AGENTS_HUB_TEST_ISOLATED_KEYRING=1
-            pnpm exec vitest run packages/config/src/secret-store.test.ts --maxWorkers=1 --minWorkers=1
+            pnpm exec vitest run packages/config/src/secret-store.test.ts packages/config/src/local-connection.test.ts apps/hub-server/src/local-connection.test.ts --maxWorkers=1 --minWorkers=1
           '
       - run: pnpm -r build
       - run: pnpm audit --prod

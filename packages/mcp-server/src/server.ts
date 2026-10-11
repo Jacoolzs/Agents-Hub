@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
+import { resolveAgentConnection } from "@agents-hub/config";
 import {
   AckInboxInputSchema,
   CheckInboxInputSchema,
@@ -179,22 +180,10 @@ export function createMcpServer(ctx: McpServerContext): Server & { shutdown(): P
 }
 
 export async function runServer(): Promise<void> {
-  const url = process.env.AGENTS_HUB_URL || "http://127.0.0.1:8787";
-  const parsed = new URL(url);
-  if (
-    parsed.username ||
-    parsed.password ||
-    (parsed.protocol !== "https:" &&
-      !(
-        parsed.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)
-      ))
-  )
-    throw new Error("Use HTTPS for a remote Hub");
-  const token = process.env.AGENTS_HUB_TOKEN || "";
-  if (!token) throw new Error("AGENTS_HUB_TOKEN is required");
+  const connection = await resolveAgentConnection();
   const server = createMcpServer({
-    hubClient: new HubClient({ baseUrl: url, token }),
-    defaultProjectId: process.env.AGENTS_HUB_PROJECT_ID,
+    hubClient: new HubClient({ baseUrl: connection.baseUrl, token: connection.token }),
+    defaultProjectId: connection.projectId,
     defaultAgentName: process.env.AGENTS_HUB_AGENT_NAME,
   });
   const stop = async () => {

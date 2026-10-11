@@ -7,6 +7,28 @@ import { describe, expect, it } from "vitest";
 import { createMcpConfig } from "../../../scripts/mcp-config.mjs";
 
 describe("MCP configuration templates", () => {
+  it("exports only a local reference and agent name without reading a vault", () => {
+    const file = path.join(tmpdir(), "nonexistent-profile", `${crypto.randomUUID()}.json`);
+    const config = createMcpConfig({ connectionFile: file, agentName: "local-agent" }).mcpServers[
+      "agents-hub"
+    ];
+    expect(config.env).toEqual({
+      AGENTS_HUB_CONNECTION_FILE: file,
+      AGENTS_HUB_AGENT_NAME: "local-agent",
+    });
+    expect(path.isAbsolute(config.command)).toBe(true);
+    expect(path.isAbsolute(config.args[0])).toBe(true);
+    expect(() =>
+      createMcpConfig({ connectionFile: file, hubUrl: "https://example.test" }),
+    ).toThrow();
+    expect(() =>
+      createMcpConfig({ connectionFile: file, projectId: crypto.randomUUID() }),
+    ).toThrow();
+    expect(() => createMcpConfig({ connectionFile: "relative.json" })).toThrow();
+    expect(() =>
+      createMcpConfig({ connectionFile: file, agentName: "ahd_PRIVATE_INPUT_CREDENTIAL" }),
+    ).toThrow();
+  });
   it("produces absolute launch paths and a placeholder instead of the real environment credential", async () => {
     const token = "ah_PRIVATE_ENVIRONMENT_CREDENTIAL";
     const project = crypto.randomUUID();

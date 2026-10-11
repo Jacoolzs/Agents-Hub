@@ -49,8 +49,41 @@ export async function runDoctor({
   );
 
   let baseUrl;
+  let token = env.AGENTS_HUB_TOKEN;
+  let projectId = env.AGENTS_HUB_PROJECT_ID;
+  if (env.AGENTS_HUB_CONNECTION_FILE !== undefined) {
+    try {
+      const { resolveAgentConnection } = await import(
+        pathToFileURL(path.join(root, "packages/config/dist/index.js")).href
+      );
+      const connection = await resolveAgentConnection(env);
+      baseUrl = connection.baseUrl;
+      token = connection.token;
+      projectId = connection.projectId;
+      add(
+        "connection",
+        "ok",
+        "LOCAL_CONNECTION_READY",
+        "Referencia privada y almacén nativo disponibles; validez remota pendiente.",
+      );
+    } catch (error) {
+      const codes = new Set([
+        "CONNECTION_CONFLICT",
+        "CONNECTION_INVALID",
+        "CONNECTION_EXPIRED",
+        "CREDENTIAL_UNAVAILABLE",
+      ]);
+      add(
+        "connection",
+        "error",
+        codes.has(error?.code) ? error.code : "CONNECTION_INVALID",
+        "Revisa referencia privada, expiración y almacén nativo. Desbloquea el llavero o revoca y empareja de nuevo. No mezcles referencia con TOKEN/URL/PROJECT_ID legacy.",
+      );
+      return report();
+    }
+  }
   try {
-    baseUrl = parseHubUrl(env.AGENTS_HUB_URL || "http://127.0.0.1:8787");
+    baseUrl = parseHubUrl(baseUrl ?? env.AGENTS_HUB_URL ?? "http://127.0.0.1:8787");
     add("url", "ok", "URL_VALID", "HTTPS remoto o HTTP de loopback, sin credenciales en la URL.");
   } catch {
     add(
@@ -68,7 +101,7 @@ export async function runDoctor({
         method: "GET",
         redirect: "error",
         signal: AbortSignal.timeout(5000),
-        headers: authenticated ? { Authorization: `Bearer ${env.AGENTS_HUB_TOKEN}` } : {},
+        headers: authenticated ? { Authorization: `Bearer ${token}` } : {},
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -116,7 +149,7 @@ export async function runDoctor({
         : "Comprueba la URL y actualiza Hub/adaptador juntos a una versión que anuncie /v1/capabilities y los contratos actuales.",
   );
 
-  if (!env.AGENTS_HUB_TOKEN) {
+  if (!token) {
     add("identity", "error", "TOKEN_MISSING", "Configura AGENTS_HUB_TOKEN con tu token personal.");
     add(
       "membership",
@@ -146,7 +179,6 @@ export async function runDoctor({
     add("membership", "skipped", "NO_IDENTITY", "Resolver identidad antes de comprobar membresía.");
     return report();
   }
-  const projectId = env.AGENTS_HUB_PROJECT_ID;
   if (
     !projectId ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)
