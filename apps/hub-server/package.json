@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "main": "./dist/server.js",
+  "files": ["dist"],
   "scripts": {
     "build": "tsc -b",
     "dev": "node --watch dist/server.js",

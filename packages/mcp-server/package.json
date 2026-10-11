@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "bin": "./dist/main.js",
+  "files": ["dist"],
   "scripts": {
     "build": "tsc -b",
     "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
