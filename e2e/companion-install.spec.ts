@@ -1,5 +1,5 @@
 import { type ChildProcess, execFile, fork } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -13,7 +13,25 @@ test("packaged panel installs native shortcuts and reopens the installed copy wi
   test.setTimeout(90000);
   const source = path.resolve(process.env.AGENTS_HUB_PORTABLE_ARTIFACT as string);
   const temporary = await mkdtemp(path.join(os.tmpdir(), "ah-install-ui-"));
-  const profile = path.join(temporary, "profile & spaces");
+  let profileParent = temporary;
+  if (process.platform === "win32") {
+    const alias = await promisify(execFile)(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:AH_TEST_PARENT).ShortPath",
+      ],
+      {
+        env: { ...process.env, AH_TEST_PARENT: temporary },
+        windowsHide: true,
+        timeout: 10000,
+      },
+    );
+    profileParent = alias.stdout.trim();
+  }
+  const profile = path.join(profileParent, "profile & spaces");
   const data = path.join(temporary, "private data");
   const menu = path.join(profile, "menu");
   const desktop = path.join(profile, "desktop");
@@ -135,7 +153,12 @@ test("packaged panel installs native shortcuts and reopens the installed copy wi
         `Exec="${node}" "${script}"`,
       );
     }
-    expect(node.startsWith(profile)).toBe(true);
+    const relativeNode = path.relative(await realpath(profile), await realpath(node));
+    expect(
+      path.isAbsolute(relativeNode) ||
+        relativeNode === ".." ||
+        relativeNode.startsWith(`..${path.sep}`),
+    ).toBe(false);
     expect(await readFile(script, "utf8")).not.toMatch(/local-control|TOKEN|secret/);
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.screenshot({
