@@ -15,7 +15,7 @@
     "dev": "pnpm --parallel --filter @agents-hub/hub-server --filter @agents-hub/web dev",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -b --force --pretty false",
     "test": "vitest run --maxWorkers=2 --minWorkers=1",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -24,7 +24,7 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@playwright/test": "^1.63.0",
-    "@types/node": "^26.6.4",
+    "@types/node": "^22.13.4",
     "@types/ws": "^8.18.2",
     "playwright": "^1.50.0",
     "typescript": "^5.7.3",
