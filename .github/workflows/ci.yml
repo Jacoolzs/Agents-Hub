@@ -8,8 +8,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    env:
-      AGENTS_HUB_PORTABLE_ARTIFACT: ${{ runner.temp }}/Agents-Hub preview
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +24,10 @@ jobs:
       - run: pnpm audit --prod
       - name: Build private portable preview
         shell: bash
+        env:
+          AGENTS_HUB_PORTABLE_ARTIFACT: ${{ runner.temp }}/Agents-Hub preview
         run: pnpm package:companion --output "$AGENTS_HUB_PORTABLE_ARTIFACT"
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+        env:
+          AGENTS_HUB_PORTABLE_ARTIFACT: ${{ runner.temp }}/Agents-Hub preview
