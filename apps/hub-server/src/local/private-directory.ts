@@ -30,7 +30,7 @@ export async function privateDirectory(directory: string) {
   }
 }
 
-export async function verifyPrivatePath(target: string, initializeDirectory = false) {
+export async function verifyPrivatePath(target: string, initializeNewPath = false) {
   const info = await lstat(target);
   if (info.isSymbolicLink() || (!info.isDirectory() && !info.isFile()))
     throw new Error("Private instance path is not a regular file or directory");
@@ -53,10 +53,10 @@ $targetPath = $env:AGENTS_HUB_PRIVATE_PATH
 $operatorSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $privateInfo = if ($env:AGENTS_HUB_PRIVATE_KIND -eq 'directory') { New-Object System.IO.DirectoryInfo($targetPath) } else { New-Object System.IO.FileInfo($targetPath) }
 if ($env:AGENTS_HUB_PRIVATE_INITIALIZE -eq '1') {
-  $privateAcl = New-Object System.Security.AccessControl.DirectorySecurity
+  $privateAcl = if ($env:AGENTS_HUB_PRIVATE_KIND -eq 'directory') { New-Object System.Security.AccessControl.DirectorySecurity } else { New-Object System.Security.AccessControl.FileSecurity }
   $privateAcl.SetOwner($operatorSid)
   $privateAcl.SetAccessRuleProtection($true, $false)
-  $privateRule = New-Object System.Security.AccessControl.FileSystemAccessRule($operatorSid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+  $privateRule = if ($env:AGENTS_HUB_PRIVATE_KIND -eq 'directory') { New-Object System.Security.AccessControl.FileSystemAccessRule($operatorSid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow') } else { New-Object System.Security.AccessControl.FileSystemAccessRule($operatorSid, 'FullControl', 'Allow') }
   $privateAcl.AddAccessRule($privateRule)
   $privateInfo.SetAccessControl($privateAcl)
 }
@@ -76,7 +76,7 @@ foreach ($observedRule in $observedRules) {
         ...process.env,
         AGENTS_HUB_PRIVATE_PATH: target,
         AGENTS_HUB_PRIVATE_KIND: info.isDirectory() ? "directory" : "file",
-        AGENTS_HUB_PRIVATE_INITIALIZE: initializeDirectory ? "1" : "0",
+        AGENTS_HUB_PRIVATE_INITIALIZE: initializeNewPath ? "1" : "0",
       },
     },
   ).catch((error) => {

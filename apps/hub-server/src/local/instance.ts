@@ -115,9 +115,17 @@ export class LocalInstance {
       handle = await open(file, "wx", 0o600);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      await verifyPrivatePath(file);
       const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {
+        // The exclusive creator may still be setting its new file's Windows owner/ACL.
+        // Never read credentials before verification, and never repair an existing file.
+        try {
+          await verifyPrivatePath(file);
+        } catch (error) {
+          if (Date.now() >= deadline) throw error;
+          await sleep(100);
+          continue;
+        }
         const contents = await readFile(file, "utf8");
         if (!contents) {
           await sleep(100);
@@ -157,6 +165,7 @@ export class LocalInstance {
           : path.join(directory, "reopen.sock"),
     };
     try {
+      await verifyPrivatePath(file, true);
       await handle.writeFile(JSON.stringify(record));
     } catch (error) {
       await unlink(file);
