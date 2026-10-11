@@ -14,7 +14,8 @@
   "dependencies": {
     "@agents-hub/config": "workspace:*",
     "@agents-hub/shared": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.6.0"
+    "@modelcontextprotocol/sdk": "^1.6.0",
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",

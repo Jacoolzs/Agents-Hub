@@ -2,6 +2,8 @@
 
 ADR-028: integrar lectura del almacén, diagnóstico y exportación genérica antes de la pantalla. No nueva dependencia npm, servicio, migración o cliente específico.
 
+Actualización ADR-030: el escritor y asistente genérico del compañero se documentan en [CONNECTION_ASSISTANT.md](CONNECTION_ASSISTANT.md). Las menciones de «futuro/no implementa/pantalla pendiente» abajo describen exclusivamente el corte histórico ADR-028, no el estado actual. Diagnóstico gráfico/adaptadores específicos siguen pendientes; lector/doctor/exportador continúan sólo lectura.
+
 `AGENTS_HUB_CONNECTION_FILE` apunta a un JSON absoluto privado `<directorio>/<credential_id>.json`. Esquema estricto v1: `version`, `credential_id`, `hub_url`, `project_id`, `token_id`, `expires_at`. UUID v4 minúsculos, vencimiento UTC canónico y URL HTTPS remota/HTTP loopback sin credenciales/query/fragmento/secretos obvios. Nombre del archivo coincide con credential_id; almacén fijo en `<directorio>/credentials`, sin ruta de vault elegible dentro del JSON. Directorio/archivo privados y ancestros sin enlaces; registro máximo4KiB. El archivo es metadata sensible aunque no contiene bearer: no publicarlo.
 
 MCP y doctor sólo leen. El futuro compañero será escritor único bajo su mutex de instancia, serializando guardar/eliminar; este incremento NO implementa alta/canje/borrado de perfiles ni transacción entre Hub, archivo y keyring. Si se interrumpe guardado, conservar evidencia no secreta para revocar y emparejar de nuevo; nunca reparar, sobreescribir o autoemitir por un fallo de lectura.

@@ -24,7 +24,15 @@ import {
 } from "@agents-hub/shared";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  ReadResourceRequestSchema,
+  SubscribeRequestSchema,
+  UnsubscribeRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { BackgroundListener } from "./client/background-listener.js";
 import { HubClient } from "./client/hub-client.js";
 import { tools } from "./tools/catalog.js";
 import { executeProjectCommand } from "./tools/commands.js";
@@ -40,7 +48,7 @@ export interface McpServerContext {
 export function createMcpServer(ctx: McpServerContext): Server & { shutdown(): Promise<void> } {
   const server = new Server(
     { name: "agents-hub-mcp", version: "0.1.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {}, resources: { subscribe: true } } },
   ) as Server & { shutdown(): Promise<void> };
   let joined: { projectId: string; agentId: string; sessionId: string } | undefined;
   const instanceId = crypto.randomUUID();
@@ -48,12 +56,21 @@ export function createMcpServer(ctx: McpServerContext): Server & { shutdown(): P
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   const lifecycle = new AbortController();
   let stopped = false;
+  let joining = false;
+  let listener: BackgroundListener | undefined;
+  let subscribed = false;
+  let sendingHint = false;
+  const inboxUri = "agents-hub://inbox";
+  const assertInboxUri = (uri: string) => {
+    if (uri !== inboxUri) throw new Error("Unknown resource");
+  };
 
   server.shutdown = async () => {
     if (stopped) return;
     stopped = true;
     lifecycle.abort();
     clearInterval(heartbeat);
+    await listener?.stop();
     if (joined)
       await ctx.hubClient
         .disconnect(joined.sessionId, joined.projectId, joined.agentId)
@@ -62,6 +79,49 @@ export function createMcpServer(ctx: McpServerContext): Server & { shutdown(): P
   server.onclose = () => {
     void server.shutdown();
   };
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [
+      {
+        uri: inboxUri,
+        name: "Team inbox",
+        mimeType: "application/json",
+        description:
+          "Read-only authorized page. Subscribe for background hints; ACK remains explicit. Inactive models do not wake universally.",
+      },
+    ],
+  }));
+  server.setRequestHandler(SubscribeRequestSchema, async (req) => {
+    assertInboxUri(req.params.uri);
+    subscribed = true;
+    return {};
+  });
+  server.setRequestHandler(UnsubscribeRequestSchema, async (req) => {
+    assertInboxUri(req.params.uri);
+    subscribed = false;
+    return {};
+  });
+  server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
+    assertInboxUri(req.params.uri);
+    if (!joined || stopped) throw new Error("Must join_project before reading inbox");
+    const room = joined;
+    try {
+      const page = InboxResponseSchema.parse(
+        await ctx.hubClient.getInbox(
+          room.projectId,
+          room.sessionId,
+          confirmed,
+          50,
+          AbortSignal.any([extra.signal, lifecycle.signal]),
+        ),
+      );
+      if (joined !== room || stopped) throw new Error("Connection changed during inbox read");
+      return {
+        contents: [{ uri: inboxUri, mimeType: "application/json", text: JSON.stringify(page) }],
+      };
+    } catch (error) {
+      throw new Error(safeError(error));
+    }
+  });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: tools.map((t) => ({
       name: t.name,
@@ -77,9 +137,13 @@ export function createMcpServer(ctx: McpServerContext): Server & { shutdown(): P
 
   server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     const { name, arguments: raw = {} } = req.params;
+    let joinAttempt = false;
     try {
       const args = raw as Record<string, unknown>;
       if (name === "join_project") {
+        if (joining) throw new Error("Join already in progress");
+        joining = true;
+        joinAttempt = true;
         const input = JoinProjectInputSchema.parse({
           project_id: ctx.defaultProjectId,
           agent_name: ctx.defaultAgentName,
@@ -108,6 +172,14 @@ export function createMcpServer(ctx: McpServerContext): Server & { shutdown(): P
           await ctx.hubClient
             .disconnect(joined.sessionId, joined.projectId, joined.agentId)
             .catch(() => {});
+        await listener?.stop();
+        if (stopped || extra?.signal?.aborted) {
+          if (joined?.sessionId !== session.session_id)
+            await ctx.hubClient
+              .disconnect(session.session_id, session.project_id, session.agent_id)
+              .catch(() => {});
+          throw new Error("Join cancelled while the adapter was closing");
+        }
         joined = {
           projectId: session.project_id,
           agentId: session.agent_id,
@@ -115,6 +187,17 @@ export function createMcpServer(ctx: McpServerContext): Server & { shutdown(): P
         };
         confirmed = session.last_cursor ?? encodeCursor(0);
         if (decodeCursor(confirmed) === null) throw new Error("Invalid session cursor from Hub");
+        listener = new BackgroundListener(ctx.hubClient, joined, () => {
+          if (subscribed && !stopped && !sendingHint) {
+            sendingHint = true;
+            void server
+              .sendResourceUpdated({ uri: inboxUri })
+              .catch(() => {})
+              .finally(() => {
+                sendingHint = false;
+              });
+          }
+        });
         clearInterval(heartbeat);
         heartbeat = setInterval(() => {
           if (joined)
@@ -131,6 +214,7 @@ export function createMcpServer(ctx: McpServerContext): Server & { shutdown(): P
           cursor: confirmed,
           rules: [
             "Check inbox before and after significant work.",
+            "A background listener exposes agents-hub://inbox; compatible hosts can subscribe for hints without repeated listening tools. Reading never ACKs.",
             "Confirm next_cursor only after consuming the page, via check_inbox(cursor) or ack_inbox.",
             "Share summaries, never credentials or private reasoning.",
             "Locks coordinate intent; inactive agents do not wake automatically (ADR-006).",
@@ -174,6 +258,8 @@ export function createMcpServer(ctx: McpServerContext): Server & { shutdown(): P
         isError: true,
         content: [{ type: "text" as const, text: `Tool Execution Error: ${safeError(error)}` }],
       };
+    } finally {
+      if (joinAttempt) joining = false;
     }
   });
   return server;

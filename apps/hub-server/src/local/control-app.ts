@@ -15,6 +15,7 @@ import { AdministrationService } from "../application/services/administration-se
 import { LocalWorkspaceService } from "../application/services/local-workspace-service.js";
 import { registerStaticRoutes } from "../http/routes/static-routes.js";
 import { SqliteAdministrationRepository } from "../infrastructure/repositories/sqlite-administration-repository.js";
+import type { ConnectionAssistant } from "./connection-assistant.js";
 
 export interface LocalRuntime {
   context(): AppContext;
@@ -40,6 +41,7 @@ export function buildLocalControl(
   now = Date.now,
   closeCompanion?: () => void,
   installation?: LocalInstallation,
+  connections?: Pick<ConnectionAssistant, "start" | "finish" | "list">,
 ) {
   const parsedOrigin = new URL(origin);
   if (
@@ -178,6 +180,18 @@ export function buildLocalControl(
     ...administrative().snapshot(),
     runtime: runtime.status(),
   }));
+  app.get("/local-api/connections", async () => (connections ? await connections.list() : []));
+  for (const operation of ["start", "finish"] as const)
+    app.post(`/local-api/connections/${operation}`, async (req) => {
+      if (!connections || changingRuntime)
+        throw new AppError("STATE_CONFLICT", "Espera a que termine la operación del compañero.");
+      changingRuntime = true;
+      try {
+        return await connections[operation](req.body);
+      } finally {
+        changingRuntime = false;
+      }
+    });
   app.get("/local-api/installation", async () =>
     LocalInstallationSchema.parse(
       installation

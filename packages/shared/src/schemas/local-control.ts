@@ -1,6 +1,17 @@
 import { z } from "zod";
 import { UuidSchema } from "../ids.js";
+import { DeviceRequestInputSchema, DeviceRequestSchema } from "./device.js";
 import { ProjectSchema } from "./project.js";
+
+export const LocalConnectionStartInputSchema = DeviceRequestInputSchema.extend({
+  hub_url: z.string().min(1).max(2048),
+}).strict();
+export const LocalConnectionFinishInputSchema = z
+  .object({ connection_id: UuidSchema, confirm: z.literal(true) })
+  .strict();
+export const LocalConnectionAttemptSchema = DeviceRequestSchema.omit({ device_secret: true })
+  .extend(LocalConnectionStartInputSchema.shape)
+  .strict();
 
 export const LocalShutdownInputSchema = z.object({ confirm: z.literal(true) }).strict();
 export const LocalInstallInputSchema = z

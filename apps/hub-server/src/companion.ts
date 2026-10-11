@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadConfig } from "@agents-hub/config";
 import { createDatabase } from "./infrastructure/db/database.js";
+import { ConnectionAssistant } from "./local/connection-assistant.js";
 import { type LocalInstallation, buildLocalControl } from "./local/control-app.js";
 import { LocalInstance } from "./local/instance.js";
 import { companionPaths } from "./local/paths.js";
@@ -112,6 +113,10 @@ async function startCompanion(
         );
       }),
     installation,
+    new ConnectionAssistant(
+      path.join(paths.data, "connections"),
+      path.join(paths.resources, "packages/mcp-server/dist/main.js"),
+    ),
   );
   let stopping = false;
   async function stop() {

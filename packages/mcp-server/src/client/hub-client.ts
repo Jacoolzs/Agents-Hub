@@ -1,3 +1,4 @@
+import WebSocket from "ws";
 import { withRetry } from "./retry.js";
 
 export interface HubClientConfig {
@@ -89,6 +90,28 @@ export class HubClient {
       method: "POST",
       idempotencyKey: instanceId,
       body: { agent_id: agentId, instance_id: instanceId },
+    });
+  }
+
+  public async openEvents(projectId: string, sessionId: string, signal: AbortSignal) {
+    const { ticket } = await this.request<{ ticket: string }>(
+      `/v1/projects/${projectId}/ws-ticket`,
+      { method: "POST", body: { session_id: sessionId }, signal },
+    );
+    signal.throwIfAborted();
+    if (typeof ticket !== "string" || !/^wst_[A-Za-z0-9_-]{32}$/.test(ticket))
+      throw new Error("Invalid WebSocket ticket");
+    const url = new URL(`${this.baseUrl}/v1/projects/${projectId}/events`);
+    const origin = url.origin;
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.searchParams.set("session_id", sessionId);
+    url.searchParams.set("ticket", ticket);
+    return new WebSocket(url, {
+      origin,
+      followRedirects: false,
+      handshakeTimeout: 10000,
+      maxPayload: 128 * 1024,
+      perMessageDeflate: false,
     });
   }
 

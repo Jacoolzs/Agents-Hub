@@ -1,0 +1,13 @@
+# Asistente común de conexión
+
+ADR-030: el compañero dueño del mutex de datos es el único escritor. No nuevo servicio, dependencia ni configuración de cliente real.
+
+Cada intento ocupa `connections/attempts/<UUID>` privado, con etapas no secretas creadas exclusivamente. El secreto de dispositivo permanece sólo en memoria. Antes de solicitar se verifica el proveedor nativo mediante una reserva sintética propia y se retira esa reserva. Antes de canjear se publica la marca `exchange.json`: nunca repetir ese canje, ni tras error o reinicio. Respuesta perdida, vencimiento, proveedor que falla después o crash requieren revisar/revocar la credencial en el portal y crear otra solicitud. El diario permite identificar URL, solicitud y token conocido; nunca recupera bearer.
+
+La credencial se guarda primero en NativeSecretStore de `connections/credentials`. Metadata estricta v1 se escribe completa en staging privado, se sincroniza y se publica por hardlink exclusivo a `connections/<UUID>.json`; destino existente rechaza, ningún lector ve JSON parcial. No se reparan permisos ni reservas existentes ni se eliminan credenciales automáticamente. No hay transacción distribuida, garantía ante corte eléctrico ni protección contra mismo usuario/root/carreras maliciosas de ancestros. El mutex se conserva durante cierre y escrituras. Borrar local no revoca Hub.
+
+Flujo visual previsto: URL del Hub y etiqueta → abrir portal e iniciar sesión humana → revisar identidad/proyecto/rol y confirmar explícitamente → regresar y canjear/guardar una vez → exportar referencia MCP sin bearer. El enlace sólo lleva request_id público por fragmento, no secreto ni proof. La UI descarta previews obsoletos; opening nunca aprueba. Un cliente desconocido usa configuración genérica; no se promete configuración automática universal ni despertar universal de IA. Cambiar referencia requiere reiniciar MCP.
+
+Escritor y flujo visual ya implementados (gates en BITACORA). El proveedor se comprueba también justo antes de canjear; referencia preexistente rechaza antes de emisión. La lista carga con progreso y bloquea preparación concurrente. Configuración genérica descargable, no importación automática/adaptador comercial ni diagnóstico gráfico. Nombre lógico por conexión: etiqueta ASCII acotada más UUID completo, evitando colisión entre amigos; varias IA independientes requieren conexiones separadas. Guardada describe estado local, no acceso vigente remoto.
+
+Pruebas sólo con datos TEMP/proveedores sintéticos o nativos aislados. El desarrollo no modifica perfiles de agentes, keyrings reales ni el Hub del usuario. Ver LOCAL_CONNECTION.md, CREDENTIAL_STORE.md y DEVICE_PAIRING.md para contratos previos.

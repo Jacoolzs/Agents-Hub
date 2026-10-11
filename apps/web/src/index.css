@@ -1196,3 +1196,61 @@ body {
     padding-left: 0;
   }
 }
+.connection-assistant {
+  max-width: 760px;
+  text-align: left;
+}
+.connection-assistant form {
+  display: grid;
+  gap: 8px;
+  margin-block: 24px;
+}
+.connection-assistant input:not([type="checkbox"]) {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: white;
+}
+.connection-assistant button,
+.connection-assistant a {
+  min-height: 44px;
+  margin: 4px 8px 4px 0;
+  padding: 10px 12px;
+  display: inline-block;
+}
+.connection-assistant button {
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+}
+.connection-assistant button:disabled {
+  cursor: not-allowed;
+  color: #52657b;
+  background: #e2e8f0;
+}
+.connection-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  padding-left: 24px;
+}
+.connection-list {
+  list-style: none;
+  padding: 0;
+}
+.connection-list > li {
+  border-top: 1px solid #cbd5e1;
+  padding-block: 24px;
+  overflow-wrap: anywhere;
+}
+.connection-confirm {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  margin-block: 16px;
+}
+.connection-assistant p {
+  max-width: 65ch;
+}
