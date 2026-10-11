@@ -7,6 +7,7 @@ import {
   WebInvitationMetadataSchema,
 } from "@agents-hub/shared";
 import React, { useEffect, useRef, useState } from "react";
+import { LocalInstallationPanel } from "./LocalInstallationPanel";
 import { LocalInvitationForm } from "./LocalInvitationForm";
 import { LocalWorkspaceForm } from "./LocalWorkspaceForm";
 
@@ -270,6 +271,7 @@ export function LocalControlView() {
           </section>
         ) : (
           <>
+            <LocalInstallationPanel busy={busy} run={act} />
             {!snapshot.projects.length && (
               <LocalWorkspaceForm
                 users={snapshot.users}

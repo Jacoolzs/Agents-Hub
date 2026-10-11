@@ -3,7 +3,7 @@ import { loadConfig } from "@agents-hub/config";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createDatabase } from "../infrastructure/db/database.js";
-import { type LocalRuntime, buildLocalControl } from "./control-app.js";
+import { type LocalInstallation, type LocalRuntime, buildLocalControl } from "./control-app.js";
 import { CompanionRuntime } from "./runtime.js";
 
 const origin = "http://127.0.0.1:8791";
@@ -13,7 +13,11 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function fixture(clock?: () => number, closeCompanion?: () => void) {
+async function fixture(
+  clock?: () => number,
+  closeCompanion?: () => void,
+  installation?: LocalInstallation,
+) {
   const hub = buildApp();
   await hub.ready();
   const runtime: LocalRuntime = {
@@ -24,7 +28,14 @@ async function fixture(clock?: () => number, closeCompanion?: () => void) {
     share: async () => {},
     stopSharing: async () => {},
   };
-  const control = buildLocalControl(runtime, origin, undefined, clock, closeCompanion);
+  const control = buildLocalControl(
+    runtime,
+    origin,
+    undefined,
+    clock,
+    closeCompanion,
+    installation,
+  );
   cleanups.push(async () => {
     await control.app.close();
     await hub.close();
@@ -48,6 +59,134 @@ async function fixture(clock?: () => number, closeCompanion?: () => void) {
 }
 
 describe("local administrative boundary", () => {
+  it("requires private explicit installation and keeps runtime and shutdown serialized", async () => {
+    let finish: (() => void) | undefined;
+    let entered: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const result = {
+      installed: true,
+      destination: "resources",
+      data: "data",
+      label: "Agents-Hub",
+      shortcuts: ["menu"],
+    };
+    const installer = {
+      describe: async () => ({ state: "ready", destination: "resources", data: "data" }),
+      install: async (_desktop: boolean) => {
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+          entered?.();
+        });
+        return result;
+      },
+    };
+    const f = await fixture(undefined, () => {}, installer);
+    const url = "/local-api/installation";
+    expect(
+      (await f.hub.inject({ method: "POST", url, payload: { confirm: true } })).statusCode,
+    ).toBe(404);
+    expect((await f.control.app.inject({ method: "GET", url, headers })).statusCode).toBe(401);
+    const authenticated = await f.connect();
+    for (const altered of [
+      { ...authenticated, origin: "https://example.com" },
+      { ...authenticated, host: "example.com" },
+    ])
+      expect(
+        (
+          await f.control.app.inject({
+            method: "POST",
+            url,
+            headers: altered,
+            payload: { confirm: true },
+          })
+        ).statusCode,
+      ).toBe(403);
+    for (const payload of [
+      {},
+      { confirm: false },
+      { confirm: true, path: "foreign" },
+      { confirm: true, desktop: "yes" },
+    ])
+      expect(
+        (await f.control.app.inject({ method: "POST", url, headers: authenticated, payload }))
+          .statusCode,
+      ).toBe(422);
+    expect(
+      (await f.control.app.inject({ method: "GET", url, headers: authenticated })).json(),
+    ).toEqual(await installer.describe());
+    const pending = f.control.app
+      .inject({
+        method: "POST",
+        url,
+        headers: authenticated,
+        payload: { confirm: true, desktop: true },
+      })
+      .then((reply) => reply);
+    await started;
+    try {
+      for (const blocked of [url, "/local-api/runtime/start", "/local-api/companion/shutdown"])
+        expect(
+          (
+            await f.control.app.inject({
+              method: "POST",
+              url: blocked,
+              headers: authenticated,
+              payload: { confirm: true },
+            })
+          ).statusCode,
+        ).toBe(409);
+    } finally {
+      finish?.();
+    }
+    expect((await pending).json()).toEqual(result);
+    installer.install = async () => {
+      throw new Error("private path detail");
+    };
+    const failed = await f.control.app.inject({
+      method: "POST",
+      url,
+      headers: authenticated,
+      payload: { confirm: true },
+    });
+    expect(failed.statusCode).toBe(409);
+    expect(failed.body).not.toContain("private path detail");
+    installer.install = async () => result;
+    expect(
+      (
+        await f.control.app.inject({
+          method: "POST",
+          url,
+          headers: authenticated,
+          payload: { confirm: true },
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+  it("does not offer installation in development without a packaged callback", async () => {
+    const f = await fixture();
+    const authenticated = await f.connect();
+    expect(
+      (
+        await f.control.app.inject({
+          method: "GET",
+          url: "/local-api/installation",
+          headers: authenticated,
+        })
+      ).json(),
+    ).toEqual({ state: "unavailable", destination: null, data: null });
+    expect(
+      (
+        await f.control.app.inject({
+          method: "POST",
+          url: "/local-api/installation",
+          headers: authenticated,
+          payload: { confirm: true },
+        })
+      ).statusCode,
+    ).toBe(409);
+  });
   it("does not advertise successful closure without a companion lifecycle callback", async () => {
     const f = await fixture();
     expect(

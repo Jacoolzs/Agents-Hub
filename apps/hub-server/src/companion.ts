@@ -2,10 +2,10 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadConfig } from "@agents-hub/config";
 import { createDatabase } from "./infrastructure/db/database.js";
-import { buildLocalControl } from "./local/control-app.js";
+import { type LocalInstallation, buildLocalControl } from "./local/control-app.js";
 import { LocalInstance } from "./local/instance.js";
 import { companionPaths } from "./local/paths.js";
 import { CompanionRuntime } from "./local/runtime.js";
@@ -76,6 +76,21 @@ async function startCompanion(
   config: ReturnType<typeof loadConfig>,
   controlPort: number,
 ) {
+  let installation: LocalInstallation | undefined;
+  try {
+    await access(path.join(paths.resources, "artifact.json"));
+    const module = await import(
+      pathToFileURL(path.join(paths.resources, "scripts/install-ui.mjs")).href
+    );
+    installation = module.createInstallation(paths.resources, {
+      AGENTS_HUB_DATA_DIR: paths.data,
+      DATABASE_URL: paths.database,
+      PORT: String(config.PORT),
+      LOCAL_CONTROL_PORT: String(controlPort),
+    });
+  } catch {
+    /* Development and incomplete packages do not advertise installation. */
+  }
   const db = createDatabase(config.DATABASE_URL);
   let runtime: CompanionRuntime;
   try {
@@ -96,6 +111,7 @@ async function startCompanion(
           "No se completó el cierre limpio de Agents-Hub. Comprueba su estado antes de reabrir.",
         );
       }),
+    installation,
   );
   let stopping = false;
   async function stop() {

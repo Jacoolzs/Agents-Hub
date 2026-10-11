@@ -1,12 +1,16 @@
 # Panel local del anfitrión
 
-Primer incremento de la experiencia sencilla: administrar usuarios/accesos/proyectos y controlar Hub/túnel desde una interfaz web local reutilizada. El instalador sin requisitos de desarrollo, invitaciones con onboarding humano, emparejamiento MCP, listener y operación permanente siguen como incrementos del mismo objetivo.
+Primer incremento de la experiencia sencilla: administrar usuarios/accesos/proyectos y controlar Hub/túnel desde una interfaz web local reutilizada. El preview ya permite instalación por usuario sin requisitos de desarrollo y el portal tiene onboarding humano. Emparejamiento MCP, listener y operación permanente siguen como incrementos del mismo objetivo.
 
 ## Uso de desarrollo
 
 En `feat/easy-onboarding`, instalar dependencias y ejecutar `pnpm build`, después `pnpm companion` desde la raíz. Abre el navegador con entrada privada y mantiene el panel en 127.0.0.1:8791; el Hub permanece detenido hasta pulsar Iniciar o Compartir. Usa DATABASE_URL/PORT existentes y LOCAL_CONTROL_PORT opcional (distinto, 1024–65535). Compartir está disponible inicialmente en Windows x64; el Hub/panel local no requiere túnel. No ejecutar simultáneamente el launcher anterior sobre la misma DB. Ctrl+C cierra el compañero y sus procesos propios.
 
-Después de cerrar sesión, vencer la entrada o las ocho horas, lanzar de nuevo `pnpm companion` con la misma carpeta de datos/DB/puertos. El segundo lanzamiento abre una entrada privada nueva del proceso propio y termina sin reiniciar el Hub. Tras crash de una instancia v2, recupera mediante mutex nativo, conserva datos y comienza con Hub detenido. Configuración distinta, permisos privados no verificables y registros incompatibles/corruptos o antiguos v1 sin respuesta se rechazan sin tomar otro proceso; no borrar registros ni matar PID por suposición. El acceso directo/instalador sin terminal sigue pendiente. Contrato y límites en [COMPANION_DISTRIBUTION](COMPANION_DISTRIBUTION.md).
+Después de cerrar sesión, vencer la entrada o las ocho horas, lanzar de nuevo `pnpm companion` con la misma carpeta de datos/DB/puertos, o abrir el acceso creado desde el preview. El segundo lanzamiento abre una entrada privada nueva del proceso propio y termina sin reiniciar el Hub. Tras crash de una instancia v2, recupera mediante mutex nativo, conserva datos y comienza con Hub detenido. Configuración distinta, permisos privados no verificables y registros incompatibles/corruptos o antiguos v1 sin respuesta se rechazan sin tomar otro proceso; no borrar registros ni matar PID por suposición. El preview permite instalar y crear accesos desde el panel; conserva consola visible, sin autostart/tray ni release firmado. Contrato y límites en [COMPANION_DISTRIBUTION](COMPANION_DISTRIBUTION.md).
+
+## Instalación desde el preview
+
+`Instalar en este PC` aparece únicamente con el paquete completo. Revisar → confirmar crea el acceso del usuario; escritorio opcional. Cancelar no escribe recursos/accesos. GET `/local-api/installation` describe rutas y estado; POST exige `{confirm:true,desktop?:boolean}` y la misma frontera privada. Instalación, cambios de runtime y cierre no se ejecutan simultáneamente. La copia completa se verifica y reutiliza; parciales/accesos ajenos no se sobrescriben. No se mueve la DB ni se reinicia el Hub activo. Para usar la copia instalada, cerrar el compañero y abrir el acceso creado. Fallos permiten reintentar; revisar manualmente una copia parcial, sin borrado automático.
 
 ## Frontera de autoridad (ADR-022)
 

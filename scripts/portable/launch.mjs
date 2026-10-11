@@ -17,7 +17,7 @@ export function portableData(env = process.env, platform = process.platform, hom
   return path.normalize(result);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+export async function launchCompanion() {
   try {
     process.env.AGENTS_HUB_RESOURCE_DIR = fileURLToPath(new URL("../", import.meta.url));
     process.env.AGENTS_HUB_DATA_DIR = portableData();
@@ -28,3 +28,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (process.connected) process.disconnect();
   }
 }
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+  await launchCompanion();

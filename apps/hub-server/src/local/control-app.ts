@@ -2,6 +2,9 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
   AppError,
   LocalBootstrapSchema,
+  LocalInstallInputSchema,
+  LocalInstallationResultSchema,
+  LocalInstallationSchema,
   LocalProjectInputSchema,
   LocalShutdownInputSchema,
   UuidSchema,
@@ -25,6 +28,10 @@ export interface LocalRuntime {
   share(): Promise<void>;
   stopSharing(): Promise<void>;
 }
+export interface LocalInstallation {
+  describe(): Promise<unknown>;
+  install(desktop: boolean): Promise<unknown>;
+}
 
 export function buildLocalControl(
   runtime: LocalRuntime,
@@ -32,6 +39,7 @@ export function buildLocalControl(
   staticDirectory?: string,
   now = Date.now,
   closeCompanion?: () => void,
+  installation?: LocalInstallation,
 ) {
   const parsedOrigin = new URL(origin);
   if (
@@ -170,6 +178,37 @@ export function buildLocalControl(
     ...administrative().snapshot(),
     runtime: runtime.status(),
   }));
+  app.get("/local-api/installation", async () =>
+    LocalInstallationSchema.parse(
+      installation
+        ? await installation.describe()
+        : { state: "unavailable", destination: null, data: null },
+    ),
+  );
+  app.post("/local-api/installation", async (req) => {
+    const body = LocalInstallInputSchema.safeParse(req.body);
+    if (!body.success)
+      throw new AppError(
+        "INVALID_INPUT",
+        "Confirma la instalación y los accesos que quieres crear.",
+      );
+    if (!installation || changingRuntime)
+      throw new AppError(
+        "STATE_CONFLICT",
+        "Instala desde un paquete completo y espera a que termine cualquier operación en curso.",
+      );
+    changingRuntime = true;
+    try {
+      return LocalInstallationResultSchema.parse(await installation.install(body.data.desktop));
+    } catch {
+      throw new AppError(
+        "STATE_CONFLICT",
+        "No se completó la instalación o los accesos. Se conservan los datos y las copias existentes. Revisa permisos, carpetas incompletas y accesos con el mismo nombre; puedes reintentar sin reemplazarlos.",
+      );
+    } finally {
+      changingRuntime = false;
+    }
+  });
   app.post("/local-api/users", async (req) => administrative().createUser(req.body, req.id));
   app.post("/local-api/workspaces", async (req) => {
     const ctx = runtime.context();

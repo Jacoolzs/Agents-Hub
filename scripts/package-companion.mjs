@@ -215,6 +215,9 @@ export async function packageCompanion(destination) {
     await mkdir(path.join(output, "scripts/lib"), { recursive: true });
     for (const [source, target] of [
       ["portable/launch.mjs", "scripts/launch.mjs"],
+      ["portable/install.mjs", "scripts/install.mjs"],
+      ["portable/install-ui.mjs", "scripts/install-ui.mjs"],
+      ["portable/shortcuts.mjs", "scripts/shortcuts.mjs"],
       ["mcp-config.mjs", "scripts/mcp-config.mjs"],
       ["lib/hub-url.mjs", "scripts/lib/hub-url.mjs"],
     ])
@@ -225,7 +228,7 @@ export async function packageCompanion(destination) {
     const runtime = await runtimeInto(output, work);
     await writeFile(
       path.join(output, "LEEME.txt"),
-      "Agents-Hub: preview portable privado, sin instalador ni firma.\nAbre el launcher de esta carpeta. Mantén su consola abierta; cierra desde Cerrar Agents-Hub en el panel o con Ctrl+C.\nDatos separados de esta carpeta en LOCALAPPDATA/Agents-Hub (Windows) o XDG_DATA_HOME/agents-hub (~/.local/share/agents-hub) en Linux.\nNo se migra la DB histórica automáticamente. Reemplazar recursos no elimina datos.\nConexión MCP guiada, accesos directos e instalador nativo pendientes.\nNo publicar este preview: licencia del proyecto y release pendientes.\n",
+      "Agents-Hub: preview privado sin firma.\nAbre el launcher de esta carpeta y selecciona Revisar instalación en el panel privado. Confirma para guardar el programa en tu usuario y crear el acceso en Inicio/Aplicaciones; escritorio opcional. No requiere permisos de administrador.\nDespués cierra Agents-Hub desde el panel y abre el acceso creado para usar la copia instalada. Mantén su consola abierta; también puedes cerrar con Ctrl+C.\nDatos separados de esta carpeta en LOCALAPPDATA/Agents-Hub (Windows) o XDG_DATA_HOME/agents-hub (~/.local/share/agents-hub) en Linux.\nUna copia completa de la misma versión se comprueba y reutiliza; copias incompletas y accesos ajenos se conservan sin sobrescribir.\nEn Linux, la ejecución de launchers/accesos del escritorio depende de permisos y políticas del escritorio.\nNo se migra la DB histórica automáticamente. Instalar recursos nuevos no elimina datos ni habilita rollback de DB.\nConexión MCP guiada y distribución pública pendientes.\nNo publicar este preview: licencia del proyecto y release pendientes.\n",
     );
     const contents = await inventory(output);
     await writeFile(

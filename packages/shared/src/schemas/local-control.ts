@@ -3,6 +3,25 @@ import { UuidSchema } from "../ids.js";
 import { ProjectSchema } from "./project.js";
 
 export const LocalShutdownInputSchema = z.object({ confirm: z.literal(true) }).strict();
+export const LocalInstallInputSchema = z
+  .object({ confirm: z.literal(true), desktop: z.boolean().default(false) })
+  .strict();
+export const LocalInstallationSchema = z
+  .object({
+    state: z.enum(["unavailable", "ready", "installed", "partial"]),
+    destination: z.string().nullable(),
+    data: z.string().nullable(),
+  })
+  .strict();
+export const LocalInstallationResultSchema = z
+  .object({
+    installed: z.literal(true),
+    destination: z.string(),
+    data: z.string(),
+    label: z.string(),
+    shortcuts: z.array(z.string()).min(1),
+  })
+  .strict();
 
 export const LocalUserSchema = z.object({
   user_id: UuidSchema,

@@ -37,6 +37,8 @@ Navegación con estado visible y accesible; borradores y filtros permanecen al c
 
 Skills instaladas fuera del repositorio: `frontend-design` de `anthropics/skills` y `ui-ux-pro-max` de `nextlevelbuilder/ui-ux-pro-max-skill`, bajo `C:/Users/orlan/.codex/skills`. Ambas se leyeron y se utilizaron; sus recomendaciones no reemplazan las ADR ni el stack vigente.
 
+Instalación del preview: bloque operativo en el panel privado existente, sin nueva landing ni framework. Rutas en detalles, escritorio opcional y confirmación explícita. Cancelar recibe foco al revisar y devuelve foco al disparador; al completar, foco en el título del resultado. Botones bloqueados durante trabajo y mensaje de comprobación → éxito/error, sin cerrar el Hub ni ocultar consola. Recorrido E2E con teclado, 375/1280 y movimiento reducido; no sustituye una auditoría WCAG ni certifica políticas del escritorio Linux.
+
 ## Verificación observada
 
 Preparación inicial: dos datos obligatorios en un bloque de ancho legible, sin pedir credencial MCP; selección explícita de anfitrión existente si aplica. Tras preparar cambia a Proyectos e invitaciones, con foco en Iniciar Hub cuando queda habilitado. Skills orientan reducir pasos y etiquetar datos; el resultado de búsqueda Required Indicators se aplica sólo a indicar obligatoriedad, no se interpreta como evidencia de una recomendación de mínimo de campos. Reutiliza el sistema navy claro, sin fuentes/dependencias nuevas.

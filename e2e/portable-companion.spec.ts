@@ -1,9 +1,10 @@
-import { type ChildProcess, fork } from "node:child_process";
+import { type ChildProcess, execFile, fork } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
 
 const sdk = createRequire(path.resolve("packages/mcp-server/package.json"));
@@ -119,10 +120,39 @@ test("portable runtime runs Hub and MCP outside checkout, reopens and preserves 
   }
   try {
     await mkdir(cwd);
-    await test.step("copy isolated artifact", () =>
-      cp(path.resolve(process.env.AGENTS_HUB_PORTABLE_ARTIFACT as string), installed, {
-        recursive: true,
-      }));
+    await test.step("install with bundled runtime into fake user profile", async () => {
+      const source = path.resolve(process.env.AGENTS_HUB_PORTABLE_ARTIFACT as string);
+      const fakeUser = path.join(temporary, "fake user profile");
+      await promisify(execFile)(
+        path.join(source, "runtime", process.platform === "win32" ? "node.exe" : "node"),
+        [path.join(source, "scripts/install.mjs"), "--confirm"],
+        {
+          cwd,
+          windowsHide: true,
+          timeout: 60000,
+          env: {
+            ...process.env,
+            NODE_PATH: "",
+            NODE_OPTIONS: "",
+            LOCALAPPDATA: fakeUser,
+            XDG_DATA_HOME: fakeUser,
+            AGENTS_HUB_DATA_DIR: data,
+          },
+        },
+      );
+      const identifier = createHash("sha256")
+        .update(await readFile(path.join(source, "artifact.json")))
+        .digest("hex");
+      installed = path.join(
+        fakeUser,
+        process.platform === "win32" ? "Programs/Agents-Hub" : "agents-hub-program",
+        "versions",
+        identifier,
+      );
+      expect(JSON.parse(await readFile(path.join(installed, "installation.json"), "utf8"))).toEqual(
+        { format: 1, artifactSha256: identifier },
+      );
+    });
     const first = await test.step("launch bundled runtime", () => launch());
     const workspaceReply = await first.client.post(`${origin}/local-api/workspaces`, {
       data: { name: "Portable team", person: { kind: "new", username: "portable-host" } },
