@@ -3,6 +3,7 @@ import {
   AppError,
   LocalBootstrapSchema,
   LocalProjectInputSchema,
+  LocalShutdownInputSchema,
   UuidSchema,
 } from "@agents-hub/shared";
 import fastify from "fastify";
@@ -30,6 +31,7 @@ export function buildLocalControl(
   origin: string,
   staticDirectory?: string,
   now = Date.now,
+  closeCompanion?: () => void,
 ) {
   const parsedOrigin = new URL(origin);
   if (
@@ -45,6 +47,7 @@ export function buildLocalControl(
   let sessionUntil = 0;
   const bootstrapUrl = `${origin}/?local-control=1#local-control=${bootstrap}`;
   let changingRuntime = false;
+  let closing = false;
   const equal = (left: string | undefined, right: string | undefined) =>
     !!left &&
     !!right &&
@@ -69,6 +72,11 @@ export function buildLocalControl(
       throw new AppError("FORBIDDEN", "El panel sólo admite acceso desde este PC.");
     const route = req.routeOptions.url;
     if (!route?.startsWith("/local-api/")) return;
+    if (closing)
+      throw new AppError(
+        "STATE_CONFLICT",
+        "Agents-Hub se está cerrando. Reabre el compañero después de que termine.",
+      );
     const requestOrigin = req.headers.origin;
     if (
       (requestOrigin && requestOrigin !== origin) ||
@@ -131,6 +139,33 @@ export function buildLocalControl(
     reply.header("set-cookie", "ah_local=; HttpOnly; SameSite=Strict; Path=/local-api/; Max-Age=0");
     return { connected: false };
   });
+  app.post(
+    "/local-api/companion/shutdown",
+    {
+      onResponse: async (_req, reply) => {
+        // Never close the HTTP listener before the acceptance response has been sent.
+        if (reply.statusCode === 202) closeCompanion?.();
+      },
+    },
+    async (req, reply) => {
+      if (!LocalShutdownInputSchema.safeParse(req.body).success)
+        throw new AppError("INVALID_INPUT", "Confirma el cierre de Agents-Hub.");
+      if (!closeCompanion || changingRuntime)
+        throw new AppError(
+          "STATE_CONFLICT",
+          "No se puede cerrar ahora. Espera a que termine la operación y vuelve a intentarlo.",
+        );
+      closing = true;
+      bootstrap = undefined;
+      session = undefined;
+      sessionUntil = 0;
+      reply.header(
+        "set-cookie",
+        "ah_local=; HttpOnly; SameSite=Strict; Path=/local-api/; Max-Age=0",
+      );
+      return reply.code(202).send({ closing: true });
+    },
+  );
   app.get("/local-api/snapshot", async () => ({
     ...administrative().snapshot(),
     runtime: runtime.status(),
@@ -233,6 +268,7 @@ export function buildLocalControl(
     });
   if (staticDirectory) registerStaticRoutes(app, staticDirectory);
   const issueBootstrap = () => {
+    if (closing) throw new Error("Companion is closing");
     bootstrap = randomBytes(32).toString("base64url");
     bootstrapUntil = now() + 300000;
     return `${origin}/?local-control=1#local-control=${bootstrap}`;

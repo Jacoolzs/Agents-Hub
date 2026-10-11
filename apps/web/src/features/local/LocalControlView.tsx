@@ -48,12 +48,31 @@ async function loadSnapshot() {
 }
 
 export function LocalControlView() {
+  useEffect(() => {
+    // A browser may reuse the same tab when the companion opens a fresh private entry.
+    // Reload the local view so the prior closed session cannot retain its initialization.
+    const reopen = () => {
+      if (/^#local-control=[A-Za-z0-9_-]{43}$/.test(window.location.hash)) window.location.reload();
+    };
+    window.addEventListener("hashchange", reopen);
+    return () => window.removeEventListener("hashchange", reopen);
+  }, []);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [invitations, setInvitations] = useState<WebInvitationMetadata[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [closed, setClosed] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [shutdownRequested, setShutdownRequested] = useState(false);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const cancelClose = useRef<HTMLButtonElement>(null);
+  const closedHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (confirmClose) cancelClose.current?.focus();
+    else if (!closed) closeButton.current?.focus();
+    if (closed) closedHeading.current?.focus();
+  }, [confirmClose, closed]);
   const [tab, setTab] = useState<"people" | "projects">("people");
   const [username, setUsername] = useState("");
   const [ttl, setTtl] = useState(28800);
@@ -139,24 +158,34 @@ export function LocalControlView() {
           <p>Administración en este PC</p>
         </div>
         {!closed && snapshot && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true);
-              void request("logout", "POST")
-                .then(() => {
-                  setClosed(true);
-                  setSnapshot(null);
-                  setInvitations([]);
-                  setSecret(null);
-                })
-                .catch((e: Error) => setError(e.message))
-                .finally(() => setBusy(false));
-            }}
-          >
-            Cerrar sesión local
-          </button>
+          <div className="local-actions">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                void request("logout", "POST")
+                  .then(() => {
+                    setClosed(true);
+                    setSnapshot(null);
+                    setInvitations([]);
+                    setSecret(null);
+                  })
+                  .catch((e: Error) => setError(e.message))
+                  .finally(() => setBusy(false));
+              }}
+            >
+              Cerrar sesión local
+            </button>
+            <button
+              type="button"
+              ref={closeButton}
+              disabled={busy || confirmClose}
+              onClick={() => setConfirmClose(true)}
+            >
+              Cerrar Agents-Hub
+            </button>
+          </div>
         )}
       </header>
       <main id="local-main" className="local-main" tabIndex={-1}>
@@ -170,10 +199,66 @@ export function LocalControlView() {
           </div>
         )}
         {notice && <output className="local-notice">{notice}</output>}
+        {confirmClose && !closed && (
+          <section className="local-section" aria-labelledby="close-title">
+            <h2 id="close-title">¿Cerrar Agents-Hub en este PC?</h2>
+            <p>
+              Se detendrán tu Hub y el acceso compartido. Tu equipo perderá la conexión hasta que
+              vuelvas a iniciarlo. Las personas y los proyectos se conservan.
+            </p>
+            <div className="local-actions">
+              <button
+                type="button"
+                ref={cancelClose}
+                disabled={busy}
+                onClick={() => {
+                  setConfirmClose(false);
+                }}
+              >
+                Cancelar cierre
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (busy) return;
+                  setBusy(true);
+                  setError("");
+                  setNotice("");
+                  void request<{ closing: boolean }>("companion/shutdown", "POST", {
+                    confirm: true,
+                  })
+                    .then((result) => {
+                      if (result.closing !== true)
+                        throw new Error(
+                          "No se confirmó la solicitud de cierre. Comprueba el estado antes de reintentar.",
+                        );
+                      setShutdownRequested(true);
+                      setClosed(true);
+                      setConfirmClose(false);
+                      setSnapshot(null);
+                      setInvitations([]);
+                      setSecret(null);
+                    })
+                    .catch((e: Error) => setError(e.message))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                {busy ? "Procesando…" : "Confirmar cierre de Agents-Hub"}
+              </button>
+            </div>
+          </section>
+        )}
         {closed ? (
           <section className="local-section">
-            <h2>Sesión local cerrada</h2>
-            <p>El Hub conserva su estado. Reabre el compañero para volver a administrar.</p>
+            <h2 ref={closedHeading} tabIndex={-1}>
+              {shutdownRequested ? "Cierre de Agents-Hub solicitado" : "Sesión local cerrada"}
+            </h2>
+            <p>
+              {shutdownRequested
+                ? "Agents-Hub está cerrando sus servicios en este PC. Puedes cerrar esta pestaña. Reabre el compañero cuando quieras volver; tus datos se conservan."
+                : "El Hub conserva su estado. Reabre el compañero para volver a administrar."}
+            </p>
           </section>
         ) : !snapshot ? (
           <section className="local-section">

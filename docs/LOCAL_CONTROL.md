@@ -20,6 +20,12 @@ Hub y túnel tienen estado observado, operaciones serializadas y errores visible
 
 ## Diseño
 
+### Cerrar el compañero desde el panel
+
+`Cerrar Agents-Hub` es distinto de cerrar sesión o detener sólo el Hub. La confirmación permite cancelar y explica que se interrumpe la colaboración; conserva personas/proyectos y no controla procesos ajenos. `POST /local-api/companion/shutdown` exige cookie local, Host/Origin y body exacto `{confirm:true}`. Rechaza un cambio de runtime en curso; al aceptar bloquea nuevas operaciones/entradas, responde202 y sólo después dispara el cierre del listener, Hub/túnel propios, DB y mutex.202 acredita solicitud aceptada, no cierre final. La interfaz no consulta snapshot después ni intenta cerrar una pestaña que no abrió; indica reabrir el compañero. Sin autoridad pública ni instalador/background implícitos.
+
+El callback se dispara en [onResponse de Fastify](https://fastify.dev/docs/latest/Reference/Hooks/#onresponse), después del envío de la respuesta; el cierre existente drena peticiones antes de liberar DB y mutex. Si falla el cierre del túnel propio, igualmente intenta cerrar el Hub y reporta error, sin matar PIDs ajenos ni declarar éxito limpio.
+
 ### Preparación inicial guiada
 
 Con la misma autoridad local privada, `POST /local-api/workspaces` recibe `{name, person}` (persona nueva con username o selección explícita de user_id existente). Reserva una identidad sin emitir acceso MCP, crea proyecto/owner, evento y auditoría en una transacción. Un nombre ocupado se rechaza sin reutilizar identidad; no hay registro público, contraseña, owner global ni arranque/túnel implícito. La salida sólo contiene metadata de usuario/proyecto. Se reutilizan puertos administrativos, ProjectService, SQLite y eventos; servicio de composición necesario para conservar atomicidad sin SQL nuevo en rutas/UI, sin dependencia externa/migración.

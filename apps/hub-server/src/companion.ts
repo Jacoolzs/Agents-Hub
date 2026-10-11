@@ -88,6 +88,14 @@ async function startCompanion(
     runtime,
     `http://127.0.0.1:${controlPort}`,
     config.WEB_STATIC_DIR,
+    Date.now,
+    () =>
+      void stop().catch(() => {
+        process.exitCode = 1;
+        console.error(
+          "No se completó el cierre limpio de Agents-Hub. Comprueba su estado antes de reabrir.",
+        );
+      }),
   );
   let stopping = false;
   async function stop() {
@@ -122,7 +130,7 @@ async function startCompanion(
     });
     openPanel(bootstrapUrl);
     console.log(
-      "Agents-Hub: panel local abierto. Hub detenido hasta que pulses Iniciar. Cierra el compañero con Ctrl+C.",
+      "Agents-Hub: panel local abierto. Hub detenido hasta que pulses Iniciar. Cierra desde el panel o con Ctrl+C.",
     );
   } catch {
     console.error("El panel no pudo iniciarse. Comprueba que su puerto esté libre.");

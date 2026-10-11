@@ -2,6 +2,8 @@ import { z } from "zod";
 import { UuidSchema } from "../ids.js";
 import { ProjectSchema } from "./project.js";
 
+export const LocalShutdownInputSchema = z.object({ confirm: z.literal(true) }).strict();
+
 export const LocalUserSchema = z.object({
   user_id: UuidSchema,
   username: z.string(),

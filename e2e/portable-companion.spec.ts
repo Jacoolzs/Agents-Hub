@@ -182,7 +182,14 @@ test("portable runtime runs Hub and MCP outside checkout, reopens and preserves 
     expect(
       (await (await recovered.client.get(`${origin}/local-api/snapshot`)).json()).projects,
     ).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Portable team" })]));
-    await stop(recovered.child);
+    expect(
+      (
+        await recovered.client.post(`${origin}/local-api/companion/shutdown`, {
+          data: { confirm: true },
+        })
+      ).status(),
+    ).toBe(202);
+    await expect.poll(() => recovered.child.exitCode, { timeout: 5000 }).toBe(0);
     const updated = path.join(temporary, "relocated version");
     await rename(installed, updated);
     installed = updated;

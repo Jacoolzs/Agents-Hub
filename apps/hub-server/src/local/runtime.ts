@@ -70,8 +70,11 @@ export class CompanionRuntime implements LocalRuntime {
     this.idle = hub.ctx;
   }
   async stop() {
-    await this.tunnel.stop();
-    await this.stopHub();
+    try {
+      await this.tunnel.stop();
+    } finally {
+      await this.stopHub();
+    }
   }
   async share() {
     if (this.tunnel.url() && this.hub) return;

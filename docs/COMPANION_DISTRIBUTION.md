@@ -61,6 +61,8 @@ Aceptación: muerte forzada de un proceso de prueba propio y recuperación real,
 
 ## Primer artefacto autocontenido (preview privado)
 
+Corte de cierre gráfico: el panel ya ofrece `Cerrar Agents-Hub` con confirmación privada (ver LOCAL_CONTROL); cierra sólo sus servicios/DB/mutex. No se oculta todavía la consola ni se entrega instalador/acceso integrado. La aceptación comprueba salida real y reentrada con datos conservados, incluyendo pestaña reutilizada;202 sólo acredita solicitud aceptada.
+
 Formato inicial: carpeta portable por plataforma, Windows x64/Linux x64 glibc, construida en el mismo sistema de destino. No Electron/Tauri, dependencia npm ni servicio nuevo. El productor necesita el entorno de desarrollo; quien ejecuta la carpeta no necesita Git/Node/pnpm ni compilar. Instalador nativo, accesos directos integrados, firma y publicación de binarios quedan para el siguiente corte; no declarar instalación guiada final ni doble clic Linux universal.
 
 `pnpm package:companion --output <carpeta-absoluta-nueva>` exige build previo, pnpm12.10.1 del productor y destino nuevo; nunca sobrescribe ni limpia destinos del usuario. Usa `pnpm deploy --prod --node-linker=hoisted --ignore-scripts --frozen-lockfile` para Hub/MCP aislados, preservando versiones del lockfile, y copia sólo dist/manifest/dependencias y web compilada. El artefacto no contiene checkout, pruebas del proyecto, pnpm, configuración personal ni DB; paquetes de terceros conservan sus archivos publicados. Se rechazan symlinks y módulos nativos de dependencias en este corte. Licencias/avisos distribuidos con las dependencias se conservan; inventario por nombre/versión/licencia declarada y hashes de todos los archivos, no certificación legal exhaustiva.

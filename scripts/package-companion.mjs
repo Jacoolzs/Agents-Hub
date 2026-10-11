@@ -225,7 +225,7 @@ export async function packageCompanion(destination) {
     const runtime = await runtimeInto(output, work);
     await writeFile(
       path.join(output, "LEEME.txt"),
-      "Agents-Hub: preview portable privado, sin instalador ni firma.\nAbre el launcher de esta carpeta. Mantén su consola abierta; Ctrl+C cierra el compañero.\nDatos separados de esta carpeta en LOCALAPPDATA/Agents-Hub (Windows) o XDG_DATA_HOME/agents-hub (~/.local/share/agents-hub) en Linux.\nNo se migra la DB histórica automáticamente. Reemplazar recursos no elimina datos.\nConexión MCP guiada, accesos directos e instalador nativo pendientes.\nNo publicar este preview: licencia del proyecto y release pendientes.\n",
+      "Agents-Hub: preview portable privado, sin instalador ni firma.\nAbre el launcher de esta carpeta. Mantén su consola abierta; cierra desde Cerrar Agents-Hub en el panel o con Ctrl+C.\nDatos separados de esta carpeta en LOCALAPPDATA/Agents-Hub (Windows) o XDG_DATA_HOME/agents-hub (~/.local/share/agents-hub) en Linux.\nNo se migra la DB histórica automáticamente. Reemplazar recursos no elimina datos.\nConexión MCP guiada, accesos directos e instalador nativo pendientes.\nNo publicar este preview: licencia del proyecto y release pendientes.\n",
     );
     const contents = await inventory(output);
     await writeFile(

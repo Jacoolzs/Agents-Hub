@@ -13,7 +13,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function fixture(clock?: () => number) {
+async function fixture(clock?: () => number, closeCompanion?: () => void) {
   const hub = buildApp();
   await hub.ready();
   const runtime: LocalRuntime = {
@@ -24,7 +24,7 @@ async function fixture(clock?: () => number) {
     share: async () => {},
     stopSharing: async () => {},
   };
-  const control = buildLocalControl(runtime, origin, undefined, clock);
+  const control = buildLocalControl(runtime, origin, undefined, clock, closeCompanion);
   cleanups.push(async () => {
     await control.app.close();
     await hub.close();
@@ -48,6 +48,123 @@ async function fixture(clock?: () => number) {
 }
 
 describe("local administrative boundary", () => {
+  it("does not advertise successful closure without a companion lifecycle callback", async () => {
+    const f = await fixture();
+    expect(
+      (
+        await f.control.app.inject({
+          method: "POST",
+          url: "/local-api/companion/shutdown",
+          headers: await f.connect(),
+          payload: { confirm: true },
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(() => f.control.issueBootstrap()).not.toThrow();
+  });
+  it("accepts only confirmed private shutdown and fences new operations and reentry", async () => {
+    let closed = 0;
+    const f = await fixture(undefined, () => {
+      closed++;
+    });
+    const url = "/local-api/companion/shutdown";
+    expect(
+      (await f.hub.inject({ method: "POST", url, payload: { confirm: true } })).statusCode,
+    ).toBe(404);
+    expect(
+      (await f.control.app.inject({ method: "POST", url, headers, payload: { confirm: true } }))
+        .statusCode,
+    ).toBe(401);
+    const authenticated = await f.connect();
+    for (const altered of [
+      { ...authenticated, origin: "https://example.com" },
+      { ...authenticated, host: "example.com" },
+    ]) {
+      expect(
+        (
+          await f.control.app.inject({
+            method: "POST",
+            url,
+            headers: altered,
+            payload: { confirm: true },
+          })
+        ).statusCode,
+      ).toBe(403);
+    }
+    for (const payload of [{}, { confirm: false }, { confirm: true, pid: 123 }]) {
+      expect(
+        (await f.control.app.inject({ method: "POST", url, headers: authenticated, payload }))
+          .statusCode,
+      ).toBe(422);
+    }
+    expect(closed).toBe(0);
+    const response = await f.control.app.inject({
+      method: "POST",
+      url,
+      headers: authenticated,
+      payload: { confirm: true },
+    });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({ closing: true });
+    expect(response.headers["set-cookie"]).toContain("Max-Age=0");
+    expect(closed).toBe(1);
+    expect(() => f.control.issueBootstrap()).toThrow("closing");
+    for (const blocked of ["/local-api/runtime/start", url, "/local-api/bootstrap"]) {
+      expect(
+        (
+          await f.control.app.inject({
+            method: "POST",
+            url: blocked,
+            headers: authenticated,
+            payload: { confirm: true },
+          })
+        ).statusCode,
+      ).toBe(409);
+    }
+    expect(closed).toBe(1);
+  });
+  it("rejects shutdown during a runtime operation without disrupting it", async () => {
+    let closed = 0;
+    const f = await fixture(undefined, () => {
+      closed++;
+    });
+    const authenticated = await f.connect();
+    let finish: (() => void) | undefined;
+    let entered: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    f.runtime.start = () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+        entered?.();
+      });
+    const operation = f.control.app.inject({
+      method: "POST",
+      url: "/local-api/runtime/start",
+      headers: authenticated,
+    });
+    // inject is thenable: start the request before waiting for the runtime boundary.
+    const pending = operation.then((response) => response);
+    await started;
+    try {
+      expect(
+        (
+          await f.control.app.inject({
+            method: "POST",
+            url: "/local-api/companion/shutdown",
+            headers: authenticated,
+            payload: { confirm: true },
+          })
+        ).statusCode,
+      ).toBe(409);
+      expect(closed).toBe(0);
+      expect(() => f.control.issueBootstrap()).not.toThrow();
+    } finally {
+      finish?.();
+      expect((await pending).statusCode).toBe(200);
+    }
+  });
   it("renews an internal entry after expiry/logout without creating public recovery authority", async () => {
     let time = Date.now();
     const f = await fixture(() => time);
@@ -446,6 +563,30 @@ describe("local administrative boundary", () => {
     complete?.();
     expect((await starting).statusCode).toBe(200);
   });
+});
+
+it("closes the owned Hub even if tunnel shutdown fails", async () => {
+  const db = createDatabase(":memory:");
+  let fail = true;
+  const runtime = await CompanionRuntime.create(
+    loadConfig({ DATABASE_URL: ":memory:", PORT: "1298", HOST: "127.0.0.1", LOG_LEVEL: "fatal" }),
+    db,
+    {
+      url: () => null,
+      start: async () => "https://example.com",
+      stop: async () => {
+        if (fail) throw new Error("Own tunnel shutdown failed");
+      },
+    },
+  );
+  cleanups.push(async () => {
+    fail = false;
+    await runtime.stop();
+    db.close();
+  });
+  await runtime.start();
+  await expect(runtime.stop()).rejects.toThrow("Own tunnel shutdown failed");
+  expect(runtime.status().hub).toBe("stopped");
 });
 
 it("starts/stops/restarts only its own Hub and preserves the DB after a port conflict", async () => {
