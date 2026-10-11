@@ -1,15 +1,20 @@
 import { type ChildProcess, fork } from "node:child_process";
 import { expect, test } from "@playwright/test";
+import { createCompanionData, removeCompanionData } from "./isolated-companion.js";
+
+let dataDirectory = "";
 
 const portal = "http://127.0.0.1:8799";
 const local = "http://127.0.0.1:8798";
 let child: ChildProcess;
 let entry = "";
 test.beforeAll(async () => {
+  dataDirectory = await createCompanionData();
   child = fork("apps/hub-server/dist/companion.js", [], {
     env: {
       ...process.env,
       DATABASE_URL: ":memory:",
+      AGENTS_HUB_DATA_DIR: dataDirectory,
       PORT: "8799",
       LOCAL_CONTROL_PORT: "8798",
       AGENTS_HUB_NO_BROWSER: "1",
@@ -49,12 +54,16 @@ test.beforeAll(async () => {
   });
 });
 test.afterAll(async () => {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  if (child.connected) child.send({ type: "shutdown" });
-  const timer = setTimeout(() => child.kill(), 5000);
-  await exited;
-  clearTimeout(timer);
+  try {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    if (child.connected) child.send({ type: "shutdown" });
+    const timer = setTimeout(() => child.kill(), 5000);
+    await exited;
+    clearTimeout(timer);
+  } finally {
+    if (dataDirectory) await removeCompanionData(dataDirectory);
+  }
 });
 
 test("una persona nueva entra con un enlace y las invitaciones pendientes se pueden revocar", async ({

@@ -6,7 +6,7 @@ Primer incremento de la experiencia sencilla: administrar usuarios/accesos/proye
 
 En `feat/easy-onboarding`, instalar dependencias y ejecutar `pnpm build`, después `pnpm companion` desde la raíz. Abre el navegador con entrada privada y mantiene el panel en 127.0.0.1:8791; el Hub permanece detenido hasta pulsar Iniciar o Compartir. Usa DATABASE_URL/PORT existentes y LOCAL_CONTROL_PORT opcional (distinto, 1024–65535). Compartir está disponible inicialmente en Windows x64; el Hub/panel local no requiere túnel. No ejecutar simultáneamente el launcher anterior sobre la misma DB. Ctrl+C cierra el compañero y sus procesos propios.
 
-Después de cerrar sesión o vencer las ocho horas, detener y arrancar de nuevo el compañero para obtener bootstrap nuevo. La reapertura de una instancia existente sin terminal es trabajo pendiente del empaquetado; no se anuncia como resuelta.
+Después de cerrar sesión, vencer la entrada o las ocho horas, lanzar de nuevo `pnpm companion` con la misma carpeta de datos/DB/puertos. El segundo lanzamiento abre una entrada privada nueva del proceso propio y termina sin reiniciar el Hub. Esto ya elimina el reinicio, pero el acceso directo/instalador sin terminal sigue pendiente. Configuración distinta, permisos privados no verificables o registro abandonado tras crash se rechazan sin tomar otro proceso; no borrar registros ni matar PID por suposición. Contrato y límites en [COMPANION_DISTRIBUTION](COMPANION_DISTRIBUTION.md).
 
 ## Frontera de autoridad (ADR-022)
 

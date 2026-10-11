@@ -40,7 +40,7 @@ export function buildLocalControl(
     throw new Error("Local control requires an exact loopback origin");
   const app = fastify({ logger: false, bodyLimit: 8192 });
   let bootstrap: string | undefined = randomBytes(32).toString("base64url");
-  const bootstrapUntil = now() + 300000;
+  let bootstrapUntil = now() + 300000;
   let session: string | undefined;
   let sessionUntil = 0;
   const bootstrapUrl = `${origin}/?local-control=1#local-control=${bootstrap}`;
@@ -232,5 +232,10 @@ export function buildLocalControl(
       }
     });
   if (staticDirectory) registerStaticRoutes(app, staticDirectory);
-  return { app, bootstrapUrl };
+  const issueBootstrap = () => {
+    bootstrap = randomBytes(32).toString("base64url");
+    bootstrapUntil = now() + 300000;
+    return `${origin}/?local-control=1#local-control=${bootstrap}`;
+  };
+  return { app, bootstrapUrl, issueBootstrap };
 }

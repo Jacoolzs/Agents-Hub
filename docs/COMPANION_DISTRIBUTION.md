@@ -9,7 +9,7 @@ Parte pendiente del incremento3 autorizado. Este documento prepara distribución
 - Hub/MCP importan paquetes privados `workspace:*`. Copiar sólo los archivos dist no produce una distribución autocontenida: faltan sus dependencias de ejecución y resolución de paquetes.
 - Antes del corte de rutas, la DB predeterminada `./data/agents-hub.sqlite` dependía del cwd. El contrato al final de este documento corrige esa ambigüedad para el compañero; no cambia el launcher Hub/CLI histórico ni migra datos.
 - `scripts/mcp-config.mjs` deriva root y usa `process.execPath` más ruta absoluta al adaptador. Emite placeholder, no credencial real. El futuro asistente debe conservar exportación MCP genérica y separar credencial de configuración visible.
-- El panel tiene bootstrap de un uso y sesión en memoria. Reabrir después de logout/vencimiento actualmente requiere reiniciar el compañero; no hay reapertura de instancia propia por segundo lanzamiento.
+- El panel mantiene bootstrap de un uso y sesión en memoria. El canal privado descrito al final permite renovar la entrada por segundo lanzamiento sin reiniciar el Hub; no equivale al instalador final ni recuperación automática tras crash.
 - Publicar por Internet actualmente depende del transporte Windows x64 y URL temporal. No certifica launcher limpio Linux ni operación permanente.
 
 ## Requisitos de la entrega instalable
@@ -36,3 +36,15 @@ Estrategia de empaquetado y almacén de credenciales siguen sin decidir. Esta in
 - `DATABASE_URL` absoluto o `:memory:` conserva su semántica. Si es relativo, en desarrollo se resuelve contra el checkout (compatibilidad con `./data/...`); con datos explícitos se resuelve dentro de esa carpeta y se rechaza traversal que salga de ella.
 - Validar opciones antes de crear DB/procesos. El transporte descargable usa la carpeta de datos, no recursos instalados. Este corte no concede permisos privados a un almacén de credenciales, no implementa reapertura ni distribuye un runtime.
 - Aceptación: resolución independiente del cwd, espacios, rechazo de rutas ambiguas/traversal y recursos explícitos sin datos; lanzamiento compilado desde carpeta efímera, persistencia al reiniciar y recursos sin escrituras. Próximo corte: reapertura segura y artefacto autocontenido.
+
+## Reapertura privada de la instancia propia
+
+Se añade un canal IPC nativo (named pipe Windows/socket Unix), no una ruta HTTP de recuperación. Un segundo lanzamiento con la misma carpeta de datos/DB/puertos solicita una entrada nueva al proceso propio y termina; no abre SQLite ni detiene/reinicia el Hub. Configuración diferente o puerto ocupado se rechaza, sin takeover.
+
+El registro efímero vive en `<datos>/.companion-control/instance.json`, creado exclusivamente antes de abrir DB. Contiene clave aleatoria de proceso y dirección IPC; nunca se publica, imprime ni pasa como argumento. Directorio nuevo privado 0700 en Unix, ACL exclusiva del SID actual en Windows mediante PowerShell nativo; verificar propietario/permisos y rechazar enlaces o permisos inseguros existentes, sin corregir carpetas ajenas. Requiere carpeta de datos confiable/no compartida con escritores adversarios. No protege frente a procesos del mismo usuario ni administrador/root.
+
+IPC autentica solicitudes mediante HMAC/nonce y cifra la respuesta con AES-GCM; un servidor impostor no obtiene la entrada aunque intercepte/retransmita una solicitud. Mensajes/tiempo/conexiones acotados; navegador/HTTP no tiene acceso a la clave ni al IPC. Nueva entrada invalida sólo la anterior sin canjear, no la cookie vigente; canje conserva la política de sesión local única. Cierre limpio retira sólo el registro propio. Tras cierre abrupto, registro abandonado causa rechazo seguro: recuperación automática queda pendiente, nunca matar PID o borrar estado ajeno por una suposición.
+
+Aceptar reapertura tras logout/entrada vencida con Hub aún activo, dos lanzamientos concurrentes sin doble DB, secretos fuera de diagnósticos, rechazo de identidad distinta/credencial IPC inválida/permisos inseguros/puerto ajeno y limpieza propia. Sin dependencia nueva, instalador final ni almacén de credenciales MCP.
+
+Referencias de mecanismos del sistema: [Node IPC](https://nodejs.org/download/release/latest-v24.x/docs/api/net.html#ipc-support), [FileSystemAccessRule](https://learn.microsoft.com/en-us/dotnet/api/system.security.accesscontrol.filesystemaccessrule). Windows usa DirectoryInfo/FileInfo y ACL de .NET desde PowerShell5.1, sin depender de cargar el módulo Set-Acl. Son primitivas, no una certificación de seguridad del producto.

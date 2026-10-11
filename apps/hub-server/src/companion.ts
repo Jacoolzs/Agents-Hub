@@ -1,13 +1,33 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "@agents-hub/config";
 import { createDatabase } from "./infrastructure/db/database.js";
 import { buildLocalControl } from "./local/control-app.js";
+import { LocalInstance } from "./local/instance.js";
 import { companionPaths } from "./local/paths.js";
 import { CompanionRuntime } from "./local/runtime.js";
 import { LocalTunnel } from "./local/tunnel.js";
+
+function openPanel(url: string, reopened = false) {
+  if (process.connected) process.send?.({ type: "ready", url, reopened });
+  if (process.env.AGENTS_HUB_NO_BROWSER === "1") return;
+  const child =
+    process.platform === "win32"
+      ? spawn(
+          "powershell.exe",
+          ["-NoProfile", "-Command", `Start-Process -WindowStyle Hidden '${url}'`],
+          { windowsHide: true, stdio: "ignore" },
+        )
+      : spawn(process.platform === "darwin" ? "open" : "xdg-open", [url], { stdio: "ignore" });
+  (child as unknown as NodeJS.EventEmitter).once("error", () =>
+    console.error(
+      "No se pudo abrir el navegador. Reabre el compañero desde un escritorio disponible.",
+    ),
+  );
+}
 
 async function main() {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -25,13 +45,46 @@ async function main() {
   if (config.PORT === controlPort) throw new Error("Hub and control ports must be different");
   if (!config.WEB_STATIC_DIR) throw new Error("Static UI is required");
   await access(path.join(config.WEB_STATIC_DIR, "index.html"));
+  const identity = createHash("sha256")
+    .update(JSON.stringify([paths.data, config.DATABASE_URL, config.PORT, controlPort]))
+    .digest("hex");
+  const instance = await LocalInstance.acquire(paths.data, identity);
+  if (typeof instance === "string") {
+    const entry = new URL(instance);
+    if (
+      entry.origin !== `http://127.0.0.1:${controlPort}` ||
+      entry.pathname !== "/" ||
+      entry.search !== "?local-control=1" ||
+      !/^#local-control=[A-Za-z0-9_-]{43}$/.test(entry.hash)
+    )
+      throw new Error("Invalid private entry");
+    openPanel(instance, true);
+    if (process.connected) process.disconnect?.();
+    return;
+  }
+  try {
+    await startCompanion(instance, paths, config, controlPort);
+  } catch (error) {
+    await instance.close();
+    throw error;
+  }
+}
+
+async function startCompanion(
+  instance: LocalInstance,
+  paths: ReturnType<typeof companionPaths>,
+  config: ReturnType<typeof loadConfig>,
+  controlPort: number,
+) {
   const db = createDatabase(config.DATABASE_URL);
-  const runtime = await CompanionRuntime.create(
-    config,
-    db,
-    new LocalTunnel(paths.data, config.PORT),
-  );
-  const { app, bootstrapUrl } = buildLocalControl(
+  let runtime: CompanionRuntime;
+  try {
+    runtime = await CompanionRuntime.create(config, db, new LocalTunnel(paths.data, config.PORT));
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+  const { app, bootstrapUrl, issueBootstrap } = buildLocalControl(
     runtime,
     `http://127.0.0.1:${controlPort}`,
     config.WEB_STATIC_DIR,
@@ -46,8 +99,12 @@ async function main() {
       try {
         await runtime.stop();
       } finally {
-        db.close();
-        if (process.connected) process.disconnect?.();
+        try {
+          db.close();
+        } finally {
+          await instance.close();
+          if (process.connected) process.disconnect?.();
+        }
       }
     }
   }
@@ -59,25 +116,11 @@ async function main() {
   });
   try {
     await app.listen({ host: "127.0.0.1", port: controlPort });
-    // IPC is used by isolated verification and future launchers; bootstrap never enters process logs.
-    if (process.connected) process.send?.({ type: "ready", url: bootstrapUrl });
-    if (process.env.AGENTS_HUB_NO_BROWSER !== "1") {
-      const child =
-        process.platform === "win32"
-          ? spawn(
-              "powershell.exe",
-              ["-NoProfile", "-Command", `Start-Process -WindowStyle Hidden '${bootstrapUrl}'`],
-              { windowsHide: true, stdio: "ignore" },
-            )
-          : spawn(process.platform === "darwin" ? "open" : "xdg-open", [bootstrapUrl], {
-              stdio: "ignore",
-            });
-      (child as unknown as NodeJS.EventEmitter).once("error", () =>
-        console.error(
-          "No se pudo abrir el navegador. Reabre el compañero desde un escritorio disponible.",
-        ),
-      );
-    }
+    await instance.serve(() => {
+      if (stopping) throw new Error("Companion is stopping");
+      return issueBootstrap();
+    });
+    openPanel(bootstrapUrl);
     console.log(
       "Agents-Hub: panel local abierto. Hub detenido hasta que pulses Iniciar. Cierra el compañero con Ctrl+C.",
     );
@@ -89,7 +132,7 @@ async function main() {
 }
 void main().catch(() => {
   console.error(
-    "No se pudo preparar el compañero. Ejecuta pnpm build y comprueba la configuración, permisos y puertos distintos del Hub y panel (1024–65535).",
+    "No se pudo preparar o reabrir el compañero. Comprueba build, configuración, carpeta de datos privada y puertos. No se tomó ninguna instancia ajena; un registro abandonado requiere recuperación explícita.",
   );
   process.exitCode = 1;
   if (process.connected) process.disconnect?.();

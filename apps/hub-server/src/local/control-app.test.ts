@@ -48,6 +48,62 @@ async function fixture(clock?: () => number) {
 }
 
 describe("local administrative boundary", () => {
+  it("renews an internal entry after expiry/logout without creating public recovery authority", async () => {
+    let time = Date.now();
+    const f = await fixture(() => time);
+    time += 300001;
+    const next = f.control.issueBootstrap();
+    const secret = new URLSearchParams(new URL(next).hash.slice(1)).get("local-control");
+    const response = await f.control.app.inject({
+      method: "POST",
+      url: "/local-api/bootstrap",
+      headers,
+      payload: { secret },
+    });
+    expect(response.statusCode).toBe(200);
+    const cookie = String(response.headers["set-cookie"]).split(";")[0] as string;
+    // Issuing a private entry does not invalidate the active local session before consent.
+    const unconsumed = f.control.issueBootstrap();
+    expect(
+      (await f.control.app.inject({ url: "/local-api/snapshot", headers: { ...headers, cookie } }))
+        .statusCode,
+    ).toBe(200);
+    const latest = f.control.issueBootstrap();
+    expect(
+      (
+        await f.control.app.inject({
+          method: "POST",
+          url: "/local-api/bootstrap",
+          headers,
+          payload: {
+            secret: new URLSearchParams(new URL(unconsumed).hash.slice(1)).get("local-control"),
+          },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await f.control.app.inject({
+          method: "POST",
+          url: "/local-api/logout",
+          headers: { ...headers, cookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await f.control.app.inject({
+          method: "POST",
+          url: "/local-api/bootstrap",
+          headers,
+          payload: {
+            secret: new URLSearchParams(new URL(latest).hash.slice(1)).get("local-control"),
+          },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await f.hub.inject({ method: "POST", url: "/local-api/reopen" })).statusCode).toBe(404);
+  });
   it("creates a workspace with an explicit owner and no MCP token, only on the local listener", async () => {
     const f = await fixture();
     const input = { name: "First team", person: { kind: "new", username: "first-owner" } };

@@ -23,8 +23,8 @@ test("compiled companion keeps data across cwd changes without writing installed
     await exited;
     clearTimeout(timer);
   }
-  async function launch(cwd: string) {
-    child = fork(script, [], {
+  async function launch(cwd: string, secondary = false) {
+    const launched = fork(script, [], {
       cwd,
       env: {
         ...process.env,
@@ -39,19 +39,21 @@ test("compiled companion keeps data across cwd changes without writing installed
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       windowsHide: true,
     });
-    child.stdout?.resume();
-    child.stderr?.resume();
+    if (!secondary) child = launched;
+    launched.stdout?.resume();
+    launched.stderr?.resume();
+    const exited = new Promise<number | null>((resolve) => launched.once("exit", resolve));
     const entry = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Companion not ready")), 10000);
-      child?.once("exit", () => {
+      launched.once("exit", () => {
         clearTimeout(timer);
         reject(new Error("Companion exited"));
       });
-      child?.once("error", () => {
+      launched.once("error", () => {
         clearTimeout(timer);
         reject(new Error("Companion spawn failed"));
       });
-      child?.on("message", (message) => {
+      launched.on("message", (message) => {
         if (
           message &&
           typeof message === "object" &&
@@ -61,10 +63,12 @@ test("compiled companion keeps data across cwd changes without writing installed
           typeof message.url === "string"
         ) {
           clearTimeout(timer);
+          expect("reopened" in message && message.reopened).toBe(secondary);
           resolve(message.url);
         }
       });
     });
+    if (secondary) expect(await exited).toBe(0);
     const client = await playwright.request.newContext({ extraHTTPHeaders: { origin } });
     try {
       const secret = new URLSearchParams(new URL(entry).hash.slice(1)).get("local-control");
@@ -95,6 +99,18 @@ test("compiled companion keeps data across cwd changes without writing installed
         ).status(),
       ).toBe(200);
       expect((await first.get(`${origin}/`)).status()).toBe(200);
+      expect((await first.post(`${origin}/local-api/runtime/start`)).status()).toBe(200);
+      expect((await first.post(`${origin}/local-api/logout`)).status()).toBe(200);
+      expect((await first.get(`${origin}/local-api/snapshot`)).status()).toBe(401);
+      const reopened = await launch(otherCwd, true);
+      try {
+        const snapshot = await (await reopened.get(`${origin}/local-api/snapshot`)).json();
+        expect(snapshot.runtime.hub).toBe("running");
+        expect(snapshot.projects).toHaveLength(1);
+        expect(child?.exitCode).toBeNull();
+      } finally {
+        await reopened.dispose();
+      }
     } finally {
       await first.dispose();
     }
