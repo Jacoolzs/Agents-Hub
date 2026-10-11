@@ -19,9 +19,9 @@ No es OAuth ni un endpoint MCP remoto: protocolo propio de bootstrap para el ada
 
 Respuesta `Cache-Control:no-store`; schemas estrictos de entrada/salida; logger existente no registra cuerpos ni secretos. Solicitudes no consumidas quedan inutilizables al vencer; limpieza/retención física pendiente, no se promete límite persistente por una cuota en memoria. Una respuesta de canje perdida no se recupera guardando bearer en claro: solicitar nueva vinculación, revocar la anterior desde la lista. No retry automático que genere otra credencial silenciosamente. Las solicitudes ya aprobadas no dependen de mantener abierta la cookie original; quitar membresía sí impide su canje y revocar el bearer corta futuras llamadas.
 
-## Almacén y asistente posteriores: pendientes, no implementados
+## Almacén nativo e integración del asistente
 
-Antes de persistir una credencial en el PC se debe fijar y probar el proveedor nativo: Windows DPAPI/ACL del usuario y alternativa Linux de almacén nativo disponible. No se ha aceptado dependencia Secret Service, cifrado casero con clave junto al archivo ni fallback silencioso a texto plano. Definir ausencia del proveedor, bloqueo/desbloqueo, pérdida del perfil, recuperación y eliminación local frente a revocación remota antes del código de almacén. No configurar clientes reales ni escribir tokens en JSON, argumentos, web storage, logs o URLs.
+ADR-027 fija el almacén compartido en config: DPAPI CurrentUser/ACL Windows y secret-tool/Secret Service persistente opcional Linux, sin fallback en claro. Contrato, límites y recuperación en [CREDENTIAL_STORE.md](CREDENTIAL_STORE.md). La API de almacenamiento no está todavía integrada con el canje, MCP o pantalla. No configurar clientes reales ni escribir tokens en JSON, argumentos, web storage, logs o URLs.
 
 La próxima UI integra iniciar/confirmar/guardar/diagnosticar/exportar, reutilizando doctor, exportador MCP, runtime y panel. Adaptadores sólo con versión/documentación comprobadas y sin sobrescribir configuración ajena; salida genérica para desconocidos. Este núcleo por sí solo NO entrega una conexión sin comandos. Listener posterior, ADR-006 intacto.
 

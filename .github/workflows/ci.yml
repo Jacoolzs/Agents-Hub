@@ -20,6 +20,32 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Native Secret Service in isolated Linux desktop session
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-tools gnome-keyring dbus-x11
+          credential_test_root=$(mktemp -d)
+          export AGENTS_HUB_TEST_KEYRING_ROOT="$credential_test_root"
+          trap 'rm -rf -- "$credential_test_root"' EXIT
+          dbus-run-session -- bash -euc '
+            export HOME="$AGENTS_HUB_TEST_KEYRING_ROOT"
+            export XDG_DATA_HOME="$HOME/data" XDG_CONFIG_HOME="$HOME/config" XDG_RUNTIME_DIR="$HOME/runtime"
+            mkdir -m 700 -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_RUNTIME_DIR"
+            printf "%s" "synthetic-ci-keyring-password" | gnome-keyring-daemon --foreground --unlock --components=secrets > "$HOME/keyring.log" 2>&1 &
+            keyring_test_pid=$!
+            trap "kill $keyring_test_pid 2>/dev/null || true; wait $keyring_test_pid 2>/dev/null || true" EXIT
+            keyring_ready=0
+            for attempt in $(seq 1 50); do
+              reply=$(dbus-send --session --dest=org.freedesktop.DBus --type=method_call --print-reply /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner string:org.freedesktop.secrets)
+              case "$reply" in *"boolean true"*) keyring_ready=1; break;; esac
+              sleep 0.1
+            done
+            test "$keyring_ready" = 1
+            export AGENTS_HUB_TEST_ISOLATED_KEYRING=1
+            pnpm exec vitest run packages/config/src/secret-store.test.ts --maxWorkers=1 --minWorkers=1
+          '
       - run: pnpm -r build
       - run: pnpm audit --prod
       - name: Build private portable preview

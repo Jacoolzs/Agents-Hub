@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export { privateDirectory, verifyPrivatePath } from "./private-directory.js";
+export { NativeSecretStore } from "./secret-store.js";
+
 export const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   HOST: z.string().min(1).default("127.0.0.1"),
