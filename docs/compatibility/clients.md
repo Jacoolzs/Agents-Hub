@@ -30,8 +30,13 @@ La [documentación oficial MCP](https://www.antigravity.google/docs/mcp/), compr
 en esta fecha, describe `/mcp` y los archivos global `~/.gemini/config/mcp_config.json`
 y de workspace `.agents/mcp_config.json`. Son rutas documentadas, **no comprobadas
 en perfiles reales ni autorización para escribirlas**. La exportación genérica usa
-`mcpServers`, `command`, `args` y `env`; aún falta probar importación/preservación
-en un perfil TEMP y versiones concretas antes de ofrecer el botón automático.
+`mcpServers`, `command`, `args` y `env`. El [adaptador ADR-033](../ANTIGRAVITY_IMPORT.md)
+implementa revisión y registro directo para1.3.3 sobre ese formato, con pruebas de
+archivos/perfiles TEMP y conservación de entradas; los gates finales se registran
+en BITACORA. No ejecuta `mcp add` ni el cliente sobre perfiles reales. El binario
+instalado sólo aporta evidencia de versión/ayuda; todavía falta el piloto del host
+que cargue esa referencia y reciba avisos. No confundir prueba del archivo/UI con
+aceptación del producto comercial o de todas sus versiones.
 No se ha demostrado suscripción a recursos ni despertar por notificaciones MCP
 en este CLI. La ayuda stream-json tampoco prueba esa integración.
 

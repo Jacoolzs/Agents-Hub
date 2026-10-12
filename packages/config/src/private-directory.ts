@@ -30,11 +30,18 @@ export async function privateDirectory(directory: string) {
   }
 }
 
-export async function verifyPrivatePath(target: string, initializeNewPath = false) {
+export async function verifyPrivatePath(
+  target: string,
+  initializeNewPath = false,
+  maxBytes = 4096,
+) {
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 262144)
+    throw new Error("Invalid private file size limit");
   const info = await lstat(target);
   if (info.isSymbolicLink() || (!info.isDirectory() && !info.isFile()))
     throw new Error("Private instance path is not a regular file or directory");
-  if (info.isFile() && info.size > 4096) throw new Error("Private instance record is too large");
+  if (info.isFile() && info.size > maxBytes)
+    throw new Error("Private instance record is too large");
   if (process.platform !== "win32") {
     if (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
       throw new Error("Private instance path has unsafe permissions");

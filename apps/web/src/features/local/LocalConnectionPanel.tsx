@@ -1,5 +1,6 @@
 import { LocalConnectionReportSchema } from "@agents-hub/shared";
 import { useEffect, useRef, useState } from "react";
+import { LocalClientImport } from "./LocalClientImport";
 
 type Report = ReturnType<typeof LocalConnectionReportSchema.parse>;
 const checkLabels: Record<string, string> = {
@@ -207,6 +208,7 @@ export function LocalConnectionPanel({
                 <button type="button" disabled={busy} onClick={() => download(connection.config)}>
                   Descargar configuración MCP
                 </button>
+                <LocalClientImport connection={connection.connection_id} busy={busy} run={run} />
                 <button
                   type="button"
                   disabled={busy}

@@ -18,7 +18,10 @@ async function fixture(
   clock?: () => number,
   closeCompanion?: () => void,
   installation?: LocalInstallation,
-  connections?: Pick<ConnectionAssistant, "start" | "finish" | "list" | "diagnose">,
+  connections?: Pick<
+    ConnectionAssistant,
+    "start" | "finish" | "list" | "diagnose" | "importPreview" | "importApply"
+  >,
 ) {
   const hub = buildApp();
   await hub.ready();
@@ -76,6 +79,12 @@ describe("local administrative boundary", () => {
         throw new Error("Not used");
       },
       list: async () => [],
+      importPreview: async () => {
+        throw new Error("Not used");
+      },
+      importApply: async () => {
+        throw new Error("Not used");
+      },
       diagnose: async () => {
         await new Promise<void>((resolve) => {
           release = resolve;
@@ -92,6 +101,26 @@ describe("local administrative boundary", () => {
       401,
     );
     const authenticated = await f.connect();
+    for (const endpoint of [
+      "/local-api/connections/import/preview",
+      "/local-api/connections/import/apply",
+    ]) {
+      expect((await f.hub.inject({ method: "POST", url: endpoint, payload })).statusCode).toBe(404);
+      expect(
+        (await f.control.app.inject({ method: "POST", url: endpoint, headers, payload }))
+          .statusCode,
+      ).toBe(401);
+      expect(
+        (
+          await f.control.app.inject({
+            method: "POST",
+            url: endpoint,
+            headers: { ...authenticated, origin: "https://foreign.example" },
+            payload,
+          })
+        ).statusCode,
+      ).toBe(403);
+    }
     for (const altered of [
       { ...authenticated, origin: "https://foreign.example" },
       { ...authenticated, host: "foreign.example" },

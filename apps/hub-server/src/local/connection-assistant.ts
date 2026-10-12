@@ -14,12 +14,16 @@ import {
   AppError,
   DeviceCredentialSchema,
   DeviceRequestSchema,
+  LocalClientImportInputSchema,
+  LocalClientImportPreviewSchema,
+  LocalClientImportResultSchema,
   LocalConnectionAttemptSchema,
   LocalConnectionDiagnoseInputSchema,
   LocalConnectionFinishInputSchema,
   LocalConnectionReportSchema,
   LocalConnectionStartInputSchema,
 } from "@agents-hub/shared";
+import { AntigravityImporter } from "./antigravity-importer.js";
 
 type Vault = Pick<NativeSecretStore, "put" | "get" | "remove">;
 const unavailable = () =>
@@ -39,6 +43,7 @@ export class ConnectionAssistant {
     private node: string = process.execPath,
     private network: typeof fetch = fetch,
     vault?: Vault,
+    private importer: AntigravityImporter = new AntigravityImporter(),
   ) {
     if (!isAbsolute(directory) || !isAbsolute(mcpScript) || !isAbsolute(node))
       throw new Error("Connection resources require absolute paths");
@@ -237,6 +242,45 @@ export class ConnectionAssistant {
         },
       },
     };
+  }
+  private async importEntry(id: string) {
+    this.attempt(id);
+    const file = join(this.directory, `${id}.json`);
+    const connection = await loadLocalConnection(file, this.vault);
+    const request = LocalConnectionAttemptSchema.parse(
+      await this.read(join(this.attempt(id), "request.json")),
+    );
+    if (request.hub_url !== connection.baseUrl) throw unavailable();
+    return this.config(file, request.label, id).mcpServers["agents-hub"];
+  }
+  async importPreview(input: unknown) {
+    const parsed = LocalConnectionDiagnoseInputSchema.safeParse(input);
+    if (!parsed.success) throw new AppError("INVALID_INPUT", "Selecciona una conexión guardada.");
+    return this.exclusive(async () =>
+      LocalClientImportPreviewSchema.parse(
+        await this.importer.preview(
+          parsed.data.connection_id,
+          await this.importEntry(parsed.data.connection_id),
+        ),
+      ),
+    );
+  }
+  async importApply(input: unknown) {
+    const parsed = LocalClientImportInputSchema.safeParse(input);
+    if (!parsed.success)
+      throw new AppError(
+        "INVALID_INPUT",
+        "Confirma la revisión y cierra Antigravity antes de importar.",
+      );
+    return this.exclusive(async () =>
+      LocalClientImportResultSchema.parse(
+        await this.importer.apply(
+          parsed.data.connection_id,
+          parsed.data.preview_id,
+          await this.importEntry(parsed.data.connection_id),
+        ),
+      ),
+    );
   }
   async diagnose(input: unknown) {
     const parsed = LocalConnectionDiagnoseInputSchema.safeParse(input);

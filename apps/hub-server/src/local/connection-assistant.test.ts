@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { NativeSecretStore, loadLocalConnection, verifyPrivatePath } from "@agents-hub/config";
 import { describe, expect, it, vi } from "vitest";
+import { AntigravityImporter } from "./antigravity-importer.js";
 import { ConnectionAssistant } from "./connection-assistant.js";
 
 const token = `ah_${"x".repeat(32)}`;
@@ -59,6 +60,65 @@ const create = (directory: string, http = network(), store = vault()) =>
   );
 
 describe("serialized connection writer", () => {
+  it(
+    "imports only a saved local reference after explicit confirmation without issuance or bearer configuration",
+    async () =>
+      fixture(async (directory) => {
+        const http = network();
+        const store = vault();
+        const importer = new AntigravityImporter(path.dirname(directory), async () => "1.3.3");
+        const assistant = new ConnectionAssistant(
+          directory,
+          path.resolve("packages/mcp-server/dist/main.js"),
+          process.execPath,
+          http,
+          store,
+          importer,
+        );
+        const start = await assistant.start({
+          hub_url: "https://hub.example",
+          label: "Import TEMP",
+        });
+        const saved = await assistant.finish({ connection_id: start.connection_id, confirm: true });
+        http.mockClear();
+        const preview = await assistant.importPreview({ connection_id: start.connection_id });
+        expect(preview.state).toBe("new");
+        for (const input of [
+          {
+            connection_id: start.connection_id,
+            preview_id: preview.preview_id,
+            confirm: false,
+            client_closed: true,
+          },
+          {
+            connection_id: start.connection_id,
+            preview_id: preview.preview_id,
+            confirm: true,
+            client_closed: false,
+          },
+          {
+            connection_id: start.connection_id,
+            preview_id: preview.preview_id,
+            confirm: true,
+            client_closed: true,
+            path: "foreign",
+          },
+        ])
+          await expect(assistant.importApply(input)).rejects.toThrow();
+        const result = await assistant.importApply({
+          connection_id: start.connection_id,
+          preview_id: preview.preview_id,
+          confirm: true,
+          client_closed: true,
+        });
+        const bytes = await readFile(result.destination, "utf8");
+        expect(JSON.parse(bytes)).toEqual(saved.config);
+        expect(bytes).not.toContain(token);
+        expect(JSON.stringify({ preview, result })).not.toContain(token);
+        expect(http).not.toHaveBeenCalled();
+      }),
+    30000,
+  );
   it(
     "diagnoses own references without writes, stops locally on unavailable/expired/invalid profiles",
     async () =>

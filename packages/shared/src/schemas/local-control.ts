@@ -10,6 +10,27 @@ export const LocalConnectionFinishInputSchema = z
   .object({ connection_id: UuidSchema, confirm: z.literal(true) })
   .strict();
 export const LocalConnectionDiagnoseInputSchema = z.object({ connection_id: UuidSchema }).strict();
+export const LocalClientImportInputSchema = z
+  .object({
+    connection_id: UuidSchema,
+    preview_id: UuidSchema,
+    confirm: z.literal(true),
+    client_closed: z.literal(true),
+  })
+  .strict();
+export const LocalClientImportPreviewSchema = z
+  .object({
+    state: z.enum(["new", "merge", "already", "blocked"]),
+    version: z.string().nullable(),
+    destination: z.string(),
+    count: z.number().int().min(0).max(1000),
+    preview_id: UuidSchema.nullable(),
+    hint: z.string().max(512),
+  })
+  .strict();
+export const LocalClientImportResultSchema = z
+  .object({ registered: z.literal(true), destination: z.string(), backup: z.string().nullable() })
+  .strict();
 export const LocalConnectionReportSchema = z
   .object({
     ok: z.boolean(),

@@ -1254,3 +1254,31 @@ body {
 .connection-assistant p {
   max-width: 65ch;
 }
+.client-import {
+  display: grid;
+  gap: 8px;
+  margin-block: 12px;
+}
+.client-import > button {
+  justify-self: start;
+}
+.client-import h4 {
+  font-size: 18px;
+  font-weight: 600;
+}
+.client-import .connection-confirm {
+  display: flex;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.client-import > output {
+  display: block;
+  padding: 12px;
+  background: var(--surface);
+  border-left: 3px solid var(--action);
+}
+.client-import button.client-import-confirm:not(:disabled) {
+  background: var(--action);
+  border-color: var(--action);
+  color: white;
+}
