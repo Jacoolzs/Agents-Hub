@@ -55,6 +55,7 @@ export function LocalConnectionPanel({
   const [selected, setSelected] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const focusPending = useRef(false);
   const refresh = async () => {
     setConnections(await request());
     setError("");
@@ -76,8 +77,11 @@ export function LocalConnectionPanel({
     };
   }, []);
   useEffect(() => {
-    if (selected && !busy) heading.current?.focus();
-  }, [selected, busy]);
+    if (!busy && focusPending.current) {
+      focusPending.current = false;
+      heading.current?.focus();
+    }
+  }, [busy]);
   const download = (config: unknown) => {
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
     const href = URL.createObjectURL(blob);
@@ -108,6 +112,7 @@ export function LocalConnectionPanel({
           void run(async () => {
             const result = await request("/start", { hub_url: url, label });
             setSelected(result.connection_id);
+            focusPending.current = true;
             setConfirm(false);
             await refresh();
           }, "Solicitud preparada. Abre el portal para revisarla.");
@@ -190,6 +195,7 @@ export function LocalConnectionPanel({
                           confirm: true,
                         });
                       } finally {
+                        focusPending.current = true;
                         setConfirm(false);
                         await refresh();
                       }

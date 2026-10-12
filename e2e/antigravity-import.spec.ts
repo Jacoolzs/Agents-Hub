@@ -79,6 +79,16 @@ test("importación gráfica cancelable conserva MCP ajeno en perfil TEMP", async
     await page.goto(control.bootstrapUrl);
     const trigger = page.getByRole("button", { name: "Conectar con Antigravity CLI", exact: true });
     await expect(trigger).toBeEnabled();
+    // Exercise the parent's selected-connection focus path, not only an already-saved profile.
+    await page.getByLabel("URL del Hub (obligatoria)").fill("https://hub.example");
+    await page.getByLabel("Nombre de este dispositivo (obligatorio)").fill("Otro intento TEMP");
+    const prepared = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/local-api/connections") && response.request().method() === "GET",
+    );
+    await page.getByRole("button", { name: "Preparar conexión", exact: true }).click();
+    expect((await prepared).ok()).toBe(true);
+    await expect(trigger).toBeEnabled();
     await trigger.click();
     await expect(page.getByRole("heading", { name: "Revisar importación" })).toBeFocused();
     await expect(page.getByRole("button", { name: "Confirmar importación" })).toBeDisabled();
